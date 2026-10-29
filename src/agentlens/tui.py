@@ -1480,7 +1480,9 @@ class AgentlensApp(App):
         self._analysis_waiters: list[Callable[[Analysis], None]] = []
         # Screens showing history read a while ago, for when it's read again: told only if it changed.
         self._stale_waiters: list[Callable[[Analysis], None]] = []
-        self._preload_due = PRELOAD_SECONDS is not None  # until the wall is filled in the first time
+        # Until the wall is filled in the first time. Only the report screens need it, and turning
+        # them on in the settings reads it then.
+        self._preload_due = PRELOAD_SECONDS is not None and self.config.findings_and_advice
         self.jobs = activity_mod.Jobs()  # what it's doing in the background, for the line at the top
         self._seen_states: dict[str, str] = {}
         self._alerts: dict[str, Notification] = {}  # sessions whose alert you haven't followed yet: its toast
@@ -1574,6 +1576,7 @@ class AgentlensApp(App):
     WALL_ONLY = {"zoom", "toggle_filter", "space", "columns", "toggle_sidebar", "move"}
     WALL_OR_ZOOM = {"move_to_space", "new_session", "handoff_focused", "open_folder", "copy_reply"}
     DRIVEN_ONLY = {"compose", "interrupt", "choose", "detach"}
+    FINDINGS_AND_ADVICE = {"report", "advise", "profile", "rules"}  # experimental: the settings turn them on
     TYPED_KEY_ACTIONS = {
         "quit", "zoom", "new_session", "compose", "interrupt", "handoff_focused", "detach", "end_session",
         "bring_here", "choose", "move_to_space", "toggle_filter", "toggle_view", "report", "advise", "history",
@@ -1585,6 +1588,8 @@ class AgentlensApp(App):
         """Hide keys from the footer (and disable them) on screens where they mean nothing."""
         if isinstance(self.focused, Input) and action in self.TYPED_KEY_ACTIONS:
             return False  # in a text box these keys type; the box's hint says to press Esc first
+        if action in self.FINDINGS_AND_ADVICE:
+            return self.config.findings_and_advice
         if action == "jump":  # on every screen but a dialog, while a session you're not in needs you
             here = self._focused_session(strict=True)
             elsewhere = self._needing - {here.session_id} if here else self._needing
@@ -1679,6 +1684,8 @@ class AgentlensApp(App):
                 self.refresh_usage()
         elif name == "keys":
             self._use_keys()
+        elif name == "findings_and_advice" and value:
+            self.preload_history()  # so their screens open at once
 
     def change_keys(self, changes: dict[str, str]) -> None:
         """Keys changed in the keys list (?), by action id: saved like a setting."""
@@ -3107,14 +3114,16 @@ class AgentlensApp(App):
             ("More columns", "Fit more panes side by side", lambda: self.action_columns(1)),
             ("Fewer columns", "Bigger panes", lambda: self.action_columns(-1)),
             ("Only sessions that need you", "Toggle the needs-you filter", self.action_toggle_filter),
-            ("Settings", "Theme, colours, columns, keys, your editor, defaults and goals; the files open from "
-             f"there too ({keys_mod.name('settings')})",
+            ("Settings", "Theme, colours, columns, keys, your editor, defaults, experimental screens; the files "
+             f"open from there too ({keys_mod.name('settings')})",
              self.action_settings),
             ("Keys", f"Every key, and changing them: Enter on one, then the new key ({keys_mod.name('show-keys')})",
              self.action_show_keys),
         ]
+        hidden = () if self.config.findings_and_advice else ("Report", "Advise", "Profile", "Rules")
         for title, help_text, callback in commands:
-            yield SystemCommand(title, help_text, callback)
+            if title not in hidden:
+                yield SystemCommand(title, help_text, callback)
 
 
 def run(interval: float | None = None, project: str | None = None, root: Path = DEFAULT_ROOT,

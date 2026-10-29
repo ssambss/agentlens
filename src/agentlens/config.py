@@ -37,6 +37,8 @@ HEADER = """\
 #   deleted its transcript (30 days after it was last active, by default); 0 keeps it always.
 # keys: the keys you changed, by what they do (? lists them; Enter on one changes it), in
 #   Textual's names: r, R, ctrl+w, f5, question_mark. A comma between two gives an action both.
+# findings_and_advice: the Report (R), Profile (P), Rules (L) and Advice (A) screens and their
+#   commands. Experimental, so off unless you turn it on.
 """
 
 # How far back History goes, as the settings screen offers it: days, and what that is.
@@ -187,6 +189,7 @@ class Config:
     editor: str | None = None
     editor_terminal: bool = False  # your own command runs in this terminal, like vim
     keys: dict[str, str] = field(default_factory=dict)  # the keys you changed, by keys.ACTIONS id
+    findings_and_advice: bool = False  # experimental: Report, Profile, Rules and Advice
     spaces: list[Space] = field(default_factory=list)
     # Sessions agentlens runs, restored (paused) on the next launch until you end or detach them.
     driven_sessions: list[dict] = field(default_factory=list)
@@ -281,6 +284,7 @@ def load(path: Path | None = None) -> Config:
         editor=str(data["editor"]) if data.get("editor") else None,
         editor_terminal=bool(data.get("editor_terminal", defaults.editor_terminal)),
         keys=keys_mod.changed({}, {str(k): keys_mod.normalize(str(v)) for k, v in keys.items() if v}),
+        findings_and_advice=bool(data.get("findings_and_advice", defaults.findings_and_advice)),
         spaces=spaces,
         driven_sessions=[
             {k: str(d.get(k) or "") for k in ("session_id", "cwd", "title", "mode")}

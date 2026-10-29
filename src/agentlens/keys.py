@@ -81,7 +81,8 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
                frozenset({APP}) | HISTORY_SCREENS),
     ]),
     ("Look and settings", [
-        Action("settings", "comma", "settings: theme, colours, columns, keys, your editor, defaults, your goals"),
+        Action("settings", "comma", "settings: theme, colours, columns, keys, your editor, defaults, experimental "
+               "screens"),
         Action("columns-more", "plus,equals_sign", "more columns"),
         Action("columns-fewer", "minus", "fewer columns"),
         Action("toggle-sidebar", "s", "show or hide the spaces sidebar"),
@@ -112,6 +113,17 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
 ]
 
 ACTIONS = {entry.id: entry for _, entries in HELP for entry in entries if isinstance(entry, Action)}
+
+# The keys of the experimental screens, which the keys list leaves out until the settings turn them on.
+FINDINGS_AND_ADVICE = frozenset({"report", "advise", "advice-new", "profile", "profile-edit", "rules", "rules-mute"})
+
+
+def help_groups(findings_and_advice: bool) -> list[tuple[str, list[Action | Fixed]]]:
+    """The keys list's groups, without the experimental screens' keys while they're off."""
+    if findings_and_advice:
+        return HELP
+    return [(group, [e for e in entries if not (isinstance(e, Action) and e.id in FINDINGS_AND_ADVICE)])
+            for group, entries in HELP]
 
 # Keys no action can have, and why.
 RESERVED = {

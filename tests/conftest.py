@@ -127,6 +127,14 @@ def isolated_home(tmp_path: Path, monkeypatch) -> Path:
     return home
 
 
+@pytest.fixture
+def findings_and_advice(isolated_home: Path) -> None:
+    """The experimental report, profile, rules and advice turned on, as the settings do."""
+    from agentlens import config as config_mod
+
+    config_mod.save(config_mod.Config(path=isolated_home / "config.yaml", findings_and_advice=True))
+
+
 @pytest.fixture(autouse=True)
 def system_clipboard(monkeypatch) -> list[str]:
     """What the app copies lands here, never on the real clipboard."""

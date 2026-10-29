@@ -48,6 +48,14 @@ def main(argv: list[str] | None = None) -> int:
         tui.run(provider=listing)
         return 0
     console = Console()
+    if args.experimental:
+        from agentlens import config as config_mod
+
+        if not config_mod.load().findings_and_advice:
+            console.print("Report, profile, rules and advice are experimental, and off. Turn them on in the app's "
+                          "settings (,), under Experimental, or with findings_and_advice: true in "
+                          f"{config_mod.config_path()}.", highlight=False)
+            return 1
     try:
         return args.func(args, console)
     except RuleError as e:
@@ -60,9 +68,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"agentlens {__version__}")
     sub = parser.add_subparsers(required=False, metavar="command")
 
-    def add(name: str, func, help: str, data: bool = True) -> argparse.ArgumentParser:
+    def add(name: str, func, help: str, data: bool = True, experimental: bool = False) -> argparse.ArgumentParser:
+        if experimental:  # findings and advice, off until the settings turn them on
+            help = f"{help} (experimental)"
         p = sub.add_parser(name, help=help, description=help)
-        p.set_defaults(func=func)
+        p.set_defaults(func=func, experimental=experimental)
         if data:
             p.add_argument("--since", type=_parse_since, help="only sessions active since e.g. 7d, 48h or 2026-10-01")
             p.add_argument("--project", help="only projects whose name contains this text")
@@ -75,21 +85,22 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--once", action="store_true", help="print a one-off table instead of the full-screen view")
     p.add_argument("--project", help="only projects whose name contains this text")
     p.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Claude Code projects directory")
-    p = add("report", cmd_report, "Where your time went, your working style, and findings")
+    p = add("report", cmd_report, "Where your time went, your working style, and findings", experimental=True)
     p.add_argument("--json", action="store_true", help="machine-readable output")
     add("sessions", cmd_sessions, "List sessions")
     p = add("session", cmd_session, "Show one session and its subagent tree")
     p.add_argument("id", help="session id or unique prefix")
-    p = add("profile", cmd_profile, "Your derived working style and stated preferences")
+    p = add("profile", cmd_profile, "Your derived working style and stated preferences", experimental=True)
     p.add_argument("--init", action="store_true", help="create the preferences file if missing")
-    add("rules", cmd_rules, "List active rules and flag outdated ones")
-    p = add("mute", cmd_mute, "Stop showing a rule", data=False)
+    add("rules", cmd_rules, "List active rules and flag outdated ones", experimental=True)
+    p = add("mute", cmd_mute, "Stop showing a rule", data=False, experimental=True)
     p.add_argument("rule_id")
     p.add_argument("--rules", type=Path, action="append", default=[], help="extra rule pack dir or file")
-    p = add("advise", cmd_advise, "Personalized written recommendations from Claude")
+    p = add("advise", cmd_advise, "Personalized written recommendations from Claude", experimental=True)
     p.add_argument("--dry-run", action="store_true", help="print the prompt instead of running it")
     p.add_argument("--model", help="model alias for the advice run, e.g. sonnet")
-    p = add("curate", cmd_curate, "Have Claude check a rule pack against its sources and propose edits", data=False)
+    p = add("curate", cmd_curate, "Have Claude check a rule pack against its sources and propose edits", data=False,
+            experimental=True)
     p.add_argument("--pack", type=Path, help="the pack file to check (default: the built-in core pack)")
     p.add_argument("--dry-run", action="store_true", help="print the prompt instead of running it")
     p.add_argument("--model", help="model alias for the run, e.g. opus")

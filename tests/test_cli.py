@@ -19,6 +19,15 @@ def test_bad_since_is_a_usage_error(capsys):
     assert "argument --since: expected e.g. 7d, 48h or 2026-10-01, got 'yesterday'" in capsys.readouterr().err
 
 
+def test_findings_and_advice_commands_say_how_to_turn_them_on(isolated_home, capsys):
+    for command in (["report"], ["profile"], ["rules"], ["mute", "subagent-too-small"], ["advise"], ["curate"]):
+        assert cli.main(command) == 1
+        assert "experimental, and off. Turn them on in the app's settings (,), under Experimental" in \
+            " ".join(capsys.readouterr().out.split())  # wrapped
+    assert not (isolated_home / "profile.yaml").exists()  # nothing ran
+
+
+@pytest.mark.usefixtures("findings_and_advice")
 def test_mute_rejects_unknown_rule_and_suggests_one(isolated_home, capsys):
     assert cli.main(["mute", "subagent-to-small"]) == 1
     assert "Did you mean subagent-too-small?" in capsys.readouterr().out

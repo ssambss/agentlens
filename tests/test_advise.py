@@ -99,6 +99,7 @@ def test_the_day_advice_was_written_counts_neither_before_nor_since(projects):
     assert "- [d] Title of d: 1 of 1 day before (100%), none since yet" in lines
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_advise_saves_and_the_next_run_follows_up(projects, monkeypatch, capsys):
     for i in range(3):
         session_on(projects, f"s{i}", i)
@@ -113,6 +114,7 @@ def test_advise_saves_and_the_next_run_follows_up(projects, monkeypatch, capsys)
     assert len(prompts) == 1  # a dry run asks nothing
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_a_team_pack_reaches_advice_and_the_rules_list(projects, tmp_path, capsys):
     session_on(projects, "s0", 0)
     team = tmp_path / "acme.yaml"

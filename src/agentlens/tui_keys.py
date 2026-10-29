@@ -50,8 +50,9 @@ class KeysScreen(PacedScreen, ModalScreen[None]):
 
     def _options(self) -> list[Option]:
         keymap = self._app.config.keys
+        groups = keys_mod.help_groups(self._app.config.findings_and_advice)
         shown = [keys_mod.names(e.id, keymap) if isinstance(e, keys_mod.Action) else e.keys
-                 for _, entries in keys_mod.HELP for e in entries]
+                 for _, entries in groups for e in entries]
         width = max(map(len, shown)) + 3
 
         def line(keys: str, what: Text) -> Table:
@@ -63,7 +64,7 @@ class KeysScreen(PacedScreen, ModalScreen[None]):
             return grid
 
         options = []
-        for i, (group, entries) in enumerate(keys_mod.HELP):
+        for i, (group, entries) in enumerate(groups):
             options.append(Option(Text.assemble("\n" if i else "", (group, "bold underline")), disabled=True))
             for entry in entries:
                 if isinstance(entry, keys_mod.Fixed):

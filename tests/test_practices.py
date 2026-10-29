@@ -302,6 +302,7 @@ def test_the_curator_is_given_the_pack_and_the_metrics_it_can_name(tmp_path):
     assert "Change no file yourself." in prompt
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_curate_proposes_and_saves_without_touching_the_pack(tmp_path, monkeypatch, capsys):
     path = pack(tmp_path, "")
     before = path.read_text(encoding="utf-8")

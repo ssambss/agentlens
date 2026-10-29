@@ -5,8 +5,10 @@ See how you work with Claude Code agents, and get advice on doing it better.
 - **A live wall** of every open Claude Code session, VS Code ones included, grouped into
   spaces: which ones need you, what each is doing and changed, and how much of your plan's
   limits you've used.
-- **A look back** at your history: where the time went, your working style, findings from
-  best-practice rules, and written advice from Claude that follows up on the last.
+- **History** of every past session, to read again or continue.
+- **Findings and advice**, experimental and off until you turn it on: where the time went,
+  your working style, findings from best-practice rules, and written advice from Claude
+  that follows up on the last.
 
 It runs locally, on Claude Code's own session files. It only points things out: Claude
 never sees its rules or your preferences ([what leaves your machine](#what-leaves-your-machine)).
@@ -40,8 +42,9 @@ history (with how many of how many), checking your plan usage, getting advice (w
 Claude is reading). Its bar fills by count, or against how long the same job took last
 time, kept in `~/.agentlens/durations.json`. It never shows a time.
 
-Your history is read in the background too, once the wall is filled in, so the report,
-profile, advice and rules screens open at once. Open one on history read more than a minute
+With [findings and advice](#findings-and-advice-experimental) on, your history is read in the
+background too, once the wall is filled in, so the report, profile, advice and rules screens
+open at once. Open one on history read more than a minute
 before and it shows that at once, reads it again quietly, and shows it again if anything
 changed.
 
@@ -53,7 +56,8 @@ changed.
 | `E`, `y` | open the session's repo or worktree in your editor; copy Claude's last reply |
 | `w` | close a session you're done with (`w` again confirms): a background one stops, a VS Code one is hidden |
 | `v`, `t` | conversation or one line per event; tool calls on or off |
-| `R` `H` `A` `P` `L` | report, history, advice, profile, rules |
+| `H` | history |
+| `R` `A` `P` `L` | report, advice, profile, rules, once [turned on](#findings-and-advice-experimental) |
 | `U`, `,` | usage and what's using it; settings |
 
 Drag to select text and Ctrl+C copies it, over SSH too. Links open on click: web pages in
@@ -98,8 +102,9 @@ Everything else is on the settings screen (`,`), saved as you pick:
   installed. Under the picker you can see the exact command it will run.
 - **Keys**: a preset, agentlens's own or Vim's (`h` `j` `k` `l` move between panes too,
   and Space goes to a session that needs you), and a way into the keys list.
-- **What you're aiming for**: your goals and a deliberate working style
-  ([findings and advice](#findings-and-advice)).
+- **Experimental**: [findings and advice](#findings-and-advice-experimental), off until you
+  tick it. With it on, **What you're aiming for** shows too: your goals and a deliberate
+  working style.
 
 ### Keys
 
@@ -173,7 +178,11 @@ that, and [Use the Claude Agent SDK with your Claude plan](https://support.claud
 covers it on Pro, Max, Team and Enterprise plans. That article also says how this use
 counts against your plan, including the `claude -p` that advice and the usage meter run.
 
-## Findings and advice
+## Findings and advice (experimental)
+
+These are early versions, so they're off until you tick *Findings and advice* in the
+settings (`,`), under Experimental. Then `R`, `P`, `L` and `A` open them, and the
+`report`, `profile`, `rules`, `mute`, `advise` and `curate` commands run.
 
 The report (`R`) splits each session's time by what ended each gap: your prompt (waiting
 on you), a tool result, a foreground subagent's result, a background-task notification,
@@ -245,8 +254,9 @@ checked. `--pack FILE` curates a team pack.
 
 ## What leaves your machine
 
-Three things, all through your own `claude` CLI. For advice and the curator it gets two
-tools, web search and web fetch, and no others, so it can't read or change your files:
+Three things, all through your own `claude` CLI; advice and the curator only once findings
+and advice are on. For those two it gets two tools, web search and web fetch, and no others,
+so it can't read or change your files:
 
 - **Advice** sends:
   - aggregate metrics
@@ -275,9 +285,10 @@ tools, web search and web fetch, and no others, so it can't read or change your 
 
 ## Command line
 
-For scripting: `agentlens report [--json]`, `sessions`, `session <id>`, `profile`,
-`rules`, `mute <rule>`, `advise [--dry-run]`, `curate [--pack FILE] [--dry-run]`, and
-`watch --once` for a plain table. Most take `--since 7d` and `--project NAME`.
+For scripting: `agentlens sessions`, `session <id>`, and `watch --once` for a plain table.
+With findings and advice on, also `report [--json]`, `profile`, `rules`, `mute <rule>`,
+`advise [--dry-run]` and `curate [--pack FILE] [--dry-run]`. Most take `--since 7d` and
+`--project NAME`.
 
 ## How it's built
 

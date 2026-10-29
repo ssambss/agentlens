@@ -5,6 +5,7 @@ import io
 import threading
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from conftest import T0, at, common, edit_result, human, plain, text, tool_result, tool_use, write_jsonl
 from rich.console import Console
 from textual.color import Color
@@ -350,6 +351,12 @@ def test_settings_screen_changes_the_look_as_you_pick(projects, tmp_path, isolat
         assert (saved.columns, saved.sidebar, saved.usage_minutes, saved.history_days, saved.history_keep_days) == \
             (3, False, 0.0, 30, 0)
 
+        # Goals and style are for the experimental screens, so they show once those are on.
+        assert not any(widget.display for widget in screen.query(".aims"))
+        screen.query_one("#set-findings", Checkbox).value = True
+        await pilot.pause(0.2)
+        assert all(widget.display for widget in screen.query(".aims"))
+        assert config_mod.load(cfg.path).findings_and_advice
         screen.query_one("#goal-cost", Checkbox).value = True
         screen.query_one("#style-steering", Select).value = "close"
         await pilot.pause(0.2)
@@ -360,6 +367,41 @@ def test_settings_screen_changes_the_look_as_you_pick(projects, tmp_path, isolat
         await pilot.pause(0.1)
         pane = app.query_one(SessionPane)
         assert pane.has_focus_within and pane.styles.border_top[1].hex6 == "#FFFFFF"  # vivid's selected
+
+    run_app(app, steps)
+
+
+def test_findings_and_advice_are_off_until_the_settings_turn_them_on(projects, tmp_path, monkeypatch):
+    make_projects(projects)
+    monkeypatch.setattr(tui, "PRELOAD_SECONDS", 0)
+    cfg = config_mod.Config(path=tmp_path / "config.yaml")
+    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+
+    async def steps(app, pilot):
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+        assert app.analysis is None  # no history read ahead for screens that are off
+        for key in ("R", "A", "P", "L"):
+            await pilot.press(key)
+            await pilot.pause(0.05)
+            assert app.screen is app.screen_stack[0]
+        titles = [command.title for command in app.get_system_commands(app.screen)]
+        assert "History" in titles and not {"Report", "Advise", "Profile", "Rules"} & set(titles)
+        await pilot.press("question_mark")
+        await pilot.pause(0.1)
+        listed = "\n".join(plain(option.prompt) for option in app.screen.query_one("#keys-list").options)
+        assert "history: every past session" in listed and "report: where your time went" not in listed
+        assert "advice on how you work" not in listed and "in Rules: mute" not in listed
+
+        await pilot.press("escape", "comma")
+        await pilot.pause(0.2)
+        app.screen.query_one("#set-findings", Checkbox).value = True
+        await pilot.pause(0.1)
+        await app.workers.wait_for_complete()
+        assert app.analysis is not None  # read now, so the screens open at once
+        await pilot.press("escape", "R")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ReportScreen)
 
     run_app(app, steps)
 
@@ -808,7 +850,8 @@ def test_j_goes_to_the_newest_alert_then_each_session_that_needs_you(projects):
 
 def test_report_and_history_screens_read_full_history(projects):
     make_projects(projects)  # sessions from a while ago: History looks at all of it here
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60, config=config_mod.Config(history_days=0))
+    app = AgentlensApp(provider=lambda: [], root=projects, interval=60,
+                       config=config_mod.Config(history_days=0, findings_and_advice=True))
 
     async def steps(app, pilot):
         assert len(app.query("#empty")) == 1
@@ -828,6 +871,7 @@ def test_report_and_history_screens_read_full_history(projects):
     run_app(app, steps)
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_history_reads_the_past_week_and_m_reaches_further_back(projects, monkeypatch):
     # Reading every transcript whole took long, so History reads only the sessions active in
     # the window from the settings, and keeps them: neither going further back nor the report
@@ -914,6 +958,7 @@ def test_history_keeps_a_session_claude_code_deleted_but_cant_continue_it(projec
     run_app(app, steps)
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_fresh_advice_follows_up_on_the_last_and_both_are_kept(projects, monkeypatch):
     make_projects(projects)
     advise.save("1. Plan first.", at=datetime(2026, 10, 19, 9, 0))
@@ -939,6 +984,7 @@ def test_fresh_advice_follows_up_on_the_last_and_both_are_kept(projects, monkeyp
     run_app(app, steps)
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_while_claude_writes_advice_the_screen_lists_what_it_is_on(projects, monkeypatch):
     make_projects(projects)
     gate = threading.Event()
@@ -977,6 +1023,7 @@ def test_while_claude_writes_advice_the_screen_lists_what_it_is_on(projects, mon
     run_app(app, steps)
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_history_is_read_once_the_wall_is_filled_in_so_report_screens_open_at_once(projects, monkeypatch):
     make_projects(projects)
     monkeypatch.setattr(tui, "PRELOAD_SECONDS", 0)
@@ -999,6 +1046,7 @@ def test_history_is_read_once_the_wall_is_filled_in_so_report_screens_open_at_on
     run_app(app, steps)
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_a_screen_on_history_read_a_while_ago_shows_it_at_once_and_again_if_it_changed(projects, monkeypatch):
     make_projects(projects)
     populated = []
@@ -1042,6 +1090,7 @@ def test_a_screen_on_history_read_a_while_ago_shows_it_at_once_and_again_if_it_c
     run_app(app, steps)
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_reading_history_shows_how_far_it_got_and_why_it_is_slower_after_an_update(projects, monkeypatch):
     make_projects(projects)
     app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
@@ -1067,6 +1116,7 @@ def test_reading_history_shows_how_far_it_got_and_why_it_is_slower_after_an_upda
     run_app(app, steps)
 
 
+@pytest.mark.usefixtures("findings_and_advice")
 def test_closing_a_screen_before_history_loads_does_not_crash(projects, monkeypatch):
     make_projects(projects)
     app = AgentlensApp(provider=lambda: [], root=projects, interval=60)

@@ -32,7 +32,7 @@ JUDGE = ""  # the style option that leaves it to agentlens, from your sessions
 USAGE_CHOICES = [("Off", 0.0), ("Every minute", 1.0), ("Every 2 minutes", 2.0), ("Every 5 minutes", 5.0),
                  ("Every 10 minutes", 10.0), ("Every 15 minutes", 15.0), ("Every 30 minutes", 30.0)]
 CHECKBOXES = {"set-sidebar": "sidebar", "set-tools": "show_tools", "set-times": "show_times",
-              "set-editor-terminal": "editor_terminal"}
+              "set-editor-terminal": "editor_terminal", "set-findings": "findings_and_advice"}
 INPUTS = {"set-editor": "editor", "set-cli": "cli_path"}
 # A sample of the colours, as the panes and the conversation use them.
 BORDER_SAMPLE = [("selected", "selected"), ("question", "needs you"), ("working", "working"),
@@ -144,21 +144,39 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
                       Button("Change a key…", compact=True, id="set-keys-list"))
             yield Static(id="set-keys-note", classes="settings-note")
 
-            yield Label("What you're aiming for", classes="settings-section")
-            yield row("Goals", *[Checkbox(goal, goal in prefs.goals, compact=True, id=f"goal-{goal}")
-                                 for goal in preferences.GOALS])
+            yield Label("Experimental", classes="settings-section")
+            yield row("Screens", Checkbox("Findings and advice", cfg.findings_and_advice, compact=True,
+                                          id="set-findings"))
+            yield Static(f"Report ({keys_mod.name('report')}), Profile ({keys_mod.name('profile')}), Rules "
+                         f"({keys_mod.name('rules')}) and Advice ({keys_mod.name('advise')}): what your history "
+                         "says about how you work, and advice from Claude on it. Early versions.",
+                         classes="settings-note")
+
+            # Only the experimental screens use these, so they show while those are on.
+            aims = [
+                Label("What you're aiming for", classes="settings-section"),
+                row("Goals", *[Checkbox(goal, goal in prefs.goals, compact=True, id=f"goal-{goal}")
+                               for goal in preferences.GOALS]),
+            ]
             for key, options in preferences.STYLE_OPTIONS.items():
                 choices = [("Judge from my sessions", JUDGE)] + [(option, option) for option in options]
-                yield row(key.capitalize(), Select(choices, value=prefs.style.get(key, JUDGE), allow_blank=False,
-                                                   compact=True, id=f"style-{key}", classes="style"))
-            yield Static("These change what agentlens points out to you, not how Claude works. Goals put the "
-                         "findings about them first. A style you choose on purpose mutes rules that would nag "
-                         "you about it (today, steering: close does), and your profile shows where your "
-                         "sessions look different.", classes="settings-note")
+                aims.append(row(key.capitalize(), Select(choices, value=prefs.style.get(key, JUDGE),
+                                                         allow_blank=False, compact=True, id=f"style-{key}",
+                                                         classes="style")))
+            aims.append(Static("These change what agentlens points out to you, not how Claude works. Goals put "
+                               "the findings about them first. A style you choose on purpose mutes rules that "
+                               "would nag you about it (today, steering: close does), and your profile shows "
+                               "where your sessions look different.", classes="settings-note"))
+            for widget in aims:
+                widget.add_class("aims")
+                widget.display = cfg.findings_and_advice
+                yield widget
 
             with Horizontal(id="settings-buttons"):
                 yield Button("Open the settings file", compact=True, id="set-file")
-                yield Button("Open the preferences file", compact=True, id="set-prefs-file")
+                prefs_file = Button("Open the preferences file", compact=True, id="set-prefs-file", classes="aims")
+                prefs_file.display = cfg.findings_and_advice
+                yield prefs_file
             yield Static(Text("Spaces, colours of your own and rule thresholds are in the files. Esc closes.",
                               style="dim"))
 
@@ -288,6 +306,8 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             if event.value != getattr(self._app.config, name):
                 self._set(name, event.value)
                 self._show_editor()
+                for widget in self.query(".aims"):
+                    widget.display = self._app.config.findings_and_advice
             return
         ticked = {box.id for box in self.query(Checkbox) if box.value}
         goals = [goal for goal in preferences.GOALS if f"goal-{goal}" in ticked]
