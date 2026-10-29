@@ -85,7 +85,7 @@ def test_grid_navigation_zoom_and_filter(projects):
         assert not isinstance(app.screen, ZoomScreen)
         await pilot.press("f")
         await pilot.pause(0.1)
-        assert [p.session_id for p in app.query(SessionPane) if p.display] == ["waiting", "other"]
+        assert [p.session_id for p in app.query(SessionPane) if p.display] == ["waiting"]  # you've read other
         await pilot.press("f", "minus")
         assert app.query_one("#grid").styles.grid_size_columns == 1
 
@@ -733,6 +733,18 @@ async def finish_turn(app, pilot, entries, index):
     await pilot.pause(0.2)
 
 
+async def next_turn(app, pilot, transcript, entries, index):
+    """Another prompt and reply in a session, then its turn ends."""
+    entries[index]["status"] = "busy"
+    app.action_refresh()
+    await app.workers.wait_for_complete()
+    minute = len(transcript.read_text(encoding="utf-8").splitlines()) + 10
+    with transcript.open("a", encoding="utf-8") as f:
+        for record in common([human(minute, "and now this"), text(minute + 1, "Done too.")], transcript.stem):
+            f.write(json.dumps(record) + "\n")
+    await finish_turn(app, pilot, entries, index)
+
+
 def test_first_look_shows_the_panes_then_fills_them_in_without_false_alerts(projects, monkeypatch):
     # The first look reads too little of "asking" to find a whole record, so it seems to be just
     # starting; the full read finds the question it was already asking. That's no news to alert.
@@ -835,17 +847,66 @@ def test_j_goes_to_the_newest_alert_then_each_session_that_needs_you(projects):
         await finish_turn(app, pilot, entries, 0)  # you're in busy, so waiting alerts
         await pilot.press("escape")
         await pilot.pause(0.1)
-        await pilot.click("#summary", offset=(1, 0))  # the "2 need you" count works like j
+        assert app.query_one("#summary").content.plain.startswith("1 need you")  # you've read busy
+        await pilot.click("#summary", offset=(1, 0))  # the count works like j
         await pilot.pause(0.2)
         assert app.screen.session_id == "waiting"
-        await pilot.press("j", "escape")  # every alert followed: the next one after this, in wall order
+        assert not app.check_action("jump", ())  # every one you've read
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        entries[0]["status"] = entries[1]["status"] = "busy"
+        await next_turn(app, pilot, projects / "demo" / "busy.jsonl", entries, 1)  # busy needs you again
+        await pilot.press("j", "escape")
         await pilot.pause(0.2)
         assert app.focused.session_id == "busy"
-        entries[0]["status"] = "busy"
-        await finish_turn(app, pilot, entries, 1)
-        assert not app.check_action("jump", ())  # you're on the only one that needs you
+        await next_turn(app, pilot, projects / "demo" / "waiting.jsonl", entries, 0)
+        app._focus_key("waiting")  # on its pane: its alert is followed, but you haven't read it
+        await pilot.pause(0.1)
+        assert app._needing == {"waiting"} and not app.check_action("jump", ())  # you're on the only one
 
     run_app(app, steps)
+
+
+def test_a_session_you_have_read_stops_needing_you_until_its_next_turn(projects):
+    make_projects(projects)
+    entries = [entry("waiting", "idle", 0), entry("busy", "busy", 1), entry("other", "idle", 2, "D:\\work\\other")]
+
+    def summary(app):
+        return app.query_one("#summary").content.plain
+
+    def dot(app, space):
+        return "●" in app._space_nodes[space].label.plain
+
+    async def steps(app, pilot):
+        panes = {p.session_id: p for p in app.query(SessionPane)}
+        assert app.focused is panes["waiting"] and summary(app).startswith("2 need you")  # on its pane isn't reading it
+        await pilot.press("j")  # the next one after the pane you're on
+        await pilot.pause(0.2)
+        assert app.screen.session_id == "other"
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        assert summary(app).startswith("1 need you") and not dot(app, "other") and dot(app, "demo")
+        assert panes["other"].has_class("st-other") and panes["waiting"].has_class("st-waiting")
+        await pilot.press("j", "escape")
+        await pilot.pause(0.2)
+        assert summary(app).startswith("0 need you") and not app.check_action("jump", ())
+        app._focus_key("busy")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        await finish_turn(app, pilot, entries, 1)  # its turn ends while you have it open
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        assert summary(app).startswith("0 need you") and panes["busy"].has_class("st-other")
+
+    run_app(PanopsisApp(provider=lambda: entries, root=projects, interval=60), steps)
+
+    async def after_restart(app, pilot):
+        assert summary(app).startswith("0 need you")  # still read
+        await next_turn(app, pilot, projects / "other" / "other.jsonl", entries, 2)
+        assert summary(app).startswith("1 need you") and dot(app, "other") and list(app._alerts) == ["other"]
+        assert app.query_one("#s-other", SessionPane).has_class("st-waiting")
+
+    run_app(PanopsisApp(provider=lambda: entries, root=projects, interval=60), after_restart)
 
 
 def test_report_and_history_screens_read_full_history(projects):

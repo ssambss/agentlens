@@ -54,6 +54,7 @@ from panopsis.adapters.claude_transcripts import (
     worked_in_named,
 )
 from panopsis.analysis import Analysis
+from panopsis.read import ReadSessions
 from panopsis.store import SessionStore
 from panopsis.driver import (
     ENDED,
@@ -353,8 +354,9 @@ class SessionPane(Vertical, can_focus=True):
         except NoMatches:
             return  # not composed yet; on_mount paints
         app: PanopsisApp = self.app  # type: ignore[assignment]
+        state_class = STATE_CLASS[data.state if data.state not in NEEDS_YOU or app.needs_you(data) else OTHER]
         for cls in set(STATE_CLASS.values()):
-            self.set_class(cls == STATE_CLASS[data.state], cls)
+            self.set_class(cls == state_class, cls)
         suffix = {"background": " · bg", "panopsis": " · here"}.get(data.kind, "")
         title = pane_place(data, self.space) + suffix
         if self._changed("title", title):
@@ -662,6 +664,7 @@ class ZoomScreen(QuietFocusScreen):
         session = self.app.sessions.get(self.session_id)  # type: ignore[attr-defined]
         if session is not None:
             self.show(session, datetime.now(timezone.utc))
+            self.app.mark_read(session)  # type: ignore[attr-defined]
         composers = list(self.query(Composer))
         if composers:
             self.call_after_refresh(composers[0].focus_input)
@@ -1486,6 +1489,7 @@ class PanopsisApp(App):
         self.jobs = activity_mod.Jobs()  # what it's doing in the background, for the line at the top
         self._seen_states: dict[str, str] = {}
         self._alerts: dict[str, Notification] = {}  # sessions whose alert you haven't followed yet: its toast
+        self.read = ReadSessions()  # sessions needing you that you've read: they don't count until they next do
         self._needing: frozenset[str] = frozenset()  # sessions that need you, as the footer last saw them
         self._space_nodes: dict[str, TreeNode[str]] = {}
         self.driven: dict[str, DrivenSession] = {}  # sessions panopsis runs itself, by pane key
@@ -1836,6 +1840,8 @@ class PanopsisApp(App):
         self.sessions = {s.session_id: s for s in sessions}
         for sid in [sid for sid in self._alerts if sid not in self.sessions]:
             self._drop_alert(sid)
+        if generation is not None and not first_look:  # a fresh listing, read in full
+            self.read.keep_only(self.sessions)
         self._update_sidebar()
         self._apply_visibility()
         if isinstance(self.screen, ZoomScreen) and self.screen.session_id in self.sessions:
@@ -2525,7 +2531,11 @@ class PanopsisApp(App):
             self._drop_alert(s.session_id)  # answered, here or wherever it's open
         focused = self._focused_session()
         if focused is not None and focused.session_id == s.session_id:
-            return  # you're already looking at it
+            # You're already looking at it: no alert. Zoomed in, it's read too. On the wall, the pane with
+            # focus isn't always the one you're reading, so it needs you until you open it.
+            if isinstance(self.screen, ZoomScreen) and self.screen.session_id == s.session_id:
+                self.mark_read(s)
+            return
         # A session that has just connected (brought here, continued from History) is ready, not
         # waiting on an answer; its pane takes focus a moment later.
         if before is not None and before not in NEEDS_YOU and before != STARTING and s.state in NEEDS_YOU:
@@ -2539,6 +2549,27 @@ class PanopsisApp(App):
             self._alerts[s.session_id] = toast  # kept, so following the alert takes it down (notify doesn't return it)
             self.post_message(Notify(toast))
             self.bell()
+
+    def needs_you(self, s: LiveSession) -> bool:
+        """Whether it waits on you, and you haven't read it since it started to."""
+        return s.state in NEEDS_YOU and not self.read.has_read(s.session_id, s.since)
+
+    def mark_read(self, s: LiveSession) -> None:
+        """You've had this session in front of you while it needs you: it stops counting as needing
+        you, and its pane dims, until it next starts to."""
+        if not self.needs_you(s):
+            return
+        self.read.mark(s.session_id, s.since)
+        for pane in self.screen_stack[0].query(SessionPane):  # the wall's, also from a zoom
+            if pane.session_id == s.session_id:
+                pane.paint()
+        self.call_later(self._show_read)  # once a refresh under way has the wall's sessions in
+
+    def _show_read(self) -> None:
+        # Not _apply_visibility: from a zoom, its focus fallback would move the wall's focus. With
+        # only sessions that need you showing, this one goes at the next refresh.
+        self._update_sidebar()
+        self._summary()
 
     def _drop_alert(self, session_id: str) -> None:
         """Forget a session's alert, and take its toast off the screen if it's still up."""
@@ -2556,7 +2587,7 @@ class PanopsisApp(App):
         session that needs you after the one you're in, in wall order."""
         current = self._focused_session(strict=True)
         here = current.session_id if current else None
-        waiting = [sid for sid, s in self.sessions.items() if s.state in NEEDS_YOU and sid != here]
+        waiting = [sid for sid, s in self.sessions.items() if self.needs_you(s) and sid != here]
         if not waiting:
             self.notify("Nothing else needs you right now.", timeout=3)
             return
@@ -2583,7 +2614,7 @@ class PanopsisApp(App):
         space = self.space_of.get(session_id, ALL)
         if self.current_space not in (ALL, space):
             self._set_space(space)
-        if self.only_needs_you and session.state not in NEEDS_YOU:
+        if self.only_needs_you and not self.needs_you(session):
             self.action_toggle_filter()
         self._focus_key(session_id)
         screen = ZoomScreen(session_id)
@@ -2621,7 +2652,7 @@ class PanopsisApp(App):
             label.append(("▶ " if name == self.current_space else "  ") + name,
                          style="bold" if name == self.current_space else "")
             label.append(f"  {len(members)}", style="dim")
-            waiting = sum(1 for s in members if s.state in NEEDS_YOU)
+            waiting = sum(1 for s in members if self.needs_you(s))
             if waiting:
                 label.append(f"  ●{waiting}", style="bold yellow")
             node = self._space_nodes[name]
@@ -2654,7 +2685,7 @@ class PanopsisApp(App):
         for pane in self.query_one("#grid", Grid).query(SessionPane):
             s = self.sessions.get(pane.session_id)
             in_space = self.current_space == ALL or self.space_of.get(pane.session_id) == self.current_space
-            pane.display = s is not None and in_space and (not self.only_needs_you or s.state in NEEDS_YOU)
+            pane.display = s is not None and in_space and (not self.only_needs_you or self.needs_you(s))
         self._layout()
         self._summary()
         if self.focused is None or (isinstance(self.focused, SessionPane) and not self.focused.display):
@@ -2664,7 +2695,7 @@ class PanopsisApp(App):
 
     def _summary(self) -> None:
         sessions = list(self.sessions.values())
-        needing = frozenset(sid for sid, s in self.sessions.items() if s.state in NEEDS_YOU)
+        needing = frozenset(sid for sid, s in self.sessions.items() if self.needs_you(s))
         needs = len(needing)
         working = sum(1 for s in sessions if s.state == WORKING)
         background = sum(1 for s in sessions if s.state == BACKGROUND)

@@ -38,6 +38,12 @@ working, blue waiting on its own subagents.
 When a session starts needing you, you get a notification and a terminal bell. Its Open
 button, or `j` from anywhere, takes you there; `j` again goes to the next one.
 
+Once you've opened one, it's read: it stops counting as needing you and its border dims,
+until it next does (its next turn ends, or it asks something). So the count, `j`, `f` and
+the spaces list cover only what you haven't seen yet, even if you leave a session for
+later. Being on its pane on the wall doesn't read it; opening it does. Which ones you've
+read is kept in `~/.panopsis/read.json`, so a restart doesn't bring them back.
+
 Enter zooms in: the whole conversation, the files the session changed (Enter opens one
 in your editor at the line), and a map of its subagents: which ran, which launched which,
 and which ran at the same time. Top right, on the wall and zoomed in, is your plan's
@@ -316,6 +322,7 @@ curate.py   Claude checks a pack against its sources and watch list and proposes
 work.py     what you work on: languages, build and Claude Code setup per repo
 features.py which Claude Code features your sessions use, so advice can suggest new ones
 live.py     open sessions + transcript tails, as live state
+read.py     the sessions needing you that you've already read (~/.panopsis/read.json)
 feed.py     how activity reads: conversation blocks, markdown, folded tool calls
 subagent_map.py  the zoom view's map: subagents in waves, nested under who launched them
 tui.py      the app
