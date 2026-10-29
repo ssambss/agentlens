@@ -1,4 +1,4 @@
-"""panopsis: see how you work with Claude Code agents, and get advice on doing it better."""
+"""panopsis: every Claude Code session you have open, on one screen in your terminal."""
 
 import time
 

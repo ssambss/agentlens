@@ -1,18 +1,19 @@
 # panopsis
 
-See how you work with Claude Code agents, and get advice on doing it better. The name is
-Greek for seeing everything at once.
+Every Claude Code session you have open, on one screen in your terminal: which ones need
+you, what each is doing and has changed, and how much of your plan's limits you've used.
+The name is Greek for seeing everything at once.
 
-- **A live wall** of every open Claude Code session, VS Code ones included, grouped into
-  spaces: which ones need you, what each is doing and changed, and how much of your plan's
-  limits you've used.
+- **A live wall** of every open session, VS Code ones included, grouped into spaces by
+  repository. When one starts needing you it rings and lights up, and `j` takes you there.
+- **Sessions you start here** (experimental): type into them, answer their questions and
+  permission prompts, and hand them to Claude Code's background service and back.
 - **History** of every past session, to read again or continue.
-- **Findings and advice**, experimental and off until you turn it on: where the time went,
-  your working style, findings from best-practice rules, and written advice from Claude
-  that follows up on the last.
 
-It runs locally, on Claude Code's own session files. It only points things out: Claude
-never sees its rules or your preferences ([what leaves your machine](#what-leaves-your-machine)).
+It runs locally, on Claude Code's own session files
+([what leaves your machine](#what-leaves-your-machine)). Findings about how you work and
+advice from Claude are in it too, but they're early versions, so they're off until you turn
+them on ([findings and advice](#findings-and-advice-experimental)).
 
 ```
 uv tool install .      # from this folder; or `uv run panopsis` without installing
@@ -258,9 +259,16 @@ checked. `--pack FILE` curates a team pack.
 
 ## What leaves your machine
 
-Three things, all through your own `claude` CLI; advice and the curator only once findings
-and advice are on. For those two it gets two tools, web search and web fetch, and no others,
-so it can't read or change your files:
+panopsis reads your sessions on your machine. The sessions you start in it are your own
+`claude`, sending what any Claude Code session sends. Besides those, through your own
+`claude` CLI:
+
+- **The usage meter** runs Claude Code's `/usage` every few minutes, which asks Anthropic
+  how much of your plan's limits you've used. Nothing from your sessions is sent. Turn it
+  off in the settings.
+
+With findings and advice on, two more. For these `claude` gets two tools, web search and web
+fetch, and no others, so it can't read or change your files:
 
 - **Advice** sends:
   - aggregate metrics
@@ -283,9 +291,6 @@ so it can't read or change your files:
   which of the pack's quotes it found on their pages. Nothing from your sessions. It checks
   the quotes in code by downloading each page the pack cites: plain HTTPS requests that send
   nothing. `panopsis curate --dry-run` prints what it would send.
-- **The usage meter** runs Claude Code's `/usage` every few minutes, which asks Anthropic
-  how much of your plan's limits you've used. Nothing from your sessions is sent. Turn it
-  off in the settings.
 
 ## Command line
 
