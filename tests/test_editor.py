@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from agentlens import editor
+from panopsis import editor
 
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def test_your_own_command_puts_the_file_and_line_where_you_say(installed, tmp_pa
     assert editor.resolve("nowhere {file}") is None
 
 
-def test_a_bare_command_or_path_that_agentlens_knows_opens_its_way(installed):
+def test_a_bare_command_or_path_that_panopsis_knows_opens_its_way(installed):
     installed.update(cursor="C:/bin/cursor.cmd")
     installed["C:/Users/me/AppData/Local/Programs/Microsoft VS Code/bin/code.cmd"] = "C:/vscode/code.cmd"
     installed["D:/JetBrains/PyCharm/bin/pycharm64.exe"] = "D:/JetBrains/PyCharm/bin/pycharm64.exe"

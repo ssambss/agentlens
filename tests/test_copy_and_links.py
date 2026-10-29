@@ -7,12 +7,12 @@ from rich.console import Console
 from rich.text import Text
 from textual.strip import Strip
 
-from agentlens import editor as editor_mod
-from agentlens import selectable
-from agentlens.feed import Palette, ReadableMarkdown, conversation, with_links
-from agentlens.model import Event
-from agentlens.selectable import Selectable, copyable, flatten
-from agentlens.tui import AgentlensApp, SessionPane, ZoomScreen, file_link
+from panopsis import editor as editor_mod
+from panopsis import selectable
+from panopsis.feed import Palette, ReadableMarkdown, conversation, with_links
+from panopsis.model import Event
+from panopsis.selectable import Selectable, copyable, flatten
+from panopsis.tui import PanopsisApp, SessionPane, ZoomScreen, file_link
 
 REPLY = """## Done
 
@@ -80,7 +80,7 @@ def entry(session_id, cwd):
 
 def make_app(projects, cwd):
     write_jsonl(projects / "demo" / "s1.jsonl", common([human(0, "fix the build"), text(1, REPLY)], "s1", cwd=cwd))
-    return AgentlensApp(provider=lambda: [entry("s1", cwd)], root=projects, interval=60)
+    return PanopsisApp(provider=lambda: [entry("s1", cwd)], root=projects, interval=60)
 
 
 def run_app(app, steps, size=(160, 40)):

@@ -6,8 +6,8 @@ from datetime import timedelta
 import pytest
 from conftest import T0, common, edit_result, human, text, tool_result, tool_use, write_jsonl
 
-from agentlens.adapters.claude_transcripts import load_session
-from agentlens.live import (
+from panopsis.adapters.claude_transcripts import load_session
+from panopsis.live import (
     APPROVAL,
     BACKGROUND,
     QUESTION,
@@ -64,9 +64,9 @@ def test_panes_say_what_a_session_is_about_and_where_it_works(projects):
 def test_a_leading_project_name_is_dropped_only_when_it_is_the_whole_name(projects):
     live = derive(entry("idle"), session_from(projects, [human(0), text(1)]), now=minutes(5))
     cases = [
-        ("Agent lens keyboard space selection", "agentlens", "Keyboard space selection"),
+        ("Code lens keyboard space selection", "codelens", "Keyboard space selection"),
         ("Recipe box listing sync", "recipebox", "Listing sync"),
-        ("Agentlens: usage view", "agentlens", "Usage view"),
+        ("Panopsis: usage view", "panopsis", "Usage view"),
         ("Skyline iOS build", "Skyline", "iOS build"),
         ("Skyline", "Skyline", "Skyline"),  # nothing would be left
         ("Agentic dev loop ideas", "agentic-game", "Agentic dev loop ideas"),
@@ -180,7 +180,7 @@ def test_tail_read_leaves_out_subagents_done_before_it(projects):
 
 def test_a_refresh_rereads_only_the_subagents_that_changed(projects, monkeypatch):
     # A working session's transcript changes on every refresh; its subagents mostly don't.
-    from agentlens.adapters import claude_transcripts
+    from panopsis.adapters import claude_transcripts
 
     main = write_jsonl(projects / "demo" / "sess-1.jsonl", common([human(0), tool_use(1, "Agent", "a")]))
     subs = projects / "demo" / "sess-1" / "subagents"
@@ -218,12 +218,12 @@ def test_background_sessions_keep_their_short_job_id():
     assert derive({**entry("idle"), "kind": "background", "id": "1715db93"}, None, now=minutes(3)).job_id == "1715db93"
 
 
-def test_agentlens_own_runs_are_not_sessions(monkeypatch):
+def test_panopsis_own_runs_are_not_sessions(monkeypatch):
     # The advice run, and the usage check that runs in your home folder every few minutes.
-    listed = [entry("idle"), {**entry("busy", "advise-run"), "name": "agentlens advise"},
-              {**entry("busy", "usage-probe"), "name": "agentlens usage"}]
-    monkeypatch.setattr("agentlens.live.shutil.which", lambda name: "claude")
-    monkeypatch.setattr("agentlens.live.subprocess.run",
+    listed = [entry("idle"), {**entry("busy", "advise-run"), "name": "panopsis advise"},
+              {**entry("busy", "usage-probe"), "name": "panopsis usage"}]
+    monkeypatch.setattr("panopsis.live.shutil.which", lambda name: "claude")
+    monkeypatch.setattr("panopsis.live.subprocess.run",
                         lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=json.dumps(listed), stderr=""))
     assert [e["sessionId"] for e in open_sessions()] == ["sess-1"]
 
@@ -239,7 +239,7 @@ def test_the_first_listing_starts_before_the_app_asks_for_it(monkeypatch):
         release.wait(5)
         return [entry("idle")]
 
-    monkeypatch.setattr("agentlens.live.open_sessions", listing)
+    monkeypatch.setattr("panopsis.live.open_sessions", listing)
     early = EarlyListing()
     release.set()
     assert early() == [entry("idle")]
@@ -252,7 +252,7 @@ def test_an_early_listing_that_failed_fails_when_used(monkeypatch):
     def listing():
         raise RuntimeError("`claude` CLI not found on PATH")
 
-    monkeypatch.setattr("agentlens.live.open_sessions", listing)
+    monkeypatch.setattr("panopsis.live.open_sessions", listing)
     with pytest.raises(RuntimeError, match="not found on PATH"):
         EarlyListing()()
 

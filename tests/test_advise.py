@@ -6,13 +6,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from conftest import T0, StreamingClaude, claude_result, common, human, text, write_jsonl
 
-from agentlens import advise, cli, features
-from agentlens import profile as profile_mod
-from agentlens.adapters.claude_transcripts import load_session
-from agentlens.metrics import all_entities, day_metrics
-from agentlens.model import AgentRun, Session
-from agentlens.preferences import Preferences
-from agentlens.rules import Finding, Rule
+from panopsis import advise, cli, features
+from panopsis import profile as profile_mod
+from panopsis.adapters.claude_transcripts import load_session
+from panopsis.metrics import all_entities, day_metrics
+from panopsis.model import AgentRun, Session
+from panopsis.preferences import Preferences
+from panopsis.rules import Finding, Rule
 
 DAY = 24 * 60  # minutes
 

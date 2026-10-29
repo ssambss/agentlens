@@ -4,10 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 from conftest import T0, common, edit_result, human, text, tool_result, tool_use, write_jsonl
 
-from agentlens.adapters import claude_transcripts
-from agentlens.adapters.claude_transcripts import SessionCache, load_session, load_sessions
-from agentlens.model import Session
-from agentlens.store import SessionStore, from_plain, to_plain
+from panopsis.adapters import claude_transcripts
+from panopsis.adapters.claude_transcripts import SessionCache, load_session, load_sessions
+from panopsis.model import Session
+from panopsis.store import SessionStore, from_plain, to_plain
 
 
 def busy_session(projects, sid="sess-1"):
@@ -35,9 +35,9 @@ def test_a_summary_reads_back_as_it_was_made(projects):
     assert session.main.files_read and session.human_prompts
     back = from_plain(Session, json.loads(json.dumps(to_plain(session))))
     assert back == session and back.end == session.end
-    # A field this agentlens doesn't know is left out; one the file hasn't got gets its default.
+    # A field this panopsis doesn't know is left out; one the file hasn't got gets its default.
     plain = to_plain(session)
-    plain["from_a_later_agentlens"] = 1
+    plain["from_a_later_panopsis"] = 1
     del plain["commands"]
     assert from_plain(Session, plain).commands == {}
 
@@ -55,7 +55,7 @@ def test_a_session_read_once_comes_from_the_store_next_launch(projects, isolated
     store = SessionStore()
     SessionCache(store).get(path)
     assert read == ["sess-1", "sess-1"] and store.outdated == 0
-    # A different reader (agentlens updated): read again too, while the transcript's there. The
+    # A different reader (panopsis updated): read again too, while the transcript's there. The
     # app says that's why it takes longer.
     store = SessionStore()
     store.reader = "another"
@@ -88,7 +88,7 @@ def test_a_session_whose_transcript_is_gone_stays_in_history(projects, isolated_
     assert next(s for s in after if s.id == "old").title == "Fix the build"
     # Its file's time is when it was last active, so a window can skip it unopened.
     assert not list(load_sessions(projects, since=T0 + timedelta(days=1), cache=SessionCache(SessionStore())))
-    # Another agentlens reader makes no difference to a session only the store has.
+    # Another panopsis reader makes no difference to a session only the store has.
     store = SessionStore()
     store.reader = "another"
     assert [s.id for s in store.gone(projects)] == ["old"]
@@ -111,7 +111,7 @@ def test_sessions_whose_transcripts_are_gone_are_forgotten_after_keep_days(proje
 def test_reading_another_projects_folder_leaves_the_usual_ones_sessions_alone(projects, tmp_path, isolated_home):
     busy_session(projects)
     list(load_sessions(projects, cache=SessionCache(SessionStore())))
-    other = tmp_path / "other-projects"  # agentlens report --root <other>
+    other = tmp_path / "other-projects"  # panopsis report --root <other>
     other.mkdir()
     assert list(load_sessions(other, cache=SessionCache(SessionStore()))) == []
     assert SessionStore().forget(other, keep_days=1, now=T0 + timedelta(days=400)) == 0

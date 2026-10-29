@@ -1,10 +1,10 @@
-"""The line at the top of the wall: what agentlens is doing in the background, and how far it got,
+"""The line at the top of the wall: what panopsis is doing in the background, and how far it got,
 without ever saying how long it takes."""
 
 import re
 
-from agentlens import activity
-from agentlens.activity import SHOW_AFTER, Jobs
+from panopsis import activity
+from panopsis.activity import SHOW_AFTER, Jobs
 
 
 def test_a_job_shows_only_once_it_has_run_for_a_moment(isolated_home):

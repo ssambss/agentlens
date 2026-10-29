@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from conftest import common, human, text, write_jsonl
 
-from agentlens import cli, preferences
-from agentlens.report import counted
+from panopsis import cli, preferences
+from panopsis.report import counted
 
 
 def test_since_accepts_relative_and_iso():

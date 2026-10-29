@@ -121,16 +121,16 @@ def projects(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path: Path, monkeypatch) -> Path:
-    """Settings, preferences and advice go to a temp dir, never the real ~/.agentlens."""
-    home = tmp_path / "agentlens-home"
-    monkeypatch.setenv("AGENTLENS_HOME", str(home))
+    """Settings, preferences and advice go to a temp dir, never the real ~/.panopsis."""
+    home = tmp_path / "panopsis-home"
+    monkeypatch.setenv("PANOPSIS_HOME", str(home))
     return home
 
 
 @pytest.fixture
 def findings_and_advice(isolated_home: Path) -> None:
     """The experimental report, profile, rules and advice turned on, as the settings do."""
-    from agentlens import config as config_mod
+    from panopsis import config as config_mod
 
     config_mod.save(config_mod.Config(path=isolated_home / "config.yaml", findings_and_advice=True))
 
@@ -139,14 +139,14 @@ def findings_and_advice(isolated_home: Path) -> None:
 def system_clipboard(monkeypatch) -> list[str]:
     """What the app copies lands here, never on the real clipboard."""
     copied: list[str] = []
-    monkeypatch.setattr("agentlens.clipboard.copy", lambda text: copied.append(text) or True)
+    monkeypatch.setattr("panopsis.clipboard.copy", lambda text: copied.append(text) or True)
     return copied
 
 
 @pytest.fixture(autouse=True)
 def clipboard_images(monkeypatch) -> list:
     """What the app pastes as an image comes from here, never the real clipboard: put one in."""
-    from agentlens.clipboard import NoImage
+    from panopsis.clipboard import NoImage
 
     images: list = []
 
@@ -155,7 +155,7 @@ def clipboard_images(monkeypatch) -> list:
             raise NoImage("There's no image on the clipboard.")
         return images.pop(0)
 
-    monkeypatch.setattr("agentlens.clipboard.paste_image", paste)
+    monkeypatch.setattr("panopsis.clipboard.paste_image", paste)
     return images
 
 
@@ -194,9 +194,9 @@ def server_info() -> dict:
 
 
 @pytest.fixture(autouse=True)
-def agentlens_keys():
-    """The hints name agentlens's own keys, whatever keys a test before this one picked."""
-    from agentlens import keys
+def panopsis_keys():
+    """The hints name panopsis's own keys, whatever keys a test before this one picked."""
+    from panopsis import keys
 
     keys.use({})
     yield
@@ -207,7 +207,7 @@ def agentlens_keys():
 def not_in_windows_console(monkeypatch) -> None:
     """Tests behave the same whichever terminal runs them: the app does a few things only in
     Windows' own console window. Tests about those say they're in one."""
-    monkeypatch.setattr("agentlens.terminal.classic_console", lambda: False)
+    monkeypatch.setattr("panopsis.terminal.classic_console", lambda: False)
 
 
 @pytest.fixture(autouse=True)
@@ -215,7 +215,7 @@ def no_installed_plugins(monkeypatch) -> list[dict]:
     """Advice lists the user's plugins through the real `claude plugin list`; tests never ask it.
     Tests can append what the fake list returns."""
     listed: list[dict] = []
-    monkeypatch.setattr("agentlens.work.list_plugins", lambda: listed)
+    monkeypatch.setattr("panopsis.work.list_plugins", lambda: listed)
     return listed
 
 
@@ -224,7 +224,7 @@ def no_usage_probe(monkeypatch) -> list[str]:
     """The usage meter asks the real Claude Code's /usage; tests never do. Tests can append
     what the fake /usage prints."""
     printed: list[str] = []
-    monkeypatch.setattr("agentlens.usage.run_probe", lambda claude, timeout=60: printed[-1] if printed else "")
+    monkeypatch.setattr("panopsis.usage.run_probe", lambda claude, timeout=60: printed[-1] if printed else "")
     return printed
 
 
@@ -232,7 +232,7 @@ def no_usage_probe(monkeypatch) -> list[str]:
 def no_history_preload(monkeypatch) -> None:
     """The app reads history once the wall is filled in; tests read it only when they open a
     screen that needs it, unless they're about the preload."""
-    monkeypatch.setattr("agentlens.tui.PRELOAD_SECONDS", None)
+    monkeypatch.setattr("panopsis.tui.PRELOAD_SECONDS", None)
 
 
 def common(records: list[dict], session_id: str = "sess-1", cwd: str = "D:\\work\\demo") -> list[dict]:

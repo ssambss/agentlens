@@ -4,10 +4,10 @@ from datetime import timedelta
 from conftest import T0
 from rich.console import Console
 
-from agentlens.feed import Palette
-from agentlens.live import LiveSubagent
-from agentlens.model import DORMANT, MODEL, TOOL, Span
-from agentlens.subagent_map import SubagentMap, _bar, tree_order, waves
+from panopsis.feed import Palette
+from panopsis.live import LiveSubagent
+from panopsis.model import DORMANT, MODEL, TOOL, Span
+from panopsis.subagent_map import SubagentMap, _bar, tree_order, waves
 
 
 def minutes(m):

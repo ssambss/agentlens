@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from claude_agent_sdk import RateLimitInfo
 
-from agentlens import usage
-from agentlens.usage import Usage, Window, run_probe  # the real one; tests get a stand-in by default
+from panopsis import usage
+from panopsis.usage import Usage, Window, run_probe  # the real one; tests get a stand-in by default
 
 # What Claude Code 2.1.310's /usage prints on a subscription (trimmed).
 PRINTED = """You are currently using your subscription to power your Claude Code usage
@@ -119,14 +119,14 @@ def test_the_meter_dims_a_reading_from_the_last_launch():
 def test_the_wall_starts_with_the_last_reading_and_saves_the_new_one(projects, no_usage_probe):
     import asyncio
 
-    from agentlens.tui import AgentlensApp
+    from panopsis.tui import PanopsisApp
 
     now = datetime.now(timezone.utc)
     saved = Usage(checked=now - timedelta(minutes=5))
     saved.merge([Window("five_hour", 0.3, now + timedelta(hours=1)), Window("seven_day", 0.1, now - timedelta(hours=1))])
     usage.save_cached(saved)
     no_usage_probe.append(PRINTED)
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
     assert app.usage.last_run and list(app.usage.windows) == ["five_hour"]  # the week's has reset since
 
     async def go():
@@ -146,10 +146,10 @@ def test_the_wall_starts_with_the_last_reading_and_saves_the_new_one(projects, n
 def test_the_wall_shows_the_meter_and_U_the_details(projects, no_usage_probe):
     import asyncio
 
-    from agentlens.tui import AgentlensApp, UsageScreen
+    from panopsis.tui import PanopsisApp, UsageScreen
 
     no_usage_probe.append(PRINTED)
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -173,15 +173,15 @@ def test_the_meter_shows_the_last_reading_before_the_first_check_answers(project
     import asyncio
     import threading
 
-    from agentlens.tui import AgentlensApp
+    from panopsis.tui import PanopsisApp
 
     now = datetime.now(timezone.utc)
     saved = Usage(checked=now - timedelta(minutes=5))
     saved.merge([Window("five_hour", 0.3, now + timedelta(hours=1))])
     usage.save_cached(saved)
     answer = threading.Event()
-    monkeypatch.setattr("agentlens.usage.run_probe", lambda claude, timeout=60: answer.wait(5) and "")
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    monkeypatch.setattr("panopsis.usage.run_probe", lambda claude, timeout=60: answer.wait(5) and "")
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -197,13 +197,13 @@ def test_a_zoomed_in_session_shows_the_meter_too(projects, no_usage_probe):
 
     from conftest import T0, common, human, text, write_jsonl
 
-    from agentlens.tui import AgentlensApp, UsageScreen, ZoomScreen
+    from panopsis.tui import PanopsisApp, UsageScreen, ZoomScreen
 
     write_jsonl(projects / "demo" / "s1.jsonl", common([human(0), text(1)], "s1"))
     entries = [{"sessionId": "s1", "status": "idle", "name": "s1", "kind": "interactive", "cwd": "D:\\work\\demo",
                 "startedAt": int(T0.timestamp() * 1000)}]
     no_usage_probe.append(PRINTED)
-    app = AgentlensApp(provider=lambda: entries, root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -218,7 +218,7 @@ def test_a_zoomed_in_session_shows_the_meter_too(projects, no_usage_probe):
             assert "Session" in str(meter.content) and "49%" in str(meter.content)
             assert meter.region.y == app.screen.query_one("#zoom-where").region.y  # top right, beside where it runs
             assert meter.region.right <= 160 and app.screen.query_one("#zoom-title").region.width > 150
-            app._rate_limit_seen([Window("five_hour", 0.8)])  # a session agentlens runs heard from Anthropic
+            app._rate_limit_seen([Window("five_hour", 0.8)])  # a session panopsis runs heard from Anthropic
             await pilot.pause()
             assert "80%" in str(meter.content)
             assert "80%" in str(app.query_one("#usage-meter").content)  # and the wall's, under the zoom
@@ -232,12 +232,12 @@ def test_a_zoomed_in_session_shows_the_meter_too(projects, no_usage_probe):
 def test_meter_can_be_turned_off(projects, monkeypatch):
     import asyncio
 
-    from agentlens.config import Config
-    from agentlens.tui import AgentlensApp
+    from panopsis.config import Config
+    from panopsis.tui import PanopsisApp
 
     calls = []
-    monkeypatch.setattr("agentlens.usage.run_probe", lambda claude, timeout=60: calls.append(1) or "")
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60, config=Config(usage_minutes=0))
+    monkeypatch.setattr("panopsis.usage.run_probe", lambda claude, timeout=60: calls.append(1) or "")
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60, config=Config(usage_minutes=0))
 
     async def go():
         async with app.run_test(size=(120, 30)) as pilot:
@@ -259,7 +259,7 @@ def test_probe_runs_claude_code_without_a_session_hooks_or_mcp(monkeypatch):
     cmd = calls[0]
     assert cmd[:3] == ["claude", "-p", "/usage"]
     assert {"--no-session-persistence", "--strict-mcp-config"} <= set(cmd)
-    assert cmd[cmd.index("-n") + 1] == "agentlens usage"  # so the grid can leave it out
+    assert cmd[cmd.index("-n") + 1] == "panopsis usage"  # so the grid can leave it out
     assert json.loads(cmd[cmd.index("--settings") + 1]) == {"disableAllHooks": True}
 
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "not logged in"))

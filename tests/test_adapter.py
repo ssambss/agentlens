@@ -3,8 +3,8 @@ import json
 import pytest
 from conftest import at, common, edit_result, human, notification, text, tool_result, tool_use, write_jsonl
 
-from agentlens.adapters.claude_transcripts import load_session, load_sessions
-from agentlens.model import AWAY, DELEGATED, DORMANT, MODEL, TOOL, WAITING_ON_BACKGROUND, WAITING_ON_YOU
+from panopsis.adapters.claude_transcripts import load_session, load_sessions
+from panopsis.model import AWAY, DELEGATED, DORMANT, MODEL, TOOL, WAITING_ON_BACKGROUND, WAITING_ON_YOU
 
 
 def kinds(run):

@@ -2,10 +2,10 @@ from collections import Counter
 
 from conftest import common, human, text, tool_result, tool_use, write_jsonl
 
-from agentlens import advise, work
-from agentlens.adapters.claude_transcripts import load_session
-from agentlens.preferences import Preferences
-from agentlens.profile import Profile
+from panopsis import advise, work
+from panopsis.adapters.claude_transcripts import load_session
+from panopsis.preferences import Preferences
+from panopsis.profile import Profile
 
 
 def session_in(projects, repo, session_id, title, files, minutes=5):

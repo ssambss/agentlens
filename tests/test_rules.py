@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from agentlens.metrics import baselines
-from agentlens.preferences import Preferences
-from agentlens.rules import (RuleError, builtin_pack_dir, evaluate, load_context, load_rules, stale_rules,
+from panopsis.metrics import baselines
+from panopsis.preferences import Preferences
+from panopsis.rules import (RuleError, builtin_pack_dir, evaluate, load_context, load_rules, stale_rules,
                              unknown_metrics)
 
 
@@ -143,8 +143,8 @@ def test_core_pack_only_uses_metrics_that_exist(tmp_path):
     """Catches typos in rule packs: every metric a rule names must be produced by metrics.py."""
     from conftest import common, human, text, tool_result, tool_use, write_jsonl
 
-    from agentlens.adapters.claude_transcripts import load_session
-    from agentlens.metrics import all_entities
+    from panopsis.adapters.claude_transcripts import load_session
+    from panopsis.metrics import all_entities
 
     projects = tmp_path / "projects"
     path = write_jsonl(projects / "demo" / "s.jsonl", common([human(0), text(1)]))

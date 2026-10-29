@@ -1,14 +1,14 @@
 """The slash-command menu's catalog: what it lists, in what order, and what it offers next."""
 
-from agentlens import commands
-from agentlens.commands import Catalog, Command, local_command
+from panopsis import commands
+from panopsis.commands import Catalog, Command, local_command
 
 
 def names(suggestions):
     return [s.command.name for s in suggestions]
 
 
-def test_lists_what_works_in_a_session_claude_code_runs_for_agentlens(server_info):
+def test_lists_what_works_in_a_session_claude_code_runs_for_panopsis(server_info):
     catalog = Catalog.from_server_info(server_info)
     listed = {c.name for c in catalog.commands}
     assert {"clear", "compact", "model", "engineering:code-review"} <= listed
@@ -22,7 +22,7 @@ def test_typing_narrows_the_list_name_first_then_aliases_words_and_descriptions(
     assert names(catalog.suggest("/mo")) == ["model"]
     assert names(catalog.suggest("/c"))[:3] == ["clear", "compact", "context"]
     assert names(catalog.suggest("/cost")) == ["usage"]  # an alias
-    assert catalog.suggest("/cost")[0].command.local  # agentlens's own /usage, not Claude Code's
+    assert catalog.suggest("/cost")[0].command.local  # panopsis's own /usage, not Claude Code's
     assert names(catalog.suggest("/review")) == ["engineering:code-review", "simplify"]  # a word, then description
     everything = names(catalog.suggest("/"))
     assert everything.index("engineering:code-review") > everything.index("simplify")  # built-ins first
@@ -45,7 +45,7 @@ def test_required_and_optional_arguments():
     assert not Command("context").needs_argument
 
 
-def test_commands_agentlens_handles_itself():
+def test_commands_panopsis_handles_itself():
     assert local_command("/usage").name == "usage"
     assert local_command("  /stats ").name == "usage"
     assert local_command("/exit").name == "exit" and local_command("/quit").name == "exit"

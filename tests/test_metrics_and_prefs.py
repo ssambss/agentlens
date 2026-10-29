@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import yaml
 
-from agentlens import preferences
-from agentlens.metrics import _minutes_at_or_above, _peak_overlap, percentile
+from panopsis import preferences
+from panopsis.metrics import _minutes_at_or_above, _peak_overlap, percentile
 
 T = datetime(2026, 10, 20, tzinfo=timezone.utc)
 
@@ -68,3 +68,20 @@ def test_unknown_preference_values_are_ignored(tmp_path):
     assert prefs.goals == ["speed"] and prefs.style == {"parallelism": "few"}
     assert prefs.ignored == ["goal 'fame' (options: speed, cost, quality, focus, learning)",
                              "steering 'wild' (options: close, balanced, autonomous)"]
+
+
+def test_what_agentlens_kept_comes_over_once_and_stays_for_a_running_agentlens(tmp_path, monkeypatch):
+    monkeypatch.delenv("PANOPSIS_HOME")
+    monkeypatch.setattr(preferences.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(preferences, "_carried", False)
+    old = tmp_path / ".agentlens"
+    (old / "history").mkdir(parents=True)
+    (old / "config.yaml").write_text("theme: nord\n", encoding="utf-8")
+    assert preferences.home() == tmp_path / ".panopsis"
+    assert (tmp_path / ".panopsis" / "config.yaml").read_text(encoding="utf-8") == "theme: nord\n"
+    assert (tmp_path / ".panopsis" / "history").is_dir() and (old / "config.yaml").exists()  # copied, not moved
+    assert not (tmp_path / ".panopsis.partial").exists()
+    (old / "config.yaml").write_text("theme: dracula\n", encoding="utf-8")
+    monkeypatch.setattr(preferences, "_carried", False)  # the next launch
+    preferences.home()
+    assert (tmp_path / ".panopsis" / "config.yaml").read_text(encoding="utf-8") == "theme: nord\n"  # only the once

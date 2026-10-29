@@ -2,9 +2,9 @@ import asyncio
 
 from textual.screen import UPDATE_PERIOD
 
-from agentlens.frames import FramePacer
-from agentlens.tui import AgentlensApp
-from agentlens.tui_keys import KeysScreen
+from panopsis.frames import FramePacer
+from panopsis.tui import PanopsisApp
+from panopsis.tui_keys import KeysScreen
 
 
 class FakeTimer:
@@ -85,7 +85,7 @@ def test_the_apps_screens_paint_through_the_pacer(tmp_path, monkeypatch):
     painted = []
     real_paint = FramePacer._paint
     monkeypatch.setattr(FramePacer, "_paint", lambda self: painted.append(type(self.screen).__name__) or real_paint(self))
-    app = AgentlensApp(provider=lambda: [], root=tmp_path / "projects", interval=60)
+    app = PanopsisApp(provider=lambda: [], root=tmp_path / "projects", interval=60)
 
     async def go():
         async with app.run_test(size=(120, 40)) as pilot:

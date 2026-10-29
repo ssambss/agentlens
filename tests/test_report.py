@@ -5,12 +5,12 @@ from datetime import datetime, timedelta, timezone
 from conftest import plain
 from rich.console import Group
 
-from agentlens import profile as profile_mod, trend as trend_mod
-from agentlens.metrics import all_entities, baselines, scripted_runs
-from agentlens.model import MODEL, AgentRun, Session, Span
-from agentlens.preferences import Preferences
-from agentlens.report import findings_parts, report_parts
-from agentlens.rules import builtin_pack_dir, evaluate, group_findings, load_rules
+from panopsis import profile as profile_mod, trend as trend_mod
+from panopsis.metrics import all_entities, baselines, scripted_runs
+from panopsis.model import MODEL, AgentRun, Session, Span
+from panopsis.preferences import Preferences
+from panopsis.report import findings_parts, report_parts
+from panopsis.rules import builtin_pack_dir, evaluate, group_findings, load_rules
 
 T = datetime(2026, 10, 20, 9, 0, tzinfo=timezone.utc)
 
@@ -61,9 +61,9 @@ def test_your_own_question_in_a_project_beside_a_batch_is_kept():
     # The batch's folder and your repo share a parent; your repo has history of its own, so the
     # parent's burst doesn't take your question in.
     batch = burst("b", 10, cwd=lambda i: "C:\\Users\\me\\Desktop\\AcmeStack")
-    yours = [session(f"y{i}", T - timedelta(days=i + 1), prompts=3, cwd="C:\\Users\\me\\Desktop\\agentlens")
+    yours = [session(f"y{i}", T - timedelta(days=i + 1), prompts=3, cwd="C:\\Users\\me\\Desktop\\panopsis")
              for i in range(10)]
-    question = session("q", T + timedelta(minutes=10), cwd="c:\\Users\\me\\Desktop\\agentlens")  # VS Code's c:
+    question = session("q", T + timedelta(minutes=10), cwd="c:\\Users\\me\\Desktop\\panopsis")  # VS Code's c:
     assert scripted_runs([*batch, *yours, question]) == {s.id for s in batch}
 
 

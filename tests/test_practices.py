@@ -6,12 +6,12 @@ from datetime import timedelta
 import pytest
 from conftest import T0
 
-from agentlens import advise, cli, curate, features, work
-from agentlens import profile as profile_mod
-from agentlens.metrics import all_entities, session_metrics, subagent_metrics
-from agentlens.preferences import Preferences
-from agentlens.model import AgentRun, Session
-from agentlens.rules import Finding, RuleError, builtin_pack_dir, load_context, load_rules, version_tuple
+from panopsis import advise, cli, curate, features, work
+from panopsis import profile as profile_mod
+from panopsis.metrics import all_entities, session_metrics, subagent_metrics
+from panopsis.preferences import Preferences
+from panopsis.model import AgentRun, Session
+from panopsis.rules import Finding, RuleError, builtin_pack_dir, load_context, load_rules, version_tuple
 
 
 def run(run_id: str, agent_type: str, start: float, end: float, background: bool = False,
@@ -194,7 +194,7 @@ def test_enabled_plugins_say_where_they_came_from_and_what_they_provide(tmp_path
     skill = next(line for line in lines if line.startswith("  - skill conventions: "))  # named by its folder
     assert skill.endswith(" ...") and len(skill) < 200  # a long description is cut to a line
     assert "  - command babysit" in lines
-    assert work.describe_plugin(local) == ["- local: nothing agentlens can see"]
+    assert work.describe_plugin(local) == ["- local: nothing panopsis can see"]
     sessions = [pipeline_session()]
     prompt = advise.build_prompt(profile_mod.build(sessions, all_entities(sessions), Preferences()), Preferences(),
                                  [], [], sessions)

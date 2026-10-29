@@ -1,5 +1,5 @@
 [project]
-name = "agentlens"
+name = "panopsis"
 version = "0.1.0"
 description = "See how you work with Claude Code agents, and get personalized advice on doing it better"
 readme = "README.md"
@@ -14,14 +14,14 @@ dependencies = [
 ]
 
 [project.scripts]
-agentlens = "agentlens.cli:main"
+panopsis = "panopsis.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentlens"]
+packages = ["src/panopsis"]
 
 [dependency-groups]
 dev = ["pytest>=8"]

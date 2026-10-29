@@ -6,9 +6,9 @@ import os
 import pytest
 from PIL import Image, ImageGrab
 
-from agentlens import clipboard
-from agentlens.clipboard import MAX_BYTES, MAX_EDGE, NoImage, encode
-from agentlens.clipboard import paste_image as real_paste_image  # conftest stands in for it in the app
+from panopsis import clipboard
+from panopsis.clipboard import MAX_BYTES, MAX_EDGE, NoImage, encode
+from panopsis.clipboard import paste_image as real_paste_image  # conftest stands in for it in the app
 
 
 def test_a_big_screenshot_is_shrunk_to_the_long_edge_claude_takes_in_many_image_requests():

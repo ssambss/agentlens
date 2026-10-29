@@ -11,22 +11,22 @@ from rich.console import Console
 from textual.color import Color
 from textual.widgets import Checkbox, Input, Select, Static
 
-from agentlens import advise, tui
-from agentlens import analysis as analysis_mod
-from agentlens import config as config_mod
-from agentlens import editor as editor_mod
-from agentlens import feed as feed_mod
-from agentlens import preferences
-from agentlens.adapters.claude_transcripts import extract_events, load_tail
-from agentlens.driver import STARTING
-from agentlens.feed import Palette, _clip_lines, activity_log, collapse_repeats, conversation, tools_summary
-from agentlens.live import QUESTION, WAITING, WORKING, LiveSession
-from agentlens.model import Event
-from agentlens.tui_settings import SettingsScreen
-from agentlens.tui import (
+from panopsis import advise, tui
+from panopsis import analysis as analysis_mod
+from panopsis import config as config_mod
+from panopsis import editor as editor_mod
+from panopsis import feed as feed_mod
+from panopsis import preferences
+from panopsis.adapters.claude_transcripts import extract_events, load_tail
+from panopsis.driver import STARTING
+from panopsis.feed import Palette, _clip_lines, activity_log, collapse_repeats, conversation, tools_summary
+from panopsis.live import QUESTION, WAITING, WORKING, LiveSession
+from panopsis.model import Event
+from panopsis.tui_settings import SettingsScreen
+from panopsis.tui import (
     ALL,
     AdviseScreen,
-    AgentlensApp,
+    PanopsisApp,
     Feed,
     HistoryScreen,
     KeyFooter,
@@ -66,7 +66,7 @@ def run_app(app, steps, size=(160, 40)):
 def test_grid_navigation_zoom_and_filter(projects):
     make_projects(projects)
     entries = [entry("busy", "busy", 0), entry("waiting", "idle", 1), entry("other", "idle", 2, "D:\\work\\other")]
-    app = AgentlensApp(provider=lambda: entries, root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
 
     async def steps(app, pilot):
         panes = list(app.query(SessionPane))
@@ -99,14 +99,14 @@ def test_the_wall_says_it_is_looking_until_the_first_listing_is_in(projects, mon
 
     make_projects(projects)
     release, events = threading.Event(), []
-    monkeypatch.setattr("agentlens.usage.run_probe", lambda claude, timeout=60: events.append("usage") or "")
+    monkeypatch.setattr("panopsis.usage.run_probe", lambda claude, timeout=60: events.append("usage") or "")
 
     def provider():
         release.wait(5)
         events.append("listed")
         return [entry("waiting", "idle", 0)]
 
-    app = AgentlensApp(provider=provider, root=projects, interval=60)
+    app = PanopsisApp(provider=provider, root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 40)) as pilot:
@@ -136,7 +136,7 @@ def test_refreshes_run_one_at_a_time(projects):
         return [entry("waiting", "idle", 0)]
 
     make_projects(projects)
-    app = AgentlensApp(provider=provider, root=projects, interval=60)
+    app = PanopsisApp(provider=provider, root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 40)) as pilot:
@@ -160,7 +160,7 @@ def test_a_failed_first_listing_stops_the_wall_looking(projects, monkeypatch):
     def provider():
         raise RuntimeError("`claude` CLI not found on PATH")
 
-    app = AgentlensApp(provider=provider, root=projects, interval=60)
+    app = PanopsisApp(provider=provider, root=projects, interval=60)
     errors = []
     monkeypatch.setattr(app, "notify", lambda message, **kw: errors.append((kw.get("title"), message)))
 
@@ -171,26 +171,26 @@ def test_a_failed_first_listing_stops_the_wall_looking(projects, monkeypatch):
 
 
 def test_startup_timings_say_when_each_step_finished(projects, monkeypatch):
-    # AGENTLENS_TIMINGS=1, for finding out why sessions are slow to show on one machine.
-    from agentlens import live, timings
+    # PANOPSIS_TIMINGS=1, for finding out why sessions are slow to show on one machine.
+    from panopsis import live, timings
 
     make_projects(projects)
     monkeypatch.setattr(timings, "ENABLED", True)
     monkeypatch.setattr(timings, "_marks", [])
     monkeypatch.setattr(live, "open_sessions", lambda: [entry("waiting", "idle", 0)])
-    app = AgentlensApp(provider=live.EarlyListing(), root=projects, interval=60)
+    app = PanopsisApp(provider=live.EarlyListing(), root=projects, interval=60)
 
     async def steps(app, pilot):
         noted = [what.split(", after ")[0] for _, what in sorted(timings._marks)]
         assert sorted(noted) == sorted([
             "`claude agents --json` answered", "wall drawn", "transcripts' ends read, 1 session",
-            "restored 0 sessions agentlens ran last time", "sessions on the wall",
+            "restored 0 sessions panopsis ran last time", "sessions on the wall",
             "transcripts read in full, 1 session", "all of them filled in", "usage check answered"])
         assert noted.index("wall drawn") < noted.index("sessions on the wall")
         assert noted.index("transcripts' ends read, 1 session") < noted.index("transcripts read in full, 1 session")
         assert noted.index("sessions on the wall") < noted.index("all of them filled in")
         lines = timings.report().splitlines()
-        assert lines[0] == "agentlens startup, in seconds since its code began loading:" and len(lines) == 9
+        assert lines[0] == "panopsis startup, in seconds since its code began loading:" and len(lines) == 9
 
     run_app(app, steps)
 
@@ -201,7 +201,7 @@ def test_the_alert_for_a_session_that_needs_you_names_it_by_its_title(projects):
         human(0, "please make the build faster"), text(1), {"type": "ai-title", "aiTitle": "Demo build speedup"},
     ], "titled", cwd="D:\\work\\demo\\.claude\\worktrees\\speed"))
     entries = [entry("busy", "busy", 0), entry("titled", "busy", 1)]
-    app = AgentlensApp(provider=lambda: list(entries), root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: list(entries), root=projects, interval=60)
 
     async def steps(app, pilot):
         entries[1] = entry("titled", "idle", 1)  # its turn ended while you're on the other pane
@@ -218,7 +218,7 @@ def test_the_alert_for_a_session_that_needs_you_names_it_by_its_title(projects):
 def test_moving_between_panes_repaints_only_what_changes(projects, monkeypatch):
     make_projects(projects)
     background = dict(entry("other", "idle", 2, "D:\\work\\other"), kind="background")
-    app = AgentlensApp(provider=lambda: [entry("busy", "busy", 0), entry("waiting", "idle", 1), background],
+    app = PanopsisApp(provider=lambda: [entry("busy", "busy", 0), entry("waiting", "idle", 1), background],
                        root=projects, interval=60)
     rebuilt, whole_screen = [], []
     real_recompose, real_refresh = KeyFooter.recompose, WallScreen.refresh
@@ -253,7 +253,7 @@ def test_moving_between_panes_repaints_only_what_changes(projects, monkeypatch):
 
 def test_the_footer_offers_spaces_settings_and_the_command_search(projects):
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
 
     async def steps(app, pilot):
         shown = {getattr(key, "key", None): getattr(key, "description", None)
@@ -268,7 +268,7 @@ def test_the_footer_offers_spaces_settings_and_the_command_search(projects):
 def test_a_pane_follows_its_conversation_unless_you_scroll_up(projects):
     records = common([human(0, "go")] + [text(1 + i / 10, f"step {i}") for i in range(30)], "long")
     path = write_jsonl(projects / "demo" / "long.jsonl", records)
-    app = AgentlensApp(provider=lambda: [entry("long", "busy", 0)], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [entry("long", "busy", 0)], root=projects, interval=60)
 
     async def more(app, pilot, label):
         records.extend(common([text(10 + len(records) / 10, f"{label} {i}") for i in range(3)], "long"))
@@ -305,7 +305,7 @@ def test_colours_come_from_the_settings_file(projects, tmp_path):
     cfg = config_mod.load(cfg.path)
     assert cfg.colors["selected"] == "#ff00ff" and cfg.colors["claude"] == "$primary"  # unset ones keep the theme
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
 
     async def steps(app, pilot):
         pane = app.query_one(SessionPane)
@@ -319,7 +319,7 @@ def test_colours_come_from_the_settings_file(projects, tmp_path):
 def test_settings_screen_changes_the_look_as_you_pick(projects, tmp_path, isolated_home):
     cfg = config_mod.Config(path=tmp_path / "config.yaml")
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
 
     async def steps(app, pilot):
         await pilot.press("question_mark")
@@ -375,7 +375,7 @@ def test_findings_and_advice_are_off_until_the_settings_turn_them_on(projects, t
     make_projects(projects)
     monkeypatch.setattr(tui, "PRELOAD_SECONDS", 0)
     cfg = config_mod.Config(path=tmp_path / "config.yaml")
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
 
     async def steps(app, pilot):
         await pilot.pause(0.3)
@@ -409,7 +409,7 @@ def test_findings_and_advice_are_off_until_the_settings_turn_them_on(projects, t
 def test_settings_screen_picks_your_editor(projects, tmp_path, isolated_home, monkeypatch):
     cfg = config_mod.Config(path=tmp_path / "config.yaml")
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
     monkeypatch.setattr(editor_mod.shutil, "which", {"code": "C:/bin/code.cmd", "hx": "/bin/hx"}.get)
     monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.delenv("EDITOR", raising=False)
@@ -489,7 +489,7 @@ def test_looks_read_on_their_own_background_and_textual_darks():
 def test_a_look_as_the_theme_colours_the_whole_app(projects, tmp_path):
     cfg = config_mod.Config(path=tmp_path / "config.yaml", theme="oxblood")
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
 
     async def steps(app, pilot):
         oxblood = config_mod.LOOKS["oxblood"]
@@ -512,7 +512,7 @@ def test_settings_keep_your_own_colours_to_go_back_to(projects, tmp_path):
     cfg = config_mod.Config(path=tmp_path / "config.yaml")
     cfg.colors["selected"] = "#ff00ff"
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
 
     async def steps(app, pilot):
         await pilot.press("comma")
@@ -546,7 +546,7 @@ def test_zoom_maps_subagents_without_their_details(projects):
     write_jsonl(subs / "agent-c.jsonl", common([tool_use(29.5, "Bash", "x", command="make test")], "waiting"))
     (subs / "agent-c.meta.json").write_text(json.dumps(
         {"description": "Run the tests", "toolUseId": "c", "requestShape": "background"}), encoding="utf-8")
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
 
     async def steps(app, pilot):
         await pilot.press("enter")
@@ -571,7 +571,7 @@ def test_zoom_lists_changed_files_and_opens_them_in_your_editor(projects, tmp_pa
     ], "waiting", cwd=str(repo)))
     (repo / "docs").mkdir()
     (repo / "docs" / "b.md").write_text("# b", encoding="utf-8")  # a.py has been deleted since
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0, cwd=str(repo))], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0, cwd=str(repo))], root=projects, interval=60)
     launched = []
     app.launch_editor = launched.append
     monkeypatch.setattr(editor_mod.shutil, "which", {"code": "code"}.get)
@@ -601,7 +601,7 @@ def test_zoom_side_column_works_from_the_keyboard(projects, tmp_path):
         human(0), tool_use(1, "Edit", "e1", file_path=a), edit_result(2, "e1", a, new_start=3),
         tool_use(3, "Edit", "e2", file_path=b), edit_result(4, "e2", b, new_start=7), text(5)], "waiting"))
     write_jsonl(projects / "demo" / "busy.jsonl", common([human(0), text(1)], "busy"))  # changed nothing
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0), entry("busy", "idle", 1)], root=projects,
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0), entry("busy", "idle", 1)], root=projects,
                        interval=60)
 
     def focused_id():
@@ -654,11 +654,11 @@ def clock(minutes):
 
 
 def test_a_session_that_just_connected_is_ready_not_waiting_on_you(projects):
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
 
     async def steps(app, pilot):
         app.bell = lambda: None
-        session = LiveSession("new-1", "d-1", "demo", "Fix the build", "agentlens", STARTING, None, "")
+        session = LiveSession("new-1", "d-1", "demo", "Fix the build", "panopsis", STARTING, None, "")
         for state in (STARTING, WAITING, WORKING, WAITING):  # brought here, then a turn you asked for
             session.state = state
             app._notify_if_needed(session)
@@ -671,7 +671,7 @@ def test_a_session_that_just_connected_is_ready_not_waiting_on_you(projects):
 def test_spaces_group_by_repo_and_can_be_assigned(projects, isolated_home):
     make_projects(projects)
     entries = [entry("busy", "busy", 0), entry("waiting", "idle", 1), entry("other", "idle", 2, "D:\\work\\other")]
-    app = AgentlensApp(provider=lambda: entries, root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
 
     async def steps(app, pilot):
         assert app.space_names() == [ALL, "demo", "other"]
@@ -698,7 +698,7 @@ def test_spaces_group_by_repo_and_can_be_assigned(projects, isolated_home):
 def test_spaces_list_works_from_the_keyboard(projects):
     make_projects(projects)
     entries = [entry("busy", "busy", 0), entry("waiting", "idle", 1), entry("other", "idle", 2, "D:\\work\\other")]
-    app = AgentlensApp(provider=lambda: entries, root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
 
     async def steps(app, pilot):
         tree = app.query_one(SpacesTree)
@@ -736,11 +736,11 @@ async def finish_turn(app, pilot, entries, index):
 def test_first_look_shows_the_panes_then_fills_them_in_without_false_alerts(projects, monkeypatch):
     # The first look reads too little of "asking" to find a whole record, so it seems to be just
     # starting; the full read finds the question it was already asking. That's no news to alert.
-    monkeypatch.setattr("agentlens.tui.QUICK_TAIL_BYTES", 10)
+    monkeypatch.setattr("panopsis.tui.QUICK_TAIL_BYTES", 10)
     make_projects(projects)
     write_jsonl(projects / "demo" / "asking.jsonl",
                 common([human(0), tool_use(1, "AskUserQuestion", "q1")], "asking"))
-    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0), entry("asking", "busy", 1)],
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0), entry("asking", "busy", 1)],
                        root=projects, interval=60)
     applied = []
     apply = app._apply
@@ -762,7 +762,7 @@ def test_first_look_shows_the_panes_then_fills_them_in_without_false_alerts(proj
 def test_clicking_an_alert_opens_its_session(projects):
     make_projects(projects)
     entries = [entry("waiting", "idle", 0), entry("busy", "busy", 1)]
-    app = AgentlensApp(provider=lambda: entries, root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 40), notifications=True) as pilot:
@@ -786,7 +786,7 @@ def test_clicking_an_alert_opens_its_session(projects):
 def test_j_takes_down_the_alert_it_follows(projects):
     make_projects(projects)
     entries = [entry("waiting", "idle", 0), entry("busy", "busy", 1), entry("other", "busy", 2, "D:\\work\\other")]
-    app = AgentlensApp(provider=lambda: entries, root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
 
     def toasts():
         return [toast._notification for toast in app.screen.query("Toast")]
@@ -817,7 +817,7 @@ def test_j_takes_down_the_alert_it_follows(projects):
 def test_j_goes_to_the_newest_alert_then_each_session_that_needs_you(projects):
     make_projects(projects)
     entries = [entry("waiting", "busy", 0), entry("busy", "busy", 1), entry("other", "busy", 2, "D:\\work\\other")]
-    app = AgentlensApp(provider=lambda: entries, root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
 
     async def steps(app, pilot):
         await pilot.press("right_square_bracket")  # the demo space
@@ -850,7 +850,7 @@ def test_j_goes_to_the_newest_alert_then_each_session_that_needs_you(projects):
 
 def test_report_and_history_screens_read_full_history(projects):
     make_projects(projects)  # sessions from a while ago: History looks at all of it here
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60,
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60,
                        config=config_mod.Config(history_days=0, findings_and_advice=True))
 
     async def steps(app, pilot):
@@ -879,7 +879,7 @@ def test_history_reads_the_past_week_and_m_reaches_further_back(projects, monkey
     import os
     from datetime import timezone
 
-    from agentlens.adapters import claude_transcripts
+    from panopsis.adapters import claude_transcripts
 
     now = datetime.now(timezone.utc)
     for sid, days in (("yesterday", 1), ("last-month", 20), ("long-ago", 200)):
@@ -892,7 +892,7 @@ def test_history_reads_the_past_week_and_m_reaches_further_back(projects, monkey
     read, load = [], claude_transcripts.load_session
     monkeypatch.setattr(claude_transcripts, "load_session", lambda path, *a, **k: read.append(path.stem) or
                         load(path, *a, **k))
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
 
     async def listed(pilot):
         for _ in range(100):
@@ -926,15 +926,15 @@ def test_history_reads_the_past_week_and_m_reaches_further_back(projects, monkey
 def test_history_keeps_a_session_claude_code_deleted_but_cant_continue_it(projects):
     make_projects(projects)
     cfg = config_mod.Config(history_days=0)
-    first = AgentlensApp(provider=lambda: [], root=projects, interval=60, config=cfg)
+    first = PanopsisApp(provider=lambda: [], root=projects, interval=60, config=cfg)
 
     async def read_once(app, pilot):
         await pilot.press("H")
         await pilot.pause(0.5)
 
-    run_app(first, read_once)  # what agentlens kept of them
+    run_app(first, read_once)  # what panopsis kept of them
     (projects / "demo" / "waiting.jsonl").unlink()  # Claude Code's cleanup, 30 days on
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60, config=cfg)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60, config=cfg)
     notes = []
 
     async def steps(app, pilot):
@@ -964,7 +964,7 @@ def test_fresh_advice_follows_up_on_the_last_and_both_are_kept(projects, monkeyp
     advise.save("1. Plan first.", at=datetime(2026, 10, 19, 9, 0))
     prompts = []
     monkeypatch.setattr(advise, "run", lambda prompt, model=None, **kw: prompts.append(prompt) or "1. Fork instead.")
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
 
     async def steps(app, pilot):
         await pilot.press("A")
@@ -996,7 +996,7 @@ def test_while_claude_writes_advice_the_screen_lists_what_it_is_on(projects, mon
         return "1. Fork instead."
 
     monkeypatch.setattr(advise, "run", run)
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
 
     async def steps(app, pilot):
         await pilot.press("A")
@@ -1030,7 +1030,7 @@ def test_history_is_read_once_the_wall_is_filled_in_so_report_screens_open_at_on
     builds = []
     build = analysis_mod.build
     monkeypatch.setattr(analysis_mod, "build", lambda *a, **k: builds.append(1) or build(*a, **k))
-    app = AgentlensApp(provider=lambda: [entry("busy", "busy", 0)], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [entry("busy", "busy", 0)], root=projects, interval=60)
 
     async def steps(app, pilot):
         await pilot.pause(0.3)
@@ -1053,7 +1053,7 @@ def test_a_screen_on_history_read_a_while_ago_shows_it_at_once_and_again_if_it_c
     populate = ProfileScreen.populate
     monkeypatch.setattr(ProfileScreen, "populate",
                         lambda self, data: populated.append(len(data.sessions)) or populate(self, data))
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
 
     async def reopen(pilot):
         await pilot.press("escape")
@@ -1093,7 +1093,7 @@ def test_a_screen_on_history_read_a_while_ago_shows_it_at_once_and_again_if_it_c
 @pytest.mark.usefixtures("findings_and_advice")
 def test_reading_history_shows_how_far_it_got_and_why_it_is_slower_after_an_update(projects, monkeypatch):
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
     monkeypatch.setattr(app, "_build_analysis", lambda: None)  # keep the history read pending
 
     async def steps(app, pilot):
@@ -1119,7 +1119,7 @@ def test_reading_history_shows_how_far_it_got_and_why_it_is_slower_after_an_upda
 @pytest.mark.usefixtures("findings_and_advice")
 def test_closing_a_screen_before_history_loads_does_not_crash(projects, monkeypatch):
     make_projects(projects)
-    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
     monkeypatch.setattr(app, "_build_analysis", lambda: None)  # keep the history read pending
 
     async def steps(app, pilot):
