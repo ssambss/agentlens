@@ -342,3 +342,8 @@ Sessions read before a format change keep reading the same after it, and History
 report reach back past Claude Code's 30 days. A hook plugin writing events in that format
 could add to the adapter later; it can't replace it, since hooks don't carry Claude's
 replies or token counts.
+
+## License
+
+[MIT](LICENSE): free to use, change and share, for anything, commercial or not. Keep the
+copyright notice with copies. It comes with no warranty.
