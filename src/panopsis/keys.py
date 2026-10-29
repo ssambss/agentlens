@@ -59,8 +59,8 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
         Action("claude-code", "c", "open it in full Claude Code; quit that to come back. In History, a past one",
                frozenset({APP, "history"})),
         Action("move-to-space", "g", "move it to a space"),
-        Action("close", "w,delete", "close it, once you've said so again (stops a background session, hides a "
-               "VS Code one)"),
+        Action("close", "w,delete", "close it, once you've said so again (stops a background session, hides "
+               "one in a terminal or an editor)"),
     ]),
     ("Zoomed in", [
         Fixed("→  ←", "over to the files it changed and its subagents, and back"),

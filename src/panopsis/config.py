@@ -193,7 +193,7 @@ class Config:
     spaces: list[Space] = field(default_factory=list)
     # Sessions panopsis runs, restored (paused) on the next launch until you end or detach them.
     driven_sessions: list[dict] = field(default_factory=list)
-    hidden_sessions: list[str] = field(default_factory=list)  # panes you closed that belong to VS Code etc.
+    hidden_sessions: list[str] = field(default_factory=list)  # panes you closed that a terminal or an editor has
     path: Path | None = None
 
     def space_for(self, session_id: str, cwd: str, title: str) -> str:

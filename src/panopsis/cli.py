@@ -80,7 +80,7 @@ def _parser() -> argparse.ArgumentParser:
             p.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Claude Code projects directory")
         return p
 
-    p = add("watch", cmd_watch, "Monitoring wall of every open session, VS Code ones included", data=False)
+    p = add("watch", cmd_watch, "Monitoring wall of every open Claude Code session, wherever it runs", data=False)
     p.add_argument("--interval", type=float, default=2.0, help="seconds between refreshes")
     p.add_argument("--once", action="store_true", help="print a one-off table instead of the full-screen view")
     p.add_argument("--project", help="only projects whose name contains this text")

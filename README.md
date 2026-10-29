@@ -4,8 +4,9 @@ Every Claude Code session you have open, on one screen in your terminal: which o
 you, what each is doing and has changed, and how much of your plan's limits you've used.
 The name is Greek for seeing everything at once.
 
-- **A live wall** of every open session, VS Code ones included, grouped into spaces by
-  repository. When one starts needing you it rings and lights up, and `j` takes you there.
+- **A live wall** of every open session, wherever it runs: a terminal, an editor or the
+  background. Grouped into spaces by repository. When one starts needing you it rings and
+  lights up, and `j` takes you there.
 - **Sessions you start here** (experimental): type into them, answer their questions and
   permission prompts, and hand them to Claude Code's background service and back.
 - **History** of every past session, to read again or continue.
@@ -59,7 +60,7 @@ changed.
 | `j`, `f` | go to a session that needs you; show only those |
 | `[` `]`, `g` | previous / next space; move a session to a space |
 | `E`, `y` | open the session's repo or worktree in your editor; copy Claude's last reply |
-| `w` | close a session you're done with (`w` again confirms): a background one stops, a VS Code one is hidden |
+| `w` | close a session you're done with (`w` again confirms): a background one stops, one in a terminal or an editor is hidden |
 | `v`, `t` | conversation or one line per event; tool calls on or off |
 | `H` | history |
 | `R` `A` `P` `L` | report, advice, profile, rules, once [turned on](#findings-and-advice-experimental) |
@@ -139,7 +140,7 @@ Code, JetBrains Mono) at 11-12 pt, with a line height around 1.2, reads well.
 
 `n` starts a session in a folder you pick; `o` in History continues a past one. They run
 your own installed, unmodified `claude` headless through the Agent SDK, with Claude Code's
-own system prompt, tools and settings, so they behave like your VS Code sessions.
+own system prompt, tools and settings, so they behave like your other sessions.
 panopsis never reads or passes credentials.
 
 | Key | Does |
@@ -172,7 +173,8 @@ panopsis never reads or passes credentials.
 - Detaching needs a folder terminal Claude Code trusts, which your home folder never is.
   For a project folder, Ctrl+T in the detach dialog opens Claude Code there so you can
   accept its trust prompt once.
-- A session open in VS Code can't also be driven from here. Close it there first.
+- A session open in a terminal or an editor can't also be driven from here. Close it
+  there first.
 
 **Your Claude login:** these sessions use your own `claude` sign-in, made through
 Anthropic's own flow. panopsis never signs you in, and never reads, stores or passes on a

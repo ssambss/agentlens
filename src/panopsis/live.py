@@ -1,5 +1,5 @@
-"""Live view of every open Claude Code session, including the interactive VS Code and
-terminal sessions that Agent View (`claude agents`) leaves out until they're backgrounded.
+"""Live view of every open Claude Code session, including the interactive ones in a terminal
+or an editor that Agent View (`claude agents`) leaves out until they're backgrounded.
 
 Which sessions are open comes from `claude agents --json`, which is documented and
 lists interactive and background sessions. What each one is doing comes from the

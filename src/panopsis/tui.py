@@ -1606,7 +1606,7 @@ class PanopsisApp(App):
                 return False
             if action in ("bring_here", "attach"):
                 return focused.kind == "background"
-            return True  # close works on every pane: ends, stops, or hides a VS Code one
+            return True  # close works on every pane: ends, stops, or hides one in a terminal or an editor
         if action in self.DRIVEN_ONLY:
             driven = self._focused_driven(strict=True) if (on_wall or in_zoom) else None
             if driven is None:
@@ -1886,7 +1886,7 @@ class PanopsisApp(App):
                     resume: str | None = None, title: str = "", force: bool = False, start: bool = True,
                     apply: bool = True, focus: bool = True) -> DrivenSession | None:
         if resume and not force and resume in {s.session_id for s in self._monitored}:
-            self.notify("That session is open somewhere else (VS Code or a terminal). Close it there first, "
+            self.notify("That session is open somewhere else (a terminal or an editor). Close it there first, "
                         "so two clients don't write to it at once.", title="Already open", severity="warning")
             return None
         if not cwd or not Path(cwd).is_dir():
@@ -2168,9 +2168,10 @@ class PanopsisApp(App):
         return self.config.cli_path or shutil.which("claude")
 
     def action_end_session(self) -> None:
-        """Close a session you're done with, like closing a chat in VS Code. Conversations stay in
-        History. A session panopsis runs ends; a background one stops; one that VS Code owns is
-        hidden from the wall (VS Code keeps it open). It always asks first: one stray key would do it."""
+        """Close a session you're done with, like closing a chat in your editor. Conversations stay in
+        History. A session panopsis runs ends; a background one stops; one open in a terminal or
+        an editor is hidden from the wall (it stays open there). It always asks first: one stray
+        key would do it."""
         session = self._focused_session()
         if session is None:
             return
@@ -2182,7 +2183,7 @@ class PanopsisApp(App):
             body = (f"It stops working; the conversation is kept, and {keys_mod.name('bring-here')} brings it here "
                     f"or {keys_mod.name('attach')} opens it in Claude Code.")
         else:
-            body = ("It stays open in VS Code (or its terminal); this only takes it off the wall. "
+            body = ("It stays open in its terminal or editor; this only takes it off the wall. "
                     "Ctrl+P > Show hidden sessions brings it back.")
 
         def chosen(choice: str | None) -> None:
@@ -2202,7 +2203,7 @@ class PanopsisApp(App):
         self.config.hidden_sessions.append(session.session_id)
         self._save_config()
         self._apply(self._monitored, datetime.now(timezone.utc))
-        self.notify("It's still open in VS Code (or its terminal); close it there to end it. "
+        self.notify("It's still open in its terminal or editor; close it there to end it. "
                     "Ctrl+P > Show hidden sessions brings it back here.", title="Hidden from the wall",
                     timeout=6)
 
@@ -2293,7 +2294,7 @@ class PanopsisApp(App):
         # Claude Code continues a session in place only if nothing else has it open.
         await self._end_driven(driven, quiet=True)
         if not instruction:
-            self.notify("Continue it any time: History (o here, c in Claude Code) or VS Code.",
+            self.notify("Continue it any time: History (o here, c in Claude Code) or your editor.",
                         title="Released", timeout=6)
             return True
         ok, output = await asyncio.to_thread(background_resume, self._claude(), session_id, cwd, mode, instruction)
@@ -2403,7 +2404,7 @@ class PanopsisApp(App):
         if session.kind == "background":
             self.action_attach()
             return
-        self.notify("This session is open in VS Code or another terminal; switch to it there.", title=session.label)
+        self.notify("This session is open in a terminal or an editor; switch to it there.", title=session.label)
 
     async def _handoff_driven(self, driven: DrivenSession) -> None:
         if isinstance(self.screen, ZoomScreen):
@@ -2826,7 +2827,7 @@ class PanopsisApp(App):
             return
         if session.kind != "background":
             self.notify(
-                "This is an interactive session; switch to it in VS Code or its terminal. "
+                "This is an interactive session; switch to it in its terminal or editor. "
                 "Run /bg in it to make it attachable from here.",
                 title=session.label,
             )
@@ -3096,9 +3097,10 @@ class PanopsisApp(App):
             ("New session", "Start a session panopsis runs, in a folder you pick", self.action_new_session),
             ("Detach this session", "Hand it to Claude Code's background service so it keeps working",
              self.action_detach),
-            ("Close this session", "Done with it, like closing a chat in VS Code; it stays in History",
+            ("Close this session", "Done with it, like closing a chat in your editor; it stays in History",
              self.action_end_session),
-            ("Show hidden sessions", "Bring back VS Code sessions you closed from the wall", self.action_show_hidden),
+            ("Show hidden sessions", "Bring back terminal and editor sessions you closed from the wall",
+             self.action_show_hidden),
             ("Stop the current turn", "Interrupt what Claude is doing right now", self.action_interrupt),
             ("Bring this session here", "Take a background session back into panopsis", self.action_bring_here),
             ("Open this session in Claude Code", "Full Claude Code in this terminal; quit it to come back",

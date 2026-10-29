@@ -3,7 +3,7 @@
 Each session runs your own installed, unmodified `claude` in headless mode (through the
 Agent SDK, which speaks Claude Code's stream-json protocol), with the Claude Code
 system prompt, tools and your user/project/local settings, so it behaves like the
-sessions you run in VS Code. panopsis never reads or passes credentials: `claude`
+sessions you run elsewhere. panopsis never reads or passes credentials: `claude`
 uses whatever sign-in you completed through Anthropic's own flow.
 
 Policy note (see README): panopsis never signs anyone in or handles a login. Each person's
@@ -219,7 +219,7 @@ class DrivenSession:
             include_partial_messages=True,
             can_use_tool=self._can_use_tool,
             # Behave like Claude Code: its system prompt and tools, and the same settings,
-            # CLAUDE.md, skills and permission rules your VS Code sessions load.
+            # CLAUDE.md, skills and permission rules your other sessions load.
             system_prompt={"type": "preset", "preset": "claude_code"},
             tools={"type": "preset", "preset": "claude_code"},
             setting_sources=["user", "project", "local"],
