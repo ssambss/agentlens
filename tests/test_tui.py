@@ -20,7 +20,7 @@ from panopsis import preferences
 from panopsis.adapters.claude_transcripts import extract_events, load_tail
 from panopsis.driver import STARTING
 from panopsis.feed import Palette, _clip_lines, activity_log, collapse_repeats, conversation, tools_summary
-from panopsis.live import QUESTION, WAITING, WORKING, LiveSession
+from panopsis.live import BACKGROUND, QUESTION, WAITING, WORKING, LiveSession
 from panopsis.model import Event
 from panopsis.tui_settings import SettingsScreen
 from panopsis.tui import (
@@ -88,6 +88,43 @@ def test_grid_navigation_zoom_and_filter(projects):
         assert [p.session_id for p in app.query(SessionPane) if p.display] == ["waiting"]  # you've read other
         await pilot.press("f", "minus")
         assert app.query_one("#grid").styles.grid_size_columns == 1
+
+    run_app(app, steps)
+
+
+def test_F_shows_only_the_sessions_that_are_working(projects):
+    make_projects(projects)
+    entries = [entry("busy", "busy", 0), entry("waiting", "idle", 1), entry("other", "idle", 2, "D:\\work\\other")]
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
+
+    def shown():
+        return [p.session_id for p in app.query(SessionPane) if p.display]
+
+    async def steps(app, pilot):
+        await pilot.press("F")
+        await pilot.pause(0.1)
+        assert shown() == ["busy"]
+        assert "showing only sessions that are working (F)" in app.query_one("#summary").content.plain
+        app.sessions["other"].state = BACKGROUND  # its own turn is over, but its subagents aren't
+        app._apply_visibility()
+        assert shown() == ["busy", "other"]
+        app.sessions["other"].state = WAITING
+        await pilot.press("f")  # one filter or the other: nothing both needs you and is working
+        await pilot.pause(0.1)
+        assert shown() == ["waiting", "other"] and not app.only_working
+        await pilot.press("F")
+        await pilot.pause(0.1)
+        assert shown() == ["busy"] and not app.only_needs_you
+        await pilot.press("j")  # to a session that needs you, which F hides: it shows everything again
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ZoomScreen) and not app.only_working
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        assert shown() == ["busy", "waiting", "other"]
+        await pilot.press("F")
+        await finish_turn(app, pilot, entries, 0)  # nothing is working now
+        assert shown() == []
+        assert "F shows everything again" in app.query_one("#empty").content.plain
 
     run_app(app, steps)
 

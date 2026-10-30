@@ -64,6 +64,7 @@ changed.
 |---|---|
 | arrows, Enter, Esc | move between panes, zoom in, go back. Zoomed in, `→` reaches the files and subagents |
 | `j`, `f` | go to a session that needs you; show only those |
+| `F` | show only sessions that are working, or waiting on their own subagents: not the idle, not those waiting on you |
 | `[` `]`, `g` | previous / next space; move a session to a space |
 | `E`, `y` | open the session's repo or worktree in your editor; copy Claude's last reply |
 | `w` | close a session you're done with (`w` again confirms): a background one stops, one in a terminal or an editor is hidden |

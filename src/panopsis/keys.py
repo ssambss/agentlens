@@ -75,6 +75,7 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
         Action("move-up", "up", "the session above"),
         Action("move-down", "down", "the session below"),
         Action("toggle-filter", "f", "show only sessions that need you"),
+        Action("toggle-working", "F", "show only sessions that are working, or waiting on their own subagents"),
         Action("space-prev", "left_square_bracket", "previous space"),
         Action("space-next", "right_square_bracket", "next space"),
         Action("refresh", "r", "refresh now; in History, the report screens and usage, read them again",

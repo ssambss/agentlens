@@ -100,6 +100,7 @@ from panopsis.selectable import Selectable
 
 ALL = "All sessions"
 NEEDS_YOU = {QUESTION, APPROVAL, PERMISSION, WAITING}
+AT_WORK = {WORKING, BACKGROUND}  # what F shows: busy without you, on its own turn or its subagents'
 STATE_CLASS = {
     QUESTION: "st-question",
     APPROVAL: "st-question",
@@ -1431,6 +1432,7 @@ class PanopsisApp(App):
         Binding("ctrl+w", "end_session", show=False),
         *[Binding(str(n), f"choose({n})", show=False) for n in range(1, 10)],
         bind("toggle-filter", "toggle_filter", "Needs you", show=False),
+        bind("toggle-working", "toggle_working", "Working", show=False),
         bind("toggle-view", "toggle_view", "View", show=False),
         bind("report", "report", "Report", show=False),
         bind("advise", "advise", "Advise", show=False),
@@ -1475,6 +1477,7 @@ class PanopsisApp(App):
         self.space_of: dict[str, str] = {}
         self.current_space = self.config.last_space or ALL
         self.only_needs_you = False
+        self.only_working = False
         self.view_mode = "conversation"
         self.palette = Palette()
         self.analysis: Analysis | None = None
@@ -1577,7 +1580,7 @@ class PanopsisApp(App):
         if terminal.classic_console() and self._driver is not None:
             self._driver.write(terminal.HIDE_CURSOR)
 
-    WALL_ONLY = {"zoom", "toggle_filter", "space", "columns", "toggle_sidebar", "move"}
+    WALL_ONLY = {"zoom", "toggle_filter", "toggle_working", "space", "columns", "toggle_sidebar", "move"}
     WALL_OR_ZOOM = {"move_to_space", "new_session", "handoff_focused", "open_folder", "copy_reply"}
     DRIVEN_ONLY = {"compose", "interrupt", "choose", "detach"}
     FINDINGS_AND_ADVICE = {"report", "advise", "profile", "rules"}  # experimental: the settings turn them on
@@ -1585,7 +1588,7 @@ class PanopsisApp(App):
         "quit", "zoom", "new_session", "compose", "interrupt", "handoff_focused", "detach", "end_session",
         "bring_here", "choose", "move_to_space", "toggle_filter", "toggle_view", "report", "advise", "history",
         "profile", "rules", "toggle_sidebar", "toggle_tools", "space", "columns", "attach", "refresh", "move",
-        "show_keys", "open_folder", "copy_reply", "usage", "jump", "settings",
+        "show_keys", "open_folder", "copy_reply", "usage", "jump", "settings", "toggle_working",
     }
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
@@ -2616,6 +2619,8 @@ class PanopsisApp(App):
             self._set_space(space)
         if self.only_needs_you and not self.needs_you(session):
             self.action_toggle_filter()
+        if self.only_working and session.state not in AT_WORK:  # j, to one that needs you
+            self.action_toggle_working()
         self._focus_key(session_id)
         screen = ZoomScreen(session_id)
         self.push_screen(screen)
@@ -2685,7 +2690,8 @@ class PanopsisApp(App):
         for pane in self.query_one("#grid", Grid).query(SessionPane):
             s = self.sessions.get(pane.session_id)
             in_space = self.current_space == ALL or self.space_of.get(pane.session_id) == self.current_space
-            pane.display = s is not None and in_space and (not self.only_needs_you or self.needs_you(s))
+            pane.display = (s is not None and in_space and (not self.only_needs_you or self.needs_you(s))
+                            and (not self.only_working or s.state in AT_WORK))
         self._layout()
         self._summary()
         if self.focused is None or (isinstance(self.focused, SessionPane) and not self.focused.display):
@@ -2710,6 +2716,9 @@ class PanopsisApp(App):
             text.append(f"   space: {self.current_space}", style="bold")
         if self.only_needs_you:
             text.append(f"   showing only sessions that need you ({keys_mod.name('toggle-filter')})", style="italic")
+        elif self.only_working:
+            text.append(f"   showing only sessions that are working ({keys_mod.name('toggle-working')})",
+                        style="italic")
         if text != self._summary_text:  # this runs on every streamed word
             self._summary_text = text
             self.query_one("#summary", Static).update(text, layout=False)  # one line, always
@@ -2723,8 +2732,8 @@ class PanopsisApp(App):
             elif not sessions:
                 message = "No open Claude Code sessions. Start one and it appears here."
             else:
-                message = (f"Nothing to show in this view. {spaces}, {keys_mod.name('toggle-filter')} shows everything "
-                           "again.")
+                filter_key = keys_mod.name("toggle-working" if self.only_working else "toggle-filter")
+                message = f"Nothing to show in this view. {spaces}, {filter_key} shows everything again."
             # As Text: as markup, "[ and ]" is a tag and vanishes.
             if not empty:
                 grid.mount(Static(Text(message), id="empty"))
@@ -2776,6 +2785,12 @@ class PanopsisApp(App):
 
     def action_toggle_filter(self) -> None:
         self.only_needs_you = not self.only_needs_you
+        self.only_working = False  # one filter or the other: nothing both needs you and is working
+        self._apply_visibility()
+
+    def action_toggle_working(self) -> None:
+        self.only_working = not self.only_working
+        self.only_needs_you = False
         self._apply_visibility()
 
     def action_toggle_sidebar(self) -> None:
@@ -3147,6 +3162,8 @@ class PanopsisApp(App):
             ("More columns", "Fit more panes side by side", lambda: self.action_columns(1)),
             ("Fewer columns", "Bigger panes", lambda: self.action_columns(-1)),
             ("Only sessions that need you", "Toggle the needs-you filter", self.action_toggle_filter),
+            ("Only sessions that are working", "Toggle the working filter: hides the idle and those waiting on you",
+             self.action_toggle_working),
             ("Settings", "Theme, colours, columns, keys, your editor, defaults, experimental screens; the files "
              f"open from there too ({keys_mod.name('settings')})",
              self.action_settings),
