@@ -1098,13 +1098,14 @@ def test_sessions_come_back_paused_with_their_conversation(projects, tmp_path, i
     asyncio.run(go())
 
 
-def test_zoom_on_a_session_panopsis_runs_lists_its_subagents(projects, tmp_path, isolated_home):
+def test_zoom_on_a_session_panopsis_runs_lists_its_subagents_and_context(projects, tmp_path, isolated_home):
     from conftest import tool_result, tool_use
 
     folder = tmp_path / "repo"
     folder.mkdir()
-    _write(projects / "repo" / "sess-42.jsonl", _common([_human(0, "map the code"), _text(1, "Asked a subagent.")],
-                                                        "sess-42", cwd=str(folder)))
+    reply = _text(1, "Asked a subagent.")
+    reply["message"]["usage"].update(input_tokens=0, cache_read_input_tokens=250_000)
+    _write(projects / "repo" / "sess-42.jsonl", _common([_human(0, "map the code"), reply], "sess-42", cwd=str(folder)))
     subs = projects / "repo" / "sess-42" / "subagents"
     _write(subs / "agent-a.jsonl", _common([tool_use(0.5, "SubagentHandback", "h", message="**Mapped.**"),
                                             tool_result(0.6, "h")], "sess-42"))
@@ -1130,6 +1131,8 @@ def test_zoom_on_a_session_panopsis_runs_lists_its_subagents(projects, tmp_path,
             out = app.screen.query_one("#zoom-subs-body").text
             assert "✓ Map the code" in out and "1 finished" in out
             assert "Mapped." not in out  # the map shows which subagents ran, not what they said
+            # How full its context is comes from its transcript too.
+            assert app.screen.query_one("#zoom-context").content.plain.endswith("25% 250K of 1M")
 
     asyncio.run(go())
 

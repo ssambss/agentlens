@@ -566,6 +566,36 @@ def test_settings_keep_your_own_colours_to_go_back_to(projects, tmp_path):
     run_app(app, steps)
 
 
+def test_panes_and_zoom_show_how_full_each_context_window_is(projects):
+    def called(minutes, read):
+        record = text(minutes)
+        record["message"]["usage"].update(input_tokens=2, cache_creation_input_tokens=0, cache_read_input_tokens=read)
+        return record
+
+    write_jsonl(projects / "demo" / "roomy.jsonl", common([human(0), called(1, 419_998)], "roomy"))
+    write_jsonl(projects / "demo" / "full.jsonl", common([human(0), called(1, 919_998)], "full"))
+    write_jsonl(projects / "demo" / "new.jsonl", common([human(0)], "new"))
+    entries = [entry("roomy", "idle", 0), entry("full", "idle", 1), entry("new", "busy", 2)]
+    app = PanopsisApp(provider=lambda: entries, root=projects, interval=60)
+
+    def subtitle(session_id):
+        return app.query_one(f"#s-{session_id}", SessionPane)._shown["subtitle"]  # the border's, as painted
+
+    async def steps(app, pilot):
+        assert subtitle("roomy").plain.endswith(" · 42% context") and not subtitle("roomy").spans
+        assert subtitle("full").plain.endswith(" · 92% context") and "context" not in subtitle("new").plain
+        # Nearly full, it's in the colour the usage meter turns when a limit is near.
+        assert [span.style for span in subtitle("full").spans] == [app.meter_colors[2]]
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        # Zoomed in, beside the plan's meters, with how many tokens of how many.
+        context = app.screen.query_one("#zoom-context", Static)
+        assert context.content.plain == "Context ███▍░░░░ 42% 420K of 1M"
+        assert context.region.right == app.screen.query_one("#zoom-usage").region.x
+
+    run_app(app, steps)
+
+
 def test_zoom_maps_subagents_without_their_details(projects):
     # Two agents launched together and finished; a later one that never handed back.
     write_jsonl(projects / "demo" / "waiting.jsonl", common([

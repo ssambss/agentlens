@@ -42,6 +42,7 @@ DELEGATING_TOOLS = {"Agent", "Task"}
 READ_TOOLS = {"Read"}
 EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 HANDBACK_TOOLS = {"SubagentHandback"}  # background subagents report through this, not a final text
+INPUT_TOKENS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")  # a call's context
 MAX_MODEL_GAP = timedelta(minutes=30)
 # Gaps of these kinds beyond the away threshold mean nobody was there. That holds for
 # background waits too: in real history every one over 2h was a watcher parked overnight
@@ -345,7 +346,27 @@ def _build_run(
     run.final_chars = handback_chars or len(last_text)
     run.pending_tools = list(open_tools.values())
     run.agent_calls = {call: call not in open_tools for call in run.agent_calls}
+    run.context_tokens, run.context_model = _context(records)
     return run
+
+
+def _context(records: list[dict]) -> tuple[int | None, str]:
+    """How full the context window is at the end of these records, and the model that filled it.
+    A model call's context is its whole input: new, cache-written and cache-read tokens alike,
+    as Claude Code counts it. A compaction after the last call leaves what it kept."""
+    tokens = None
+    for r in reversed(records):
+        if tokens is None and r.get("subtype") == "compact_boundary":
+            kept = (r.get("compactMetadata") or {}).get("postTokens")
+            tokens = kept if isinstance(kept, int) else None
+        message = r.get("message") or {}
+        usage = message.get("usage")
+        if r.get("type") != "assistant" or not isinstance(usage, dict) or message.get("model") in (None, "<synthetic>"):
+            continue
+        if tokens is None and any(k in usage for k in INPUT_TOKENS):
+            tokens = sum(usage.get(k) or 0 for k in INPUT_TOKENS)
+        return tokens, str(r.get("requestedModel") or message["model"])
+    return tokens, ""
 
 
 def _record_change(run: AgentRun, path: str, result_record: dict) -> None:

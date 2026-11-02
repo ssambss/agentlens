@@ -9,6 +9,7 @@ tail of its transcript.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import threading
@@ -57,6 +58,11 @@ STATE_STYLE = {
     WORKING: "green",
     OTHER: "dim",
 }
+# Context windows. Every model since the 4.6 generation has 1M tokens; older ones 200K, unless Claude
+# Code asked for their 1M variant ("claude-sonnet-4-5[1m]").
+SMALL_WINDOW = 200_000
+LARGE_WINDOW = 1_000_000
+MODEL_VERSION = re.compile(r"claude-(?:[a-z]+-)?(\d+)(?:[-.](\d)(?!\d))?")  # opus-4-5, 3-7-sonnet, opus-4-20250514
 BUSY_STATUSES = {"busy", "working", "running"}
 IDLE_STATUSES = {"idle", "waiting", "needs_input", "needs-input"}
 
@@ -95,11 +101,31 @@ class LiveSession:
     cwd: str = ""
     job_id: str = ""  # the short id `claude agents` lists for a background session; stop and attach take it
     changes: list[FileChange] = field(default_factory=list)  # files it changed, most recent first
+    context_tokens: int | None = None  # how full its context window is, when a model call has said
+    context_window: int = 0  # how many tokens that window holds
 
     @property
     def label(self) -> str:
         """What messages call it: its title, else Claude Code's name for it."""
         return self.title or self.name
+
+    @property
+    def context_fill(self) -> float | None:
+        """How full its context window is, 0 to 1, when known."""
+        if self.context_tokens is None or not self.context_window:
+            return None
+        return min(1.0, self.context_tokens / self.context_window)
+
+
+def context_window(model: str, tokens: int = 0) -> int:
+    """How many tokens a model's context window holds. A context already past 200K is in a 1M one,
+    whatever the name says."""
+    if "[1m]" in model.lower() or tokens > SMALL_WINDOW:
+        return LARGE_WINDOW
+    version = MODEL_VERSION.search(model)
+    if version and (int(version[1]), int(version[2] or 0)) < (4, 6):
+        return SMALL_WINDOW
+    return LARGE_WINDOW
 
 
 def open_sessions() -> list[dict]:
@@ -209,6 +235,7 @@ def derive(
         return live
 
     main = session.main
+    set_context(live, session)
     live.subagents, live.past_subagents = subagent_lists(session, now)
     live.main_spans = main.spans
     live.changes = file_changes(session)
@@ -241,6 +268,14 @@ def derive(
         else:
             live.state, live.detail = WAITING, "turn finished"
     return live
+
+
+def set_context(live: LiveSession, session: Session | None) -> None:
+    """Fill in how full its context window is, from its transcript, once a model call has said."""
+    run = session.main if session else None
+    if run is not None and run.context_tokens is not None:
+        live.context_tokens = run.context_tokens
+        live.context_window = context_window(run.context_model, run.context_tokens)
 
 
 def subagent_lists(session: Session | None, now: datetime) -> tuple[list[LiveSubagent], list[LiveSubagent]]:
@@ -299,7 +334,9 @@ def render(sessions: list[LiveSession], now: datetime) -> Group:
     table.add_column("project", no_wrap=True)
     table.add_column("title", ratio=1, overflow="ellipsis", no_wrap=True)
     table.add_column("now", no_wrap=True)
+    table.add_column("context", justify="right", no_wrap=True)
     for s in sessions:
+        fill = s.context_fill
         table.add_row(
             Text(f" {s.state} ", style=STATE_STYLE[s.state]),
             ago(now - s.since) if s.since else "",
@@ -307,11 +344,12 @@ def render(sessions: list[LiveSession], now: datetime) -> Group:
             s.project,
             s.title,
             s.detail,
+            "" if fill is None else f"{fill:.0%}",
         )
         for sub in s.subagents:
             last = f"last {sub.last_tool} " if sub.last_tool else "active "
             table.add_row("", "", Text(f"  └ {sub.description}", style="dim"), "", "",
-                          Text(f"{last}{ago(now - sub.last_active)} ago", style="dim"))
+                          Text(f"{last}{ago(now - sub.last_active)} ago", style="dim"), "")
     counts = {state: sum(1 for s in sessions if s.state == state) for state in URGENCY}
     needs_you = counts[QUESTION] + counts[APPROVAL] + counts[WAITING]
     footer = (
@@ -383,6 +421,13 @@ def _stat(path: Path) -> tuple:
     except OSError:
         return (str(path), None, None)
     return (str(path), st.st_size, st.st_mtime_ns)
+
+
+def token_count(n: int) -> str:
+    """950, 42K, 1.2M."""
+    if round(n / 1000) >= 1000:
+        return f"{n / 1_000_000:.1f}".removesuffix(".0") + "M"
+    return f"{round(n / 1000)}K" if n >= 1000 else str(n)
 
 
 def ago(delta: timedelta) -> str:

@@ -230,12 +230,15 @@ def bar(fraction: float, width: int) -> tuple[str, str]:
 
 
 def level_color(w: Window, colors: tuple[str, str, str]) -> str:
+    if w.status == "rejected":
+        return colors[2]
+    return fill_color(max(w.used, WARN_AT) if w.status == "allowed_warning" else w.used, colors)
+
+
+def fill_color(used: float, colors: tuple[str, str, str]) -> str:
+    """The colour for how full something is, 0 to 1: a plan limit or a context window."""
     normal, warning, error = colors
-    if w.status == "rejected" or w.used >= FULL_AT:
-        return error
-    if w.status == "allowed_warning" or w.used >= WARN_AT:
-        return warning
-    return normal
+    return error if used >= FULL_AT else warning if used >= WARN_AT else normal
 
 
 def resets_text(w: Window, now: datetime, short: bool = False) -> str:

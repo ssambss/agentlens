@@ -90,7 +90,9 @@ from panopsis.live import (
     open_sessions,
     pane_place,
     pane_title,
+    set_context,
     subagent_lists,
+    token_count,
 )
 from panopsis.metrics import session_metrics
 from panopsis.model import Event, FileChange, Session
@@ -362,7 +364,12 @@ class SessionPane(Vertical, can_focus=True):
         title = pane_place(data, self.space) + suffix
         if self._changed("title", title):
             self.border_title = title
-        subtitle = f"{data.state} {ago(now - data.since)}" if data.since else data.state
+        subtitle = Text(f"{data.state} {ago(now - data.since)}" if data.since else data.state)
+        fill = data.context_fill
+        if fill is not None:  # in the border's colour until it's nearly full
+            subtitle.append(" · ")
+            subtitle.append(f"{fill:.0%} context",
+                            style=usage_mod.fill_color(fill, app.meter_colors) if fill >= usage_mod.WARN_AT else "")
         if self._changed("subtitle", subtitle):
             self.border_subtitle = subtitle
         shown_title = pane_title(data, self.space)  # depends on the space as well as the session
@@ -622,6 +629,16 @@ class ChangedFiles(OptionList):
         return Option(label, id=change.path)
 
 
+def context_meter(data: LiveSession, colors: tuple[str, str, str], width: int = 8) -> Text:
+    """How full a session's context window is: `Context ███▍░░░░ 42% 420K of 1M`."""
+    fill = data.context_fill or 0.0
+    color = usage_mod.fill_color(fill, colors)
+    filled, empty = usage_mod.bar(fill, width)
+    return Text.assemble(("Context ", "dim"), (filled, color), (empty, "dim"),
+                         (f" {fill:.0%}", f"bold {color}" if fill >= usage_mod.WARN_AT else "bold"),
+                         (f" {token_count(data.context_tokens or 0)} of {token_count(data.context_window)}", "dim"))
+
+
 class ZoomScreen(QuietFocusScreen):
     """One session at full size: the whole conversation in a readable column, and beside it
     the files it changed and a map of its subagents."""
@@ -640,6 +657,7 @@ class ZoomScreen(QuietFocusScreen):
         self._key: tuple | None = None
         self._changes_key: tuple | None = None
         self._head_text: tuple[Text, Text] | None = None
+        self._context_text: Text | None = None
         self._subs_key: tuple | None = None
 
     def compose(self) -> ComposeResult:
@@ -647,6 +665,7 @@ class ZoomScreen(QuietFocusScreen):
         with Vertical(id="zoom-head"):
             with Horizontal(id="zoom-head-top"):
                 yield Static(id="zoom-where")
+                yield Static(id="zoom-context")
                 yield UsageMeter(id="zoom-usage")
             yield Static(id="zoom-title")
         with Horizontal(id="zoom-row"):
@@ -694,6 +713,14 @@ class ZoomScreen(QuietFocusScreen):
             self._head_text = (where, title)
             where_widget.update(where, layout=False)  # fixed size, beside the usage meter
             title_widget.update(title, layout=False)
+        context = context_meter(data, app.meter_colors) if data.context_fill is not None else Text()
+        if context != self._context_text:
+            # Its width changes only with the token counts' digits; then the line is laid out again.
+            relayout = self._context_text is None or context.cell_len != self._context_text.cell_len
+            self._context_text = context
+            meter = self.query_one("#zoom-context", Static)
+            meter.display = bool(context)
+            meter.update(context, layout=relayout)
         last = data.feed[-1].at if data.feed else None
         key = (len(data.feed), last, sum(1 for e in data.feed if e.tag), app.view_mode, app.config.show_tools,
                app.config.show_times, app.palette)
@@ -1331,6 +1358,7 @@ class PanopsisApp(App):
         #zoom-head { height: 2; padding: 0 2; background: $panel; }
         #zoom-head-top { height: 1; }
         #zoom-where { width: 1fr; text-wrap: nowrap; text-overflow: ellipsis; }
+        #zoom-context { width: auto; height: 1; padding-left: 2; }
         #zoom-usage { width: auto; height: 1; padding-left: 2; }
         #zoom-title { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
         #zoom-main { width: 2fr; padding: 1 2; align-horizontal: center; border-right: solid $panel-lighten-1; }
@@ -1990,6 +2018,7 @@ class PanopsisApp(App):
         live.subagents, live.past_subagents = subagent_lists(tail, now)
         live.main_spans = tail.main.spans if tail else []
         live.changes = file_changes(tail)
+        set_context(live, tail)
         return live
 
     def _focus_key(self, key: str) -> None:

@@ -4,7 +4,7 @@ import subprocess
 from datetime import timedelta
 
 import pytest
-from conftest import T0, common, edit_result, human, text, tool_result, tool_use, write_jsonl
+from conftest import T0, at, common, edit_result, human, plain, text, tool_result, tool_use, write_jsonl
 
 from panopsis.adapters.claude_transcripts import load_session
 from panopsis.live import (
@@ -15,12 +15,14 @@ from panopsis.live import (
     WORKING,
     EarlyListing,
     TranscriptTails,
+    context_window,
     derive,
     open_sessions,
     pane_place,
     pane_title,
     render,
     sort_sessions,
+    token_count,
 )
 
 
@@ -206,6 +208,47 @@ def test_a_refresh_rereads_only_the_subagents_that_changed(projects, monkeypatch
     assert subagents()[0] == {"one": "Read", "two": "Grep"} and read == ["agent-two"]
 
 
+def called(minutes, fresh=0, written=0, read=0, model="claude-opus-5-5", requested=None):
+    """A model call that sent this much context: new tokens, ones written to the cache, ones read from it."""
+    record = text(minutes)
+    record["message"]["model"] = model
+    record["message"]["usage"].update(input_tokens=fresh, cache_creation_input_tokens=written,
+                                      cache_read_input_tokens=read)
+    return {**record, **({"requestedModel": requested} if requested else {})}
+
+
+def test_a_session_shows_how_full_its_context_window_is(projects):
+    # The last call's whole input counts, cached or not; Claude Code's own messages don't.
+    s = session_from(projects, [human(0), called(1, read=100_000), called(2, fresh=2, written=30_000, read=390_000),
+                                {**text(3), "message": {**text(3)["message"], "model": "<synthetic>"}}])
+    live = derive(entry("idle"), s, now=minutes(5))
+    assert (live.context_tokens, live.context_window) == (420_002, 1_000_000) and round(live.context_fill, 2) == 0.42
+    # A compaction since leaves what it kept.
+    compacted = {"type": "system", "subtype": "compact_boundary", "timestamp": at(4),
+                 "compactMetadata": {"trigger": "auto", "preTokens": 966_000, "postTokens": 15_000}}
+    s = session_from(projects, [human(0), called(1, read=966_000), compacted, human(5)])
+    assert derive(entry("busy"), s, now=minutes(6)).context_tokens == 15_000
+    # The window is the model's: 200K before the 4.6 generation, unless the 1M variant was asked for.
+    s = session_from(projects, [human(0), called(1, read=150_000, model="claude-sonnet-4-5-20250929")])
+    assert derive(entry("idle"), s, now=minutes(5)).context_fill == 0.75
+    s = session_from(projects, [human(0), called(1, read=150_000, model="claude-sonnet-4-5-20250929",
+                                                requested="claude-sonnet-4-5[1m]")])
+    assert derive(entry("idle"), s, now=minutes(5)).context_window == 1_000_000
+    # Before the first model call there's nothing to say.
+    assert derive(entry("busy"), session_from(projects, [human(0)]), now=minutes(1)).context_fill is None
+    assert derive(entry("busy"), None, now=minutes(1)).context_fill is None
+
+
+def test_context_windows_by_model():
+    assert context_window("claude-opus-5-5") == context_window("claude-haiku-5-5") == 1_000_000
+    assert context_window("claude-opus-4-6") == context_window("claude-fable-5-1") == 1_000_000
+    for old in ("claude-haiku-4-5-20251001", "claude-opus-4-20250514", "claude-opus-4-1-20250805",
+                "claude-3-7-sonnet-20250219", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"):
+        assert context_window(old) == 200_000, old
+    assert context_window("claude-haiku-4-5", tokens=300_000) == 1_000_000  # it can't be the small one
+    assert [token_count(n) for n in (950, 41_600, 999_600, 1_000_000, 200_000)] == ["950", "42K", "1M", "1M", "200K"]
+
+
 def test_no_transcript_yet():
     live = derive(entry("idle"), None, now=minutes(3))
     assert live.state == WAITING and live.detail == "new session" and live.project == "demo"
@@ -264,6 +307,8 @@ def test_sort_and_render(projects):
     ordered = sort_sessions([working, waiting_long], minutes(60))
     assert [x.state for x in ordered] == [WAITING, WORKING]
     render(ordered, minutes(60))  # renders without error
+    full = derive(entry("idle"), session_from(projects, [human(0), called(1, read=880_000)]), now=minutes(5))
+    assert "88%" in plain(render([full], minutes(5)))
 
 
 def test_tail_cache_rereads_only_on_change(projects):

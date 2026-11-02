@@ -35,6 +35,15 @@ Claude's replies as markdown, runs of tool calls folded into one line
 is the state: yellow needs you (heavier for a question or a plan to approve), green
 working, blue waiting on its own subagents.
 
+Beside the state, at the bottom of the border, is how full the session's context window
+is (`working 4m · 42% context`). It takes the theme's warning colour at 75% and its error
+colour at 90%, as the plan meter does: Claude Code compacts the conversation when it's
+nearly full. It's the last model call's whole input, as Claude Code counts it, against the
+model's window: 1M tokens, or 200K for models older than the 4.6 generation unless you
+picked their 1M variant. Zoomed in, it's a meter with the tokens
+(`Context ███▍░░░░ 42% 420K of 1M`). Subagents have their own context windows, not
+counted here.
+
 When a session starts needing you, you get a notification and a terminal bell. Its Open
 button, or `j` from anywhere, takes you there; `j` again goes to the next one.
 
