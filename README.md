@@ -227,8 +227,9 @@ panopsis never reads or passes credentials.
   edge. The first message in the `n` dialog takes images the same way. Not over SSH; on
   Linux it needs `wl-paste` or `xclip`.
 - They come back, paused, when you reopen panopsis, until you close (`w`) or detach them;
-  a closed one's conversation stays in History. Quitting while some are working asks
-  whether to detach them or stop them for now.
+  a closed one's conversation stays in History. One that's open in a terminal or an editor
+  by then comes back once it's closed there. Quitting while some are working asks whether
+  to detach them or stop them for now.
 - If Claude Code stops under a session (it exits, or sends something panopsis can't
   read), the pane says why and pauses; your next message continues the conversation.
 - Detaching needs a folder terminal Claude Code trusts, which your home folder never is.

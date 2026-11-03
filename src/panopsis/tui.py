@@ -1550,6 +1550,7 @@ class PanopsisApp(App):
         self.launch_editor = editor_mod.launch  # tests swap in a recorder
         self._last_key: str | None = None
         self._restored = False
+        self._waiting: set[str] = set()  # saved sessions open elsewhere at launch, restored once they aren't
         # Your plan's limits, from /usage and sessions' rate-limit events. Until the first check answers
         # (seconds, where starting `claude` is slow), the meter shows the last launch's, dimmed.
         self.usage = (usage_mod.load_cached(datetime.now(timezone.utc)) if self.config.usage_minutes > 0
@@ -1851,9 +1852,10 @@ class PanopsisApp(App):
             self._closing_sessions = {sid: closed for sid, closed in self._closing_sessions.items()
                                       if closed is None or closed >= generation}
         if not self._restored:
-            self._restored = True
             self._restore_driven(monitored)
             timings.mark(f"restored {counted(len(self.driven), 'session')} panopsis ran last time")
+        elif self._waiting:
+            self._restore_driven(monitored)
         self._adopt_names(monitored)
         # A session panopsis runs also shows up as an open session; keep only the driven pane.
         # One it's closing does too, until its Claude Code has exited and a fresh listing is in.
@@ -2017,16 +2019,28 @@ class PanopsisApp(App):
             self._save_config()  # saved under your first message, before Claude Code titled it
 
     def _restore_driven(self, monitored: list[LiveSession]) -> None:
-        """Bring back last time's panopsis sessions, paused, unless they're now open elsewhere."""
+        """Bring back last time's panopsis sessions, paused. One that's open elsewhere stays saved and
+        comes back once it isn't: two clients mustn't share a session, but just after you quit, Claude
+        Code can still list one that panopsis ran, and forgetting it then lost it for good."""
         open_elsewhere = {s.session_id for s in monitored}
+        here = {d.session_id for d in self.driven.values()}
+        first, self._restored = not self._restored, True
+        waiting, forgot = set(), False
         for saved in list(self.config.driven_sessions):
             session_id, cwd = saved["session_id"], saved["cwd"]
-            if session_id in open_elsewhere or not Path(cwd).is_dir():
+            if session_id in here or not (first or session_id in self._waiting):
+                continue  # here already (brought back from History, say), or not one still to restore
+            if not Path(cwd).is_dir():
                 self.config.forget_driven(session_id)
-                continue
-            self.open_driven(cwd, resume=session_id, title=saved.get("title", ""), mode=saved.get("mode") or None,
-                             force=True, start=False, apply=False, focus=False)
-        self._save_config()
+                forgot = True
+            elif session_id in open_elsewhere:
+                waiting.add(session_id)
+            else:
+                self.open_driven(cwd, resume=session_id, title=saved.get("title", ""),
+                                 mode=saved.get("mode") or None, force=True, start=False, apply=False, focus=False)
+        self._waiting = waiting
+        if first or forgot:
+            self._save_config()
 
     def _driven_live(self, driven: DrivenSession, now: datetime) -> LiveSession:
         live = as_live(driven, now)

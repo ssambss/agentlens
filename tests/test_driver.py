@@ -1286,21 +1286,31 @@ def test_retitling_a_remembered_session_keeps_its_place():
                                                                             ("b", "first prompt")]
 
 
-def test_remembered_session_open_elsewhere_is_not_restored(projects, tmp_path, isolated_home):
+def test_remembered_session_open_elsewhere_comes_back_once_it_is_not(projects, tmp_path, isolated_home):
     folder = tmp_path / "repo"
     folder.mkdir()
     cfg = _config.Config(path=isolated_home / "config.yaml")
     cfg.remember_driven("sess-42", str(folder), "Parser work", "default")
     _config.save(cfg)
-    entry = {"sessionId": "sess-42", "status": "idle", "name": "vscode-1", "kind": "interactive", "cwd": str(folder)}
-    app = PanopsisApp(provider=lambda: [entry], root=projects, interval=60)
+    listed = [{"sessionId": "sess-42", "status": "idle", "name": "vscode-1", "kind": "interactive", "cwd": str(folder)}]
+    app = PanopsisApp(provider=lambda: list(listed), root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
             await app.workers.wait_for_complete()
             await pilot.pause(0.3)
             assert not app.driven  # it's in VS Code now; two clients must not share it
-            assert _config.load(isolated_home / "config.yaml").driven_sessions == []
+            saved = _config.load(isolated_home / "config.yaml").driven_sessions
+            assert [d["session_id"] for d in saved] == ["sess-42"]  # but it isn't forgotten
+            # Closed there, or listed only for a moment after the panopsis that ran it quit.
+            listed.clear()
+            for _ in range(2):  # back once, not again with each refresh
+                app.action_refresh()
+                await app.workers.wait_for_complete()
+                await pilot.pause(0.2)
+            [driven] = app.driven.values()
+            assert driven.resume == "sess-42" and driven.state == PAUSED and driven.title == "Parser work"
+            assert [p.session_id for p in app.query(tui_mod.SessionPane)] == [driven.key]
 
     asyncio.run(go())
 
