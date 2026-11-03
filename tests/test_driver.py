@@ -56,7 +56,9 @@ class FakeClaude:
 
     async def _play(self, steps):
         for step in steps:
-            if isinstance(step, tuple) and step[0] == "ask":
+            if isinstance(step, tuple) and step[0] == "pause":  # ("pause", seconds): working on something
+                await asyncio.sleep(step[1])
+            elif isinstance(step, tuple) and step[0] == "ask":
                 _, tool, tool_input = step
                 decision = await self.options.can_use_tool(tool, tool_input, ToolPermissionContext(title=None))
                 self.decisions.append(decision)
@@ -1720,6 +1722,40 @@ def test_a_message_takes_lines_and_is_edited_as_in_a_windows_text_box(projects, 
             assert driven.events[-1].detail == "fix the parser\nand its tests\nthen"  # your card shows every line
 
     asyncio.run(go())
+
+
+def test_a_second_question_shows_in_the_card_not_the_first_again(projects, tmp_path):
+    # Answered, the card hides, with no width, while Claude works; the next question shows in it at
+    # the width it had before.
+    def asking(question, options):
+        return ("ask", "AskUserQuestion", {"questions": [{"question": question,
+                                                          "options": [{"label": o} for o in options]}]})
+
+    script = {"ask me": [
+        asking("What would you like to do?", ["Fix an issue", "Explain something"]), ("pause", 0.5),
+        asking("Which part should I explain?", ["Playing a video", "Updates"])]}
+
+    def card(app) -> str:
+        shown = app.screen.query_one(".request")
+        return shown.text if shown.display else ""
+
+    async def go(zoomed: bool):
+        app, folder, _ = app_with_session(projects, tmp_path, script)
+        async with app.run_test(size=(160, 44)) as pilot:
+            driven = await started(app, pilot, folder, prompt="ask me")
+            app._focus_key(driven.key)
+            if zoomed:
+                await pilot.press("enter")
+                await until(pilot, lambda: isinstance(app.screen, tui_mod.ZoomScreen))
+            await until(pilot, lambda: "What would you like to do?" in card(app))
+            await pilot.press(*([] if zoomed else ["i"]), "2")  # in an empty box, a number answers
+            await until(pilot, lambda: card(app) == "")
+            await pilot.pause(0.2)  # laid out without it
+            await until(pilot, lambda: "Which part should I explain?" in card(app))
+            assert "What would you like to do?" not in card(app) and "Playing a video" in card(app)
+
+    for zoomed in (False, True):  # on the wall and zoomed in
+        asyncio.run(go(zoomed))
 
 
 def test_one_line_boxes_take_a_word_with_ctrl_backspace_too(projects, tmp_path):

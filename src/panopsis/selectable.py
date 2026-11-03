@@ -105,6 +105,7 @@ class Selectable(Widget):
         super().__init__(**kwargs)
         self.follow = follow
         self._source: RenderableType | None = None
+        self._fitted: RenderableType | None = None  # what the lines were laid out from
         self._lines: list[list[Segment]] = []
         self._copy = ""
         self._width = 0
@@ -126,6 +127,10 @@ class Selectable(Widget):
 
     def on_resize(self, event: events.Resize) -> None:
         if self.size.width == self._width:
+            # Hidden, it has no width to lay out what it's shown, so that waits for this; and shown
+            # again, it can be back at the width its lines were laid out at, for something else.
+            if self._source is not self._fitted:
+                self._fit()
             return
         if self._settle is not None:
             self._settle.stop()
@@ -159,7 +164,7 @@ class Selectable(Widget):
         if width != self._width:  # at the same width most of it was laid out before (feed.Rendered)
             self._rewrap_seconds = max(self._rewrap_seconds, monotonic() - start)
         taller = len(lines) != len(self._lines)
-        self._lines, self._width = lines, width
+        self._lines, self._width, self._fitted = lines, width, self._source
         self.refresh(layout=taller)  # the same number of lines: no need to lay out the screen again
         if following:
             parent.call_after_refresh(parent.scroll_end, animate=False)
