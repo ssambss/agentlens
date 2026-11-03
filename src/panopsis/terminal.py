@@ -1,5 +1,6 @@
 """The terminal tab panopsis runs in: its name, kept while the `claude` processes it starts share it,
-and in Windows, the keys its consoles don't pass on as such, an icon and taskbar button of its own,
+and panopsis's icon, on the window in Windows, with a taskbar button of its own, and on the tab in
+Konsole (in iTerm2 the tab is violet). In Windows, too, the keys its consoles don't pass on as such,
 and in Windows' own console window, glyphs its font can draw and a cursor that stays hidden."""
 
 from __future__ import annotations
@@ -10,15 +11,19 @@ import re
 import sys
 import threading
 import uuid
+import zlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from textual import events
     from textual.driver import Driver
 
-TITLE = "panopsis"
+# The violet square is panopsis's icon as near as a tab's name can have it, for the terminals whose
+# tabs can't show the icon itself: most of them.
+TITLE = "🟪 panopsis"
 WINDOWS = os.name == "nt"
 # The taskbar's name for the window panopsis is in, while it is: a button of its own, apart from
 # the other terminals' and consoles'.
@@ -182,11 +187,17 @@ APP_ID_KEY = ("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3", 5)  # PKEY_AppUserModel_ID
 
 @contextmanager
 def iconed() -> Iterator[None]:
-    """In Windows, the window panopsis is in shows panopsis's icon, on a taskbar button of its own,
-    while panopsis runs; then it has its own again. That holds if you close the tab panopsis is in,
-    and the window stays open with others."""
+    """While panopsis runs, it has its icon, or the nearest its terminal has: in Windows, on the
+    window it's in and a taskbar button of its own; elsewhere, on its tab in Konsole, and in iTerm2
+    its tab is violet. Then the terminal's own is back. In Windows that holds if you close the tab
+    panopsis is in, and the window stays open with others."""
     if not WINDOWS:
-        yield
+        on, off = tab_mark()
+        _write(on)
+        try:
+            yield
+        finally:
+            _write(off)
         return
     icon = _Icon()
     giving = threading.Thread(target=icon.give, name="panopsis-icon", daemon=True)
@@ -368,6 +379,52 @@ def _closing(put_back: Callable[[], None]):
 
     _kernel32().SetConsoleCtrlHandler(handler, True)
     return handler
+
+
+# The tab's mark -----------------------------------------------------------------------------------
+# Outside Windows a program can't touch the window its terminal draws, but two terminals let it mark
+# its tab: Konsole shows an icon on it, from a file, and iTerm2 colours it.
+
+TAB_VIOLET = (0x6A, 0x48, 0xD8)  # the icon's tile at its deepest, icon.TILE_BOTTOM, without bringing in Pillow
+# Konsole doesn't say which icon the tab had. This is the one a profile has unless you've chosen
+# another, and Konsole shows it as none.
+KONSOLE_NO_ICON = "utilities-terminal"
+
+
+def tab_mark() -> tuple[str, str]:
+    """What marks panopsis's tab in the terminal it's in, and what takes the mark off again:
+    nothing, in a terminal that can't."""
+    if not (sys.__stdout__ is not None and sys.__stdout__.isatty()):
+        return "", ""
+    if os.environ.get("TERM_PROGRAM") == "iTerm.app" or os.environ.get("LC_TERMINAL") == "iTerm2":
+        violet = "".join(f"\x1b]6;1;bg;{channel};brightness;{value}\x07"
+                         for channel, value in zip(("red", "green", "blue"), TAB_VIOLET))
+        return violet, "\x1b]6;1;bg;*;default\x07"
+    if os.environ.get("KONSOLE_VERSION") and (path := icon_file()) is not None:
+        return f"\x1b]32;{path}\x07", f"\x1b]32;{KONSOLE_NO_ICON}\x07"
+    return "", ""
+
+
+def icon_file() -> Path | None:
+    """panopsis's icon as a file for Konsole to read, at each size a tab shows it at. Drawing it is
+    a moment the app would wait for, so it's drawn again only when the drawing changes: that's in
+    the file's name. None if it can't be kept."""
+    from panopsis.preferences import home
+
+    drawing = Path(__file__).with_name("icon.py")
+    try:
+        path = (home() / f"icon-{zlib.crc32(drawing.read_bytes()):08x}.ico").absolute()
+        if not path.is_file():
+            from panopsis import icon
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(icon.ico())
+            for old in path.parent.glob("icon-*.ico"):
+                if old != path:
+                    old.unlink(missing_ok=True)
+    except OSError:
+        return None
+    return path
 
 
 def _kernel32():

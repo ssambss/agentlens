@@ -1,6 +1,7 @@
 """panopsis's icon: the wall, four panes on violet, one of them lit because it needs you. It's
 drawn here for each size it's shown at, rather than kept as an image, so even the smallest is
-four panes and not a blur. In Windows, the window panopsis is in takes it (see terminal.py)."""
+four panes and not a blur. In Windows, the window panopsis is in takes it, and in Konsole its tab
+(see terminal.py)."""
 
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ PANE = "#161122"
 EDGE = "#C4AEFF"
 LIT = "#F07BE0"  # needs you
 SCALE = 8  # drawn this many times over, then shrunk: smooth corners, edges on whole pixels
+TAB_SIZES = (16, 20, 24, 32, 40, 48)  # a tab's icon, on screens at 100% to 300%
 
 
 def draw(size: int) -> Image.Image:
@@ -46,6 +48,16 @@ def draw(size: int) -> Image.Image:
 def png(size: int) -> bytes:
     out = io.BytesIO()
     draw(size).save(out, "PNG")
+    return out.getvalue()
+
+
+def ico(sizes: tuple[int, ...] = TAB_SIZES) -> bytes:
+    """The icon as an .ico file, which holds it drawn for each of these sizes."""
+    from PIL import IcoImagePlugin  # noqa: F401 - Pillow's writer for these, and not for every other format
+
+    *smaller, largest = [draw(size) for size in sorted(sizes)]
+    out = io.BytesIO()
+    largest.save(out, "ICO", sizes=[image.size for image in (*smaller, largest)], append_images=smaller)
     return out.getvalue()
 
 

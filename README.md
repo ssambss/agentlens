@@ -43,6 +43,11 @@ Windows' own console window or Windows Terminal's; a Windows Terminal window wit
 tabs keeps the icon while panopsis is one of them. When panopsis quits, or you close its
 tab, the window gets its own icon back.
 
+Among your terminal's tabs, panopsis's is named `🟪 panopsis`, the violet square for its
+icon. In Konsole the tab has the icon itself, and in iTerm2 the tab is violet, until
+panopsis quits. Other terminals, and macOS and Linux, don't let a program change its tab
+or window beyond its name, so there it has no icon or taskbar button of its own.
+
 Beside the state, at the bottom of the border, is how full the session's context window
 is (`working 4m · 42% context`). It takes the theme's warning colour at 75% and its error
 colour at 90%, as the plan meter does: Claude Code compacts the conversation when it's
@@ -354,7 +359,7 @@ tui.py      the app
 driver.py   sessions panopsis runs itself (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
-terminal.py the tab's name, and in Windows the keys its consoles don't pass on, and panopsis's icon
+terminal.py the tab's name, panopsis's icon on its window or tab, and in Windows the keys its consoles don't pass on
 icon.py     the icon, drawn for each size it's shown at
 tui_settings.py  the settings screen (,)
 keys.py     the keys you can change, their presets, and which key each has now

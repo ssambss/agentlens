@@ -56,10 +56,10 @@ def test_on_windows_the_tab_gets_its_old_name_back(monkeypatch):
     monkeypatch.setattr(terminal, "WINDOWS", True)
     monkeypatch.setattr(terminal, "_kernel32", Kernel32)
     with terminal.titled():
-        assert titles[-1] == "panopsis"
+        assert titles[-1] == "🟪 panopsis"
         titles.append("Fix the build")  # Claude Code you attached to named it after its conversation
         terminal.set_title()
-        assert titles[-1] == "panopsis"
+        assert titles[-1] == "🟪 panopsis"
     assert titles[-1] == "Windows PowerShell"
 
 
@@ -72,7 +72,7 @@ def test_elsewhere_the_terminal_keeps_the_old_name_and_puts_it_back(monkeypatch)
     monkeypatch.setattr(terminal.sys, "__stdout__", out := Tty())
     with terminal.titled():
         pass
-    assert out.getvalue() == "\x1b[22;0t\x1b]0;panopsis\x07\x1b[23;0t"
+    assert out.getvalue() == "\x1b[22;0t\x1b]0;🟪 panopsis\x07\x1b[23;0t"
 
     monkeypatch.setattr(terminal.sys, "__stdout__", piped := io.StringIO())  # not a terminal: nothing written
     with terminal.titled():
@@ -197,3 +197,61 @@ def test_the_window_gets_its_own_icon_back_once_however_panopsis_ends(monkeypatc
     with terminal.iconed():
         pass
     assert done == []
+
+
+def test_konsole_takes_the_icon_from_a_file_that_holds_it_drawn_for_each_size():
+    from io import BytesIO
+
+    from PIL import Image
+
+    from panopsis import icon
+
+    held = Image.open(BytesIO(icon.ico())).ico
+    assert held.sizes() == {(size, size) for size in icon.TAB_SIZES}
+    for size in icon.TAB_SIZES:
+        assert held.getimage((size, size)).tobytes() == icon.draw(size).tobytes()  # not one shrunk
+
+
+def test_elsewhere_konsole_and_iterm2_mark_the_tab_while_panopsis_runs(monkeypatch, isolated_home):
+    from panopsis import icon
+
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    def marked() -> str:
+        monkeypatch.setattr(terminal.sys, "__stdout__", out := Tty())
+        with terminal.iconed():
+            pass
+        return out.getvalue()
+
+    monkeypatch.setattr(terminal, "WINDOWS", False)
+    for name in ("TERM_PROGRAM", "LC_TERMINAL", "KONSOLE_VERSION"):
+        monkeypatch.delenv(name, raising=False)
+    assert marked() == ""  # GNOME Terminal's, say: only its name
+
+    monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
+    assert marked() == ("\x1b]6;1;bg;red;brightness;106\x07\x1b]6;1;bg;green;brightness;72\x07"
+                        "\x1b]6;1;bg;blue;brightness;216\x07"  # violet
+                        "\x1b]6;1;bg;*;default\x07")  # and its own colour back
+    monkeypatch.setenv("TERM_PROGRAM", "tmux")
+    monkeypatch.setenv("LC_TERMINAL", "iTerm2")  # what it says over ssh, or in tmux
+    assert marked().startswith("\x1b]6;1;bg;red;brightness;106\x07")
+
+    monkeypatch.delenv("TERM_PROGRAM")
+    monkeypatch.delenv("LC_TERMINAL")
+    monkeypatch.setenv("KONSOLE_VERSION", "250402")
+    isolated_home.mkdir(parents=True, exist_ok=True)
+    (isolated_home / "icon-00000000.ico").write_bytes(b"the icon, before it was drawn as it is now")
+    written = marked()
+    [file] = isolated_home.glob("icon-*.ico")  # the old one gone
+    assert written == f"\x1b]32;{file}\x07\x1b]32;utilities-terminal\x07"  # the profile's icon, shown as none
+    assert file.read_bytes() == icon.ico()
+    drawn = file.stat().st_mtime_ns
+    assert marked() == written and file.stat().st_mtime_ns == drawn  # not drawn again
+
+    file.unlink()
+    monkeypatch.setattr(terminal.sys, "__stdout__", io.StringIO())  # not a terminal: nothing drawn or written
+    with terminal.iconed():
+        pass
+    assert not file.exists()
