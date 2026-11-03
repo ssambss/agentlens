@@ -13,8 +13,8 @@ from pathlib import Path
 
 from rich.console import Console
 
-from panopsis import __version__, advise, curate, live, preferences, timings
-from panopsis import profile as profile_mod, trend as trend_mod
+from panopsis import __version__, advise, curate, live, preferences, settings_file, timings
+from panopsis import config as config_mod, profile as profile_mod, trend as trend_mod
 from panopsis.adapters.claude_transcripts import DEFAULT_ROOT, SessionCache, load_sessions
 from panopsis.metrics import all_entities, baselines
 from panopsis.model import Session
@@ -49,8 +49,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     console = Console()
     if args.experimental:
-        from panopsis import config as config_mod
-
         if not config_mod.load().findings_and_advice:
             console.print("Report, profile, rules and advice are experimental, and off. Turn them on in the app's "
                           "settings (,), under Experimental, or with findings_and_advice: true in "
@@ -104,6 +102,14 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--pack", type=Path, help="the pack file to check (default: the built-in core pack)")
     p.add_argument("--dry-run", action="store_true", help="print the prompt instead of running it")
     p.add_argument("--model", help="model alias for the run, e.g. opus")
+    p = add("export", cmd_export, "Save your settings in a file, to set up panopsis on another PC", data=False)
+    p.add_argument("file", nargs="?", type=Path,
+                   help=f"the file to save them in, or a folder to save {settings_file.NAME} in "
+                        f"(default: ~/{settings_file.NAME})")
+    p = add("import", cmd_import, "Take the settings in a file exported on another PC, in place of yours",
+            data=False)
+    p.add_argument("file", type=Path, help=f"the file `panopsis export` saved, or the folder its {settings_file.NAME} "
+                                           "is in")
     return parser
 
 
@@ -328,6 +334,45 @@ def cmd_curate(args, console: Console) -> int:
 
     console.print(Markdown(text))
     console.print(f"[dim]Saved in {curate.save(text, pack)}. Nothing in {pack.name} was changed.[/]")
+    return 0
+
+
+def cmd_export(args, console: Console) -> int:
+    path = settings_file.in_folder((args.file or settings_file.default_path()).expanduser())
+    if not settings_file.replaceable(path):
+        console.print(f"[red]{path} is already there, and isn't panopsis settings.[/] Give another name, or "
+                      "remove it first.", highlight=False)
+        return 1
+    try:
+        settings_file.export(config_mod.load(), path)
+    except OSError as e:
+        console.print(f"[red]Couldn't save {path}: {e.strerror or e}[/]", highlight=False)
+        return 1
+    console.print(f"Saved your settings in {path}. On the other PC: panopsis import {path.name}, or Import on "
+                  "the settings screen (,).", highlight=False)
+    return 0
+
+
+def cmd_import(args, console: Console) -> int:
+    path = settings_file.in_folder(args.file.expanduser())
+    try:
+        exported = settings_file.read(path)
+    except settings_file.SettingsFileError as e:
+        console.print(f"[red]{e}[/]", highlight=False)
+        return 1
+    cfg = config_mod.load()
+    changes = exported.changes(cfg)
+    for name, value in changes.items():
+        setattr(cfg, name, value)
+    if changes:
+        config_mod.save(cfg)
+    changed = [*changes, *preferences.take(exported.preferences)]
+    if not changed:
+        console.print(f"Your settings are already those in {path}.", highlight=False)
+        return 0
+    console.print(f"Took the {settings_file.named(changed)} in {path}.", highlight=False)
+    # An open panopsis saves the settings it has over these with the next one you change.
+    console.print("[dim]If panopsis is open, quit it and start it again to have them.[/]", highlight=False)
     return 0
 
 

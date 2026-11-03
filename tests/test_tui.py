@@ -4,25 +4,29 @@ import asyncio
 import io
 import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+import yaml
 from conftest import T0, at, common, edit_result, human, plain, text, tool_result, tool_use, write_jsonl
 from rich.console import Console
 from textual.color import Color
-from textual.widgets import Checkbox, Input, Select, Static
+from textual.widgets import Button, Checkbox, Input, Select, Static
 
 from panopsis import advise, tui
 from panopsis import analysis as analysis_mod
 from panopsis import config as config_mod
 from panopsis import editor as editor_mod
 from panopsis import feed as feed_mod
-from panopsis import preferences
+from panopsis import keys as keys_mod
+from panopsis import preferences, settings_file
 from panopsis.adapters.claude_transcripts import extract_events, load_tail
 from panopsis.driver import STARTING
 from panopsis.feed import Palette, _clip_lines, activity_log, collapse_repeats, conversation, tools_summary
 from panopsis.live import BACKGROUND, QUESTION, WAITING, WORKING, LiveSession
 from panopsis.model import Event
-from panopsis.tui_settings import SettingsScreen
+from panopsis.tui_driven import FolderPickerScreen
+from panopsis.tui_settings import SettingsScreen, tilde
 from panopsis.tui import (
     ALL,
     AdviseScreen,
@@ -562,6 +566,98 @@ def test_settings_keep_your_own_colours_to_go_back_to(projects, tmp_path):
         colors.value = "own"
         await pilot.pause(0.1)
         assert config_mod.load(cfg.path).colors["selected"] == "#ff00ff"
+
+    run_app(app, steps)
+
+
+def test_settings_screen_exports_and_imports_settings(projects, tmp_path, isolated_home):
+    cfg = config_mod.Config(path=tmp_path / "config.yaml", theme="nord", editor="zed")
+    make_projects(projects)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    exported = tmp_path / "usb" / "panopsis-settings.yaml"
+
+    async def steps(app, pilot):
+        await pilot.press("comma")
+        await pilot.pause(0.2)
+        screen = app.screen
+
+        def note():
+            return str(screen.query_one("#set-transfer-note", Static).render())
+
+        assert screen.query_one("#set-transfer", Input).value == str(Path("~") / "panopsis-settings.yaml")
+        screen.query_one("#set-transfer", Input).value = str(exported)
+        screen.query_one("#set-export", Button).press()
+        await pilot.pause(0.1)
+        assert settings_file.read(exported).settings["theme"] == "nord" and "Saved in" in note()
+        assert config_mod.load(cfg.path).theme == "nord"  # typing where to doesn't change a setting
+
+        # As another PC has them, its editor too: they show straight away.
+        data = yaml.safe_load(exported.read_text(encoding="utf-8"))
+        data["settings"].update(theme="dracula", colors=config_mod.LOOKS["ember"].colors,
+                                keys=keys_mod.KEY_PRESETS["vim"][1], editor="vim")
+        exported.write_text(yaml.safe_dump(data), encoding="utf-8")
+        screen.query_one("#set-import", Button).press()
+        await pilot.pause(0.3)
+        assert app.theme == "dracula" and app.palette.claude == "#F0A285" and app.config.keys["jump"] == "space"
+        saved = config_mod.load(cfg.path)
+        assert (saved.theme, saved.keys, saved.editor) == ("dracula", keys_mod.KEY_PRESETS["vim"][1], "vim")
+        assert "Took the theme, colours, editor and keys in" in " ".join(note().split())
+        assert screen.query_one("#set-theme", Select).value == "dracula"  # the screen shows them
+        assert screen.query_one("#set-keys", Select).value == "vim"
+        assert screen.query_one("#set-editor-pick", Select).value == "vim"
+        assert screen.query_one("#set-transfer", Input).value == str(exported)
+
+        data["settings"]["theme"] = "a-theme-this-panopsis-hasnt"  # left as it is, as at launch
+        exported.write_text(yaml.safe_dump(data), encoding="utf-8")
+        screen.query_one("#set-import", Button).press()
+        await pilot.pause(0.2)
+        assert app.theme == "dracula" and "already those in" in note()
+        exported.write_text("theme: nord\n", encoding="utf-8")
+        screen.query_one("#set-import", Button).press()
+        await pilot.pause(0.2)
+        assert app.theme == "dracula" and "isn't a settings file panopsis exported" in " ".join(note().split())
+
+    run_app(app, steps)
+
+
+def test_settings_screen_browses_to_where_the_export_goes(projects, tmp_path, isolated_home):
+    cfg = config_mod.Config(path=tmp_path / "config.yaml")
+    make_projects(projects)
+    app = PanopsisApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+    usb = tmp_path / "usb"
+    usb.mkdir()
+
+    async def steps(app, pilot):
+        await pilot.press("comma")
+        await pilot.pause(0.2)
+        screen = app.screen
+        box = screen.query_one("#set-transfer", Input)
+
+        def note():
+            return " ".join(str(screen.query_one("#set-transfer-note", Static).render()).split())
+
+        box.value = str(tmp_path / "mine.yaml")
+        screen.query_one("#set-browse", Button).press()
+        await pilot.pause(0.2)
+        picker = app.screen
+        assert isinstance(picker, FolderPickerScreen) and picker.start == tmp_path  # where the file is now
+        picker.dismiss(str(usb))
+        await pilot.pause(0.1)
+        assert app.screen is screen and box.value == tilde(usb / "mine.yaml")  # the name you gave it stays
+        screen.query_one("#set-export", Button).press()
+        await pilot.pause(0.1)
+        assert settings_file.read(usb / "mine.yaml").settings["theme"] == cfg.theme and "Saved in" in note()
+
+        # A file that isn't settings is replaced only once you've been told and press Export again.
+        notes = usb / "notes.txt"
+        notes.write_text("my notes", encoding="utf-8")
+        box.value = str(notes)
+        screen.query_one("#set-export", Button).press()
+        await pilot.pause(0.1)
+        assert notes.read_text(encoding="utf-8") == "my notes" and "Export again to replace it" in note()
+        screen.query_one("#set-export", Button).press()
+        await pilot.pause(0.1)
+        assert settings_file.read(notes).settings["theme"] == cfg.theme
 
     run_app(app, steps)
 

@@ -94,9 +94,15 @@ def load(path: Path | None = None) -> Preferences:
     path = path or profile_path()
     if not path.exists():
         return Preferences(path=path)
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    goals = data.get("goals") or []
-    style = data.get("style") or {}
+    return parse(yaml.safe_load(path.read_text(encoding="utf-8")) or {}, path)
+
+
+def parse(data: dict, path: Path | None = None) -> Preferences:
+    """Preferences as the file has them, checked: values that aren't options are left out, and listed."""
+    goals = data.get("goals") if isinstance(data.get("goals"), list) else []
+    style = data.get("style") if isinstance(data.get("style"), dict) else {}
+    mute = data.get("mute") if isinstance(data.get("mute"), list) else []
+    thresholds = data.get("thresholds") if isinstance(data.get("thresholds"), dict) else {}
     ignored = [f"goal {g!r} (options: {', '.join(GOALS)})" for g in goals if g not in GOALS]
     for key, value in style.items():
         if key not in STYLE_OPTIONS:
@@ -106,12 +112,29 @@ def load(path: Path | None = None) -> Preferences:
     return Preferences(
         goals=[g for g in goals if g in GOALS],
         style={k: v for k, v in style.items() if v in STYLE_OPTIONS.get(k, ())},
-        mute=list(data.get("mute") or []),
-        thresholds=dict(data.get("thresholds") or {}),
+        mute=[str(m) for m in mute if m],
+        thresholds={str(k): v for k, v in thresholds.items() if isinstance(v, dict)},  # {rule-id: {metric: value}}
         rule_packs=list(data.get("rule_packs") or []),
         path=path,
         ignored=ignored,
     )
+
+
+# The preferences that go to another PC (settings_file): not the rule packs, which are its folders.
+PORTABLE = ("goals", "style", "mute", "thresholds")
+
+
+def take(data: dict, path: Path | None = None) -> list[str]:
+    """Put an exported file's goals, style, mutes and thresholds in place of yours, leaving the rest of the
+    file as written. The ones that changed; with none, there's no file to make."""
+    given = parse(data)
+    current = load(path)
+    changed = [key for key in PORTABLE if key in data and getattr(given, key) != getattr(current, key)]
+    if changed:
+        path = ensure_file(path)
+        for key in changed:
+            _write_entry(path, key, _flow(getattr(given, key)))
+    return changed
 
 
 def ensure_file(path: Path | None = None) -> Path:
@@ -152,12 +175,17 @@ def set_style(key: str, value: str | None, path: Path | None = None) -> Path:
     style = {k: v for k, v in (data.get("style") or {}).items() if k != key}
     if value:
         style[key] = value
-    _write_entry(path, "style", yaml.safe_dump(style, default_flow_style=True, width=1000).strip())
+    _write_entry(path, "style", _flow(style))
     return path
 
 
 def _write_mutes(path: Path, mutes: list[str]) -> None:
     _write_entry(path, "mute", "[" + ", ".join(mutes) + "]")
+
+
+def _flow(value: object) -> str:
+    """A value as one line of YAML, for _write_entry."""
+    return yaml.safe_dump(value, default_flow_style=True, width=1000, allow_unicode=True).strip()
 
 
 def _write_entry(path: Path, key: str, value: str) -> None:

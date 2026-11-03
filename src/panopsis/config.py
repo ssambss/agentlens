@@ -147,6 +147,13 @@ def color_preset(colors: dict[str, str]) -> str | None:
     return next((key for key, (_, preset) in COLOR_PRESETS.items() if preset == colors), None)
 
 
+# The settings that go to another PC (settings_file): how panopsis looks and behaves, and your editor.
+# Not this PC's spaces (its folders), its Claude Code, or its sessions.
+PORTABLE = ("theme", "colors", "columns", "sidebar", "show_tools", "show_times", "refresh_seconds", "usage_minutes",
+            "history_days", "history_keep_days", "default_mode", "editor", "editor_terminal", "keys",
+            "findings_and_advice")
+
+
 @dataclass
 class Space:
     name: str
@@ -250,7 +257,11 @@ def load(path: Path | None = None) -> Config:
     path = path or config_path()
     if not path.exists():
         return Config(path=path)
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return parse(yaml.safe_load(path.read_text(encoding="utf-8")) or {}, path)
+
+
+def parse(data: dict, path: Path | None = None) -> Config:
+    """Settings as the settings file has them, checked. What's left out, or isn't an option, is the default."""
     defaults = Config()
     spaces = [
         Space(

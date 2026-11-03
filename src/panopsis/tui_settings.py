@@ -2,7 +2,8 @@
 
 Every change shows on the wall behind it straight away and is saved as you make it, to
 ~/.panopsis/config.yaml, and your goals and style to ~/.panopsis/profile.yaml. Spaces and
-colours of your own stay in the file; the screen has buttons that open it.
+colours of your own stay in the file; the screen has buttons that open it. Export and Import
+take the settings to another PC (settings_file).
 """
 
 from __future__ import annotations
@@ -19,10 +20,10 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Input, Label, Select, Static
 
-from panopsis import config as config_mod, editor as editor_mod, keys as keys_mod, preferences
+from panopsis import config as config_mod, editor as editor_mod, keys as keys_mod, preferences, settings_file
 from panopsis.frames import PacedScreen
 from panopsis.textbox import TextInput
-from panopsis.tui_driven import MODE_LABELS
+from panopsis.tui_driven import MODE_LABELS, FolderPickerScreen
 from panopsis.tui_keys import KeysScreen
 
 OWN_COLORS = "own"  # the colours option for colours set in the file
@@ -39,6 +40,10 @@ INPUTS = {"set-editor": "editor", "set-cli": "cli_path"}
 BORDER_SAMPLE = [("selected", "selected"), ("question", "needs you"), ("working", "working"),
                  ("background", "background"), ("failed", "failed")]
 CHAT_SAMPLE = [("claude", "Claude"), ("tool", "tool calls"), ("notice", "notices"), ("error", "errors")]
+TRANSFER_NOTE = ("Export saves your look, keys, History and usage meter settings, the mode for new sessions and "
+                 "your editor, with your goals and style, in this file; Browse… picks the folder it goes in. Import "
+                 "on another PC puts them in place of its own. Not your spaces, Claude Code or sessions: those are "
+                 "this PC's.")
 
 
 def row(label: str, *widgets: Widget, id: str | None = None) -> Horizontal:
@@ -57,6 +62,13 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
 
     BINDINGS = [Binding("escape", "close", "Close"), keys_mod.binding("settings", "close", "Close")]
     AUTO_FOCUS = "#set-theme"  # not the app's: there are no session panes here
+
+    def __init__(self) -> None:
+        super().__init__()
+        # The file to export to or import from, and what the last of those did: kept as the screen redraws.
+        self._transfer_path = tilde(settings_file.default_path())
+        self._transfer_note = TRANSFER_NOTE
+        self._replacing: Path | None = None  # a file that isn't an export, to replace if you press Export again
 
     @property
     def _app(self) -> Any:
@@ -172,6 +184,13 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
                 widget.add_class("aims")
                 widget.display = cfg.findings_and_advice
                 yield widget
+
+            yield Label("Another PC", classes="settings-section")
+            yield row("File", TextInput(self._transfer_path, compact=True, id="set-transfer"),
+                      Button("Browse…", compact=True, id="set-browse"),
+                      Button("Export", compact=True, id="set-export"),
+                      Button("Import", compact=True, id="set-import"))
+            yield Static(self._transfer_note, id="set-transfer-note", classes="settings-note")
 
             with Horizontal(id="settings-buttons"):
                 yield Button("Open the settings file", compact=True, id="set-file")
@@ -325,7 +344,9 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
 
     @on(Input.Changed)
     def _typed(self, event: Input.Changed) -> None:
-        name = INPUTS[event.input.id or ""]
+        name = INPUTS.get(event.input.id or "")
+        if name is None:
+            return  # not a setting, like the file to export to
         if name == "editor" and self.query_one("#set-editor-pick", Select).value != OWN_EDITOR:
             return  # it's only yours once you've picked Your own command
         value = event.value.strip() or None
@@ -347,6 +368,60 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
     async def _show_file_changes(self) -> None:
         await self.recompose()  # with what you changed in the file
         self._paint_sample()
+
+    def _transfer_file(self) -> Path:
+        # Quoted, as Windows' Copy as path gives it.
+        self._transfer_path = self.query_one("#set-transfer", Input).value.strip().strip('"') or tilde(
+            settings_file.default_path())
+        return settings_file.in_folder(Path(self._transfer_path).expanduser())
+
+    def _show_transfer(self, note: str) -> None:
+        self._transfer_note = note
+        self.query_one("#set-transfer-note", Static).update(note)
+
+    @on(Button.Pressed, "#set-browse")
+    def _browse(self) -> None:
+        box = self.query_one("#set-transfer", Input)
+        typed = Path(box.value.strip().strip('"') or settings_file.default_path()).expanduser()
+        name = typed.name if typed.name and not typed.is_dir() else settings_file.NAME  # the name you gave it stays
+
+        def picked(folder: str | None) -> None:
+            if folder:
+                box.value = tilde(Path(folder) / name)
+            box.focus()
+
+        self.app.push_screen(FolderPickerScreen(str(typed)), picked)
+
+    @on(Button.Pressed, "#set-export")
+    def _export(self) -> None:
+        path = self._transfer_file()
+        if not settings_file.replaceable(path) and path != self._replacing:
+            self._replacing = path
+            self._show_transfer(f"{tilde(path)} is already there, and isn't panopsis settings. Export again to "
+                                "replace it, or give another name.")
+            return
+        self._replacing = None
+        try:
+            settings_file.export(self._app.config, path)
+        except OSError as e:
+            self._show_transfer(f"Couldn't save {tilde(path)}: {e.strerror or e}")
+            return
+        self._show_transfer(f"Saved in {tilde(path)}. On the other PC, put where it is here (Browse… finds its "
+                            "folder), and Import.")
+
+    @on(Button.Pressed, "#set-import")
+    async def _import(self) -> None:
+        path = self._transfer_file()
+        try:
+            changed = self._app.import_settings(path)
+        except settings_file.SettingsFileError as e:
+            self._show_transfer(str(e))
+            return
+        if not changed:
+            self._show_transfer(f"Your settings are already those in {tilde(path)}.")
+            return
+        self._transfer_note = f"Took the {settings_file.named(changed)} in {tilde(path)}."
+        await self._show_file_changes()  # with what came in
 
     def action_close(self) -> None:
         self.dismiss(None)

@@ -140,6 +140,19 @@ Everything else is on the settings screen (`,`), saved as you pick:
 - **Experimental**: [findings and advice](#findings-and-advice-experimental), off until you
   tick it. With it on, **What you're aiming for** shows too: your goals and a deliberate
   working style.
+- **Another PC**: Export saves your settings in one file, and Import on the other PC puts
+  them in place of its own, straight away. That's the look, keys, how far back History goes
+  and how long it keeps sessions, the usage meter, the mode for new sessions and your editor,
+  with your goals, style, muted rules and thresholds. If the other PC doesn't have that
+  editor, the settings screen says so. Nothing else about the PC goes in it: not your spaces
+  (they're its folders), its Claude Code, or the sessions panopsis restores or hides, so the
+  other PC keeps its own.
+
+  The file is `~/panopsis-settings.yaml` unless you type another path, or Browse… to the
+  folder it goes in, like a USB drive's or a synced one's. A file that's there already and
+  isn't an export is replaced only if you press Export again. `panopsis export [FILE]` and
+  `panopsis import FILE` do the same from the command line, where FILE can be a folder too,
+  with panopsis closed: one that's open saves its own settings over them.
 
 ### Keys
 
@@ -345,6 +358,7 @@ fetch, and no others, so it can't read or change your files:
 ## Command line
 
 For scripting: `panopsis sessions`, `session <id>`, and `watch --once` for a plain table.
+`export [FILE]` and `import FILE` take your settings to another PC ([another PC](#spaces-and-settings)).
 With findings and advice on, also `report [--json]`, `profile`, `rules`, `mute <rule>`,
 `advise [--dry-run]` and `curate [--pack FILE] [--dry-run]`. Most take `--since 7d` and
 `--project NAME`.
@@ -379,6 +393,7 @@ tui_keys.py the keys list (?), where Enter on a key changes it
 commands.py Claude Code's slash commands for that menu, from the session's own list
 usage.py    your plan's limits, from Claude Code's /usage and sessions' rate-limit events
 config.py   app settings and spaces (~/.panopsis/config.yaml)
+settings_file.py  your settings in one file, to set up panopsis on another PC, and nothing of this one
 editor.py   the editors panopsis knows, and opening a file at its line or a folder in yours
 analysis.py full-history analysis shared by the app's report screens
 store.py    panopsis's own record of past sessions (~/.panopsis/history)

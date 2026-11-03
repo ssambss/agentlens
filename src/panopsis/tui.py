@@ -44,7 +44,8 @@ from textual.worker import get_current_worker
 
 from panopsis import activity as activity_mod, advise, analysis as analysis_mod, clipboard, commands as commands_mod
 from panopsis import config as config_mod
-from panopsis import editor as editor_mod, keys as keys_mod, preferences, terminal, timings, usage as usage_mod
+from panopsis import editor as editor_mod, keys as keys_mod, preferences, settings_file, terminal, timings
+from panopsis import usage as usage_mod
 from panopsis.adapters.claude_transcripts import (
     DEFAULT_ROOT,
     DETAIL_CHARS,
@@ -1409,6 +1410,7 @@ class PanopsisApp(App):
         #settings-dialog .settings-row Select, #settings-dialog .settings-row Input { width: 1fr; }
         #settings-dialog .settings-row Checkbox { margin-right: 1; }
         #settings-dialog .settings-note { color: $text-muted; padding-left: 16; }
+        #set-browse, #set-export, #set-import { margin-left: 1; width: auto; min-width: 0; }  /* room for the path */
         #settings-buttons { height: auto; margin-top: 1; }
         #settings-buttons Button { margin-right: 2; }
         #move-dialog { width: 64; max-width: 100%; height: auto; max-height: 24; padding: 1 2; border: round $accent;
@@ -3181,6 +3183,22 @@ class PanopsisApp(App):
     def action_edit_preferences(self) -> None:
         self.edit_file(preferences.ensure_file())
         self.preferences_changed()
+
+    def import_settings(self, path: Path) -> list[str]:
+        """Take the settings in a file exported on another PC in place of yours, each as if you'd picked
+        it, so it shows straight away. What changed; SettingsFileError for a file that can't be taken."""
+        exported = settings_file.read(path)
+        changes = exported.changes(self.config)
+        if "theme" in changes and changes["theme"] not in self.available_themes:
+            del changes["theme"]  # not one this panopsis has, so left as it is, as at launch
+        for name, value in changes.items():
+            self.change_setting(name, value)
+        taken = preferences.take(exported.preferences)
+        if taken:
+            self.preferences_changed()
+        self._warn_bad_colors()
+        self._warn_key_clashes()
+        return [*changes, *taken]
 
     def preferences_changed(self) -> None:
         """Your goals or style changed: rank the findings again, if they've been worked out yet."""
