@@ -132,12 +132,54 @@ def test_claude_code_titles_a_session_run_here(monkeypatch):
         await d.send("/model haiku")  # a command isn't what the session is about
         assert fakes[0].controls == []
         await d.send("why is the parser so slow on big repos?")
-        await settle(lambda: d.titled)
-        assert d.title == "Parser performance"
-        assert fakes[0].controls == [{"subtype": "generate_session_title", "persist": True,
-                                      "description": "why is the parser so slow on big repos?"}]
+        await settle(lambda: len(fakes[0].controls) == 2)
+        assert d.title == "Parser performance" and d.titled
+        assert fakes[0].controls == [
+            {"subtype": "generate_session_title", "persist": True,
+             "description": "why is the parser so slow on big repos?"},
+            # and named after it, so your other sessions can tell it from the rest in its folder
+            {"subtype": "rename_session", "title": "Parser performance", "source": "host", "session_id": "sess-42"}]
         await d.send("and the tokenizer?")
-        assert len(fakes[0].controls) == 1  # titled once
+        await asyncio.sleep(0.05)
+        assert len(fakes[0].controls) == 2  # titled and named once
+        await d.close()
+    asyncio.run(go())
+
+
+def test_a_resumed_session_takes_its_name_back_and_one_without_a_title_keeps_claude_codes():
+    async def go():
+        d, fakes = make({}, resume="sess-42")
+        d.title = "Parser performance"
+        await d.start()
+        await settle(lambda: fakes[0].controls)
+        assert fakes[0].controls == [{"subtype": "rename_session", "title": "Parser performance", "source": "host",
+                                      "session_id": "sess-42"}]
+        await d.close()
+
+        untitled, fakes = make({}, resume="sess-43")
+        await untitled.start()
+        await asyncio.sleep(0.05)
+        assert fakes[0].controls == []  # its folder's name and two characters, as Claude Code gave it
+        await untitled.close()
+    asyncio.run(go())
+
+
+def test_an_older_claude_code_that_cant_rename_keeps_its_own_name(monkeypatch):
+    monkeypatch.setattr(FakeClaude, "titles", {"fix the flaky login test": "Flaky login test"})
+    original = FakeClaude._send_control_request
+
+    async def no_rename(self, request):
+        if request["subtype"] == "rename_session":
+            raise Exception("Unsupported control request subtype: rename_session")
+        return await original(self, request)
+
+    monkeypatch.setattr(FakeClaude, "_send_control_request", no_rename)
+
+    async def go():
+        d, fakes = make({"fix the flaky login test": [text("On it."), done()]})
+        await d.start("fix the flaky login test")
+        await settle(lambda: d.titled and d.state == WAITING and d.events[-1].kind == "claude")
+        assert d.title == "Flaky login test" and d.error is None
         await d.close()
     asyncio.run(go())
 
@@ -163,8 +205,9 @@ def test_a_resumed_session_is_titled_from_the_message_it_is_called_by():
         d.title = "there are still question marks displayed on my screen in panopsis. for"
         d.park([])
         await d.send("any luck?")
-        await settle(lambda: fakes and fakes[0].controls)
-        assert fakes[0].controls[0]["description"] == f"{d.title}\nany luck?"
+        await settle(lambda: fakes and len(fakes[0].controls) == 2)
+        [titling] = [c for c in fakes[0].controls if c["subtype"] == "generate_session_title"]
+        assert titling["description"] == f"{d.title}\nany luck?"
         await d.close()
     asyncio.run(go())
 
@@ -1427,6 +1470,77 @@ def test_slash_lists_the_sessions_commands_and_their_arguments(projects, tmp_pat
             assert app.focused is not box
 
     asyncio.run(go())
+
+
+def test_an_at_names_a_session_as_claude_code_does_and_finds_it_by_what_the_wall_calls_it():
+    from panopsis.tui_driven import Mention, mention_at, suggest_mentions
+
+    assert mention_at("ask @sh") == "sh" and mention_at("@") == "" and mention_at("ask\n@sh") == "sh"
+    assert mention_at("mail me@work.com") is None  # not after a space
+    assert mention_at('ask @"Shared links" ') is None  # put in: what follows is your message again
+    shared = Mention("Shared links", "Shared links", "tubeless · shared-links", "waiting on you")
+    build = Mention("tubeless-d4", "Fix the Android build", "tubeless", "working")  # a terminal's: not renamed
+    track = Mention("Track editor", "Track editor", "agentic-game", "working")
+    assert shared.text == '@"Shared links"' and build.text == "@tubeless-d4"
+    wall = [build, track, shared]
+    assert suggest_mentions(wall, "") == wall
+    assert suggest_mentions(wall, "sh") == [shared]
+    assert suggest_mentions(wall, "t") == [build, track, shared]  # its name or title starts with it, then where
+    assert suggest_mentions(wall, "ed") == [track, shared]  # a word of its title starts with it, then inside one
+    assert suggest_mentions(wall, "game") == [track]  # where it is
+    assert suggest_mentions(wall, "android") == [build]
+
+
+def test_at_lists_your_other_sessions_and_puts_in_the_name_claude_code_knows_them_by(projects, tmp_path):
+    app, folder, fakes = app_with_session(projects, tmp_path)
+    tree = str(tmp_path / "tubeless" / ".claude" / "worktrees" / "shared-links")
+    _write(projects / "tubeless" / "s-77.jsonl", _common([
+        _human(0, "share links from the app"), {"type": "ai-title", "aiTitle": "Shared links"}], "s-77", cwd=tree))
+    listed = [{"sessionId": "s-77", "status": "idle", "name": "tubeless-d4", "kind": "interactive", "cwd": tree,
+               "startedAt": 1793731913649},
+              {"sessionId": "s-88", "status": "busy", "name": "carcalculator-1a", "kind": "interactive",
+               "cwd": str(tmp_path / "carcalculator"), "startedAt": 1793731982956}]
+    app.provider = lambda: list(listed)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            driven = await started(app, pilot, folder)
+            listed.append({"sessionId": "sess-42", "status": "idle", "name": "repo-4f", "kind": "interactive",
+                           "cwd": str(folder)})  # this one too, as Claude Code lists the sessions panopsis runs
+            app.action_refresh()
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.1)
+            app._focus_key(driven.key)
+            composer = app.query_one(Composer)
+            box = composer.query_one(ComposerInput)
+            await pilot.press("i", *"ask ", "@")
+            assert composer.menu_open and [m.title for m in composer.suggestions] == ["Shared links",
+                                                                                       "carcalculator-1a"]
+            assert "Claude can ask it" in str(composer.query_one(".composer-hint").content)
+            await pilot.press("s", "h", "enter")  # Enter puts it in, and you go on typing
+            await until(pilot, lambda: not composer.menu_open)
+            assert box.value == "ask @tubeless-d4 "
+            await pilot.press(*"what it decided", "enter")
+            await until(pilot, lambda: fakes[0].sent)
+            # Sent through the SDK, a mention is only text: Claude is told it's a session, as Claude Code's
+            # own box tells it. The pane shows your message as you typed it.
+            assert fakes[0].sent == ["ask @tubeless-d4 what it decided\n\n(@tubeless-d4 is another of my Claude Code "
+                                     "sessions on this machine, which you can message by that name.)"]
+            assert driven.events[-1].detail == "ask @tubeless-d4 what it decided"
+
+    asyncio.run(go())
+
+
+def test_a_message_names_the_sessions_it_mentions_and_nothing_else():
+    from panopsis.tui_driven import Mention, mention_note, mentions_in
+
+    shared = Mention("Shared links", "Shared links", "tubeless · shared-links", "idle")
+    build = Mention("tubeless-d4", "Fix the Android build", "tubeless", "working")
+    assert mentions_in('tell @"Shared links" and @tubeless-d4', [shared, build]) == [shared, build]
+    assert mentions_in("@tubeless-d40 or tubeless-d4", [build]) == []  # another name, and no @
+    assert mention_note([]) == ""
+    assert mention_note([shared, build]) == ('(@"Shared links" and @tubeless-d4 are other Claude Code sessions of '
+                                             'mine on this machine, which you can message by those names.)')
 
 
 def test_typing_a_message_leaves_the_line_under_the_box_alone(projects, tmp_path, server_info):

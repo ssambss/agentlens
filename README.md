@@ -177,6 +177,7 @@ panopsis never reads or passes credentials.
 | `i`, Esc | type in the session's box; leave it |
 | Enter, Shift+Enter | in the box: send the message; start a new line (Ctrl+J too) |
 | `/` | in the box: the session's own commands, skills and plugins, and their values (`/model`, `/effort`) |
+| `@` | in the box: your other sessions, for Claude to ask or tell something |
 | `1` `2` `3` | allow, allow and don't ask again, deny. For a question, pick an option; for a plan, `1` approves and `3` says what to change |
 | `x` | stop the current turn |
 | `d`, `o` | detach to Claude Code's background service, which keeps working after you quit; bring a background session back |
@@ -196,6 +197,17 @@ panopsis never reads or passes credentials.
   keyboard protocol (kitty, WezTerm, Ghostty, foot). In the others, Ctrl+J starts a line.
 - In the box, `/usage` opens the usage view, `/exit` closes the session, and `/clear`
   starts a new conversation in the same pane.
+- Claude Code lets Claude message your other sessions on this machine, by the name each
+  has there. Unless you name a session, that's its folder's with two characters after it
+  (`tubeless-d4`), alike for every session in a repo and its worktrees, so neither you nor
+  Claude could tell which is which. Sessions you start here take their title as their name
+  once Claude Code gives them one, and a session you bring back takes its title again, so
+  "ask the shared links session what it decided" reaches the right one. `@` in the box lists
+  your other open sessions by what the wall calls them and puts in the name Claude Code
+  knows them by, such as `@"Shared links"`, or `@tubeless-d4` for one in a terminal or an
+  editor, which keeps its own name. Claude Code's own box tells Claude a mention is a
+  session; a message sent through the SDK doesn't, so panopsis adds a line saying so to
+  what Claude reads. The pane shows your message as you typed it.
 - Alt+V in the box pastes a screenshot or image from the clipboard (Ctrl+V too, where the
   terminal passes it through). It shows above the box as `[Image #1]`, Backspace in an
   empty box removes it, and it goes with your next message, shrunk to 2000 px on the long
@@ -357,7 +369,7 @@ feed.py     how activity reads: conversation blocks, markdown, folded tool calls
 subagent_map.py  the zoom view's map: subagents in waves, nested under who launched them
 tui.py      the app
 driver.py   sessions panopsis runs itself (experimental)
-tui_driven.py  their panes, request cards, new-session dialog, the / command menu
+tui_driven.py  their panes, request cards, new-session dialog, the / command menu and @ for your other sessions
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
 terminal.py the tab's name, panopsis's icon on its window or tab, and in Windows the keys its consoles don't pass on
 icon.py     the icon, drawn for each size it's shown at

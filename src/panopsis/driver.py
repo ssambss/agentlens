@@ -149,6 +149,17 @@ async def generate_title(client, about: str) -> str:
     return str(response.get("title") or "").strip()
 
 
+async def rename(client, name: str, session_id: str | None = None) -> None:
+    """Name the session in Claude Code, as /rename does: the name your other sessions list it under
+    and message it by. Unnamed, it's its folder's with two characters after it ("tubeless-d4"),
+    alike for every session there. As the TypeScript SDK's renameSession; the Python SDK has no
+    call for it. Given the session, Claude Code refuses it if it has moved on to another (/clear)."""
+    request = {"subtype": "rename_session", "title": name, "source": "host"}  # host: the app it runs in
+    if session_id:
+        request["session_id"] = session_id
+    await client._query._send_control_request(request)
+
+
 class DrivenSession:
     def __init__(
         self,
@@ -200,6 +211,7 @@ class DrivenSession:
         self._client = None
         self._reader: asyncio.Task | None = None
         self._naming: asyncio.Task | None = None  # asking Claude Code for its title
+        self._renaming: asyncio.Task | None = None  # a resumed session taking its name back
         self._connecting: asyncio.Future | None = None  # a paused session starting Claude Code
         self._stderr: deque[str] = deque(maxlen=STDERR_LINES)
 
@@ -259,6 +271,8 @@ class DrivenSession:
         self.error = None
         self._reader = asyncio.ensure_future(self._read(self._client))
         self._set(WAITING, "ready")
+        if self.resume and self.title:  # back under the name it went by, not its folder's again
+            self._renaming = asyncio.ensure_future(self._give_name(self._client))
         if first_prompt or images:
             self.images = [*(images or []), *self.images]  # the first message's, then any pasted since
             await self.send(first_prompt or "")
@@ -272,7 +286,9 @@ class DrivenSession:
         self.state, self.detail = PAUSED, "from last time · type to continue"
         self.on_change(self)
 
-    async def send(self, text: str) -> None:
+    async def send(self, text: str, note: str = "") -> None:
+        """Your message, and a note for Claude with it that the pane doesn't show as yours: what the
+        sessions it names are."""
         text = text.strip()
         starting = self._connecting is not None and not self._connecting.done()
         images = [] if text.startswith("/") else self.images  # a command leaves them for the next message
@@ -303,8 +319,9 @@ class DrivenSession:
         else:
             self.on_change(self)
         client = self._client
+        said = f"{text}\n\n{note}" if note and not text.startswith("/") else text
         try:
-            await client.query(_with_images(text, images) if images else text)
+            await client.query(_with_images(said, images) if images else said)
         except Exception as e:  # noqa: BLE001
             await self._stopped(client, f"Couldn't send that to Claude Code ({e}), so panopsis stopped it.")
             return
@@ -327,6 +344,15 @@ class DrivenSession:
         if title and client is self._client:
             self.title, self.titled = title[:80], True
             self.on_change(self)
+            await self._give_name(client)
+
+    async def _give_name(self, client) -> None:
+        """Name the session after its title in Claude Code, so your other sessions, and Claude in
+        them, can tell it from the others in its folder. An older Claude Code keeps its own name."""
+        try:
+            await rename(client, self.title, self.session_id)
+        except Exception:  # noqa: BLE001 - it's still the session it was, under Claude Code's name
+            pass
 
     async def interrupt(self) -> None:
         if self._client is not None and self.state in (WORKING, PERMISSION, QUESTION, APPROVAL):
@@ -338,7 +364,7 @@ class DrivenSession:
                 self._note(f"interrupt failed: {e}", kind="error")
 
     async def close(self) -> None:
-        for task in (self._reader, self._naming):
+        for task in (self._reader, self._naming, self._renaming):
             if task is not None:
                 task.cancel()
         if self._client is not None:

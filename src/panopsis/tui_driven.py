@@ -4,9 +4,11 @@ card that shows a pending approval / question / plan, and the new-session dialog
 from __future__ import annotations
 
 import os
+import re
 import string
 import time
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -259,16 +261,94 @@ def images_line(images: list) -> Text:
 
 
 class CommandMenu(OptionList, can_focus=False):
-    """Claude Code's slash commands matching what you've typed. The box keeps the focus."""
+    """Claude Code's slash commands matching what you've typed, or your other sessions after an @.
+    The box keeps the focus."""
 
 
 def default_hint() -> Text:
     """Under the box: what to type, with your key for the keys list."""
-    return Text(f"Type / for Claude Code's commands · Shift+Enter starts a new line · Esc leaves the box; then "
-                f"{keys_mod.name('show-keys')} lists every key · Alt+V pastes an image", style="dim")
+    return Text(f"Type / for Claude Code's commands, @ for your other sessions · Shift+Enter starts a new line · "
+                f"Esc leaves the box; then {keys_mod.name('show-keys')} lists every key · Alt+V pastes an image",
+                style="dim")
 
 
 MENU_HINT = "↑↓ choose · Tab fills it in · Enter runs it · Esc closes the list"
+MENTION_HINT = "↑↓ choose · Tab or Enter puts it in · Esc closes the list · Claude can ask it or tell it for you"
+
+
+# Your other sessions -------------------------------------------------------------------------
+# Claude Code lets Claude message your other sessions on this machine, by the name each has there.
+# A session's name is its folder's with two characters after it unless it's been given one, so @
+# lists them by what panopsis calls them, and puts in the name Claude Code knows them by.
+
+@dataclass(frozen=True)
+class Mention:
+    name: str  # Claude Code's name for it, which a message to it goes by
+    title: str  # what the wall calls it
+    where: str  # its project, and worktree
+    state: str
+
+    @property
+    def text(self) -> str:
+        """As Claude Code writes a mention: in quotes, a name with more than letters, digits, - and _."""
+        return f"@{self.name}" if PLAIN_NAME.fullmatch(self.name) else f'@"{self.name}"'
+
+
+PLAIN_NAME = re.compile(r"[A-Za-z0-9_-]+")
+MENTION_AT = re.compile(r'(?:^|\s)@([^\s@"]*)$')  # an @ you're typing a name after
+
+
+def mention_at(line: str) -> str | None:
+    """What you've typed of a session's name, if the line up to the cursor ends in a mention."""
+    m = MENTION_AT.search(line)
+    return m[1] if m else None
+
+
+def suggest_mentions(sessions: Iterable[Mention], typed: str) -> list[Mention]:
+    """The sessions what you've typed after the @ could be: a title or name starting with it, then
+    one with a word that does, then one with it anywhere, each in the wall's order."""
+    q = typed.lower()
+
+    def rank(m: Mention) -> int | None:
+        names = (m.title.lower(), m.name.lower())
+        if any(n.startswith(q) for n in names):
+            return 0
+        if any(w.startswith(q) for n in names for w in re.split(r"[^a-z0-9]+", n)):
+            return 1
+        return 2 if any(q in n for n in (*names, m.where.lower())) else None
+
+    ranked = [(r, i, m) for i, m in enumerate(sessions) if (r := rank(m)) is not None]
+    return [m for _, _, m in sorted(ranked, key=lambda rim: rim[:2])]
+
+
+def mentions_in(text: str, sessions: Iterable[Mention]) -> list[Mention]:
+    """The sessions a message names, as @ puts them in, or as you'd type them."""
+    return [m for m in sessions if re.search(re.escape(m.text) + r"(?![\w-])", text)]
+
+
+def mention_note(mentions: list[Mention]) -> str:
+    """What Claude is told with your message about the sessions it names. Typed in Claude Code's own
+    box, a mention comes with a note saying which session it is; sent through the SDK, it's only
+    text, and Claude can take @"Shared links" for a placeholder."""
+    if not mentions:
+        return ""
+    names = " and ".join(m.text for m in mentions)
+    if len(mentions) == 1:
+        return f"({names} is another of my Claude Code sessions on this machine, which you can message by that name.)"
+    return f"({names} are other Claude Code sessions of mine on this machine, which you can message by those names.)"
+
+
+def mention_line(m: Mention, width: int, max_width: int) -> Text:
+    """`Shared links   tubeless · shared-links · waiting on you`, and the name Claude Code knows it by
+    when that isn't its title."""
+    line = Text(no_wrap=True, overflow="ellipsis")
+    line.append(m.title, style="bold")
+    line.append(" " * max(2, width - len(m.title)))
+    about = [m.where, m.state] if m.name == m.title else [m.name, m.where, m.state]
+    line.append(" · ".join(part for part in about if part), style="dim")
+    if max_width > 0:
+        line.truncate(max_width, overflow="ellipsis")
+    return line
 
 
 def menu_left(s: Suggestion) -> tuple[str, str]:
@@ -327,7 +407,7 @@ class Composer(Vertical):
         self.key = key
         self._card_key: tuple | None = None
         self._images: list = []  # the pasted images the line above the box shows
-        self.suggestions: list[Suggestion] = []
+        self.suggestions: list[Suggestion | Mention] = []  # the menu's: commands, or sessions after an @
         self._blocked = False  # a request is pending: the box answers it, so no menu
         self._driven: DrivenSession | None = None
         self._palette = Palette()
@@ -407,6 +487,9 @@ class Composer(Vertical):
     def _catalog(self) -> Catalog:
         return self.app.command_catalog(self.key)  # type: ignore[attr-defined]
 
+    def _sessions(self) -> list[Mention]:
+        return self.app.mentionable(self.key)  # type: ignore[attr-defined]
+
     @on(TextArea.Changed)
     def _changed(self, event: TextArea.Changed) -> None:
         self.update_menu(event.text_area.text)
@@ -414,21 +497,35 @@ class Composer(Vertical):
     def update_menu(self, text: str) -> None:
         try:
             menu = self.query_one(CommandMenu)
+            box = self.query_one(ComposerInput)
         except Exception:  # noqa: BLE001 - not composed yet
             return
         catalog = self._catalog()
-        self.suggestions = [] if self._blocked else catalog.suggest(text)[:self.MENU_ROWS]
+        commands = [] if self._blocked else catalog.suggest(text)[:self.MENU_ROWS]
+        typed = None if self._blocked or commands else mention_at(self._line_to_cursor(box))
+        mentions = [] if typed is None else suggest_mentions(self._sessions(), typed)[:self.MENU_ROWS]
+        self.suggestions = [*commands, *mentions]
         menu.display = bool(self.suggestions)
-        if self.suggestions:
-            room = self.content_region.width - 2  # the list's scrollbar
-            width = min(32, max(sum(map(len, menu_left(s))) for s in self.suggestions) + 2, max(12, room // 2))
-            menu.set_options([menu_line(s, width, room) for s in self.suggestions])
+        room = self.content_region.width - 2  # the list's scrollbar
+        if commands:
+            width = min(32, max(sum(map(len, menu_left(s))) for s in commands) + 2, max(12, room // 2))
+            menu.set_options([menu_line(s, width, room) for s in commands])
             menu.highlighted = 0
             self._show_hint(Text(MENU_HINT, style="dim"))
+        elif mentions:
+            width = min(40, max(len(m.title) for m in mentions) + 2, max(12, room // 2))
+            menu.set_options([mention_line(m, width, room) for m in mentions])
+            menu.highlighted = 0
+            self._show_hint(Text(MENTION_HINT, style="dim"))
         else:
             if menu.option_count:
                 menu.clear_options()
             self._show_hint(command_hint(catalog, text) or default_hint())
+
+    @staticmethod
+    def _line_to_cursor(box: ComposerInput) -> str:
+        row, column = box.cursor_location
+        return box.document.get_line(row)[:column]
 
     def _show_hint(self, hint: Text) -> None:
         # This runs on every key you type. A new hint lays the screen out again, in case it wraps
@@ -465,6 +562,11 @@ class Composer(Vertical):
         index = self.query_one(CommandMenu).highlighted or 0
         s = self.suggestions[min(index, len(self.suggestions) - 1)]
         box = self.query_one(ComposerInput)
+        if isinstance(s, Mention):  # part of a sentence, so Enter puts it in too, and you go on typing
+            row, column = box.cursor_location
+            typed = mention_at(self._line_to_cursor(box)) or ""
+            box.replace(f"{s.text} ", (row, column - len(typed) - 1), (row, column), maintain_selection_offset=False)
+            return  # TextArea.Changed closes the menu: the @ is behind you
         if s.choice is None and (not run or s.command.needs_argument):
             box.value = s.text + " "
             return  # TextArea.Changed reopens the menu with the argument's values, if any

@@ -70,7 +70,18 @@ from panopsis.driver import (
     is_home,
 )
 from panopsis.keys import binding as bind
-from panopsis.tui_driven import SPIN_SECONDS, SPINNER, ChoiceScreen, Composer, DetachScreen, NewSessionScreen, as_live
+from panopsis.tui_driven import (
+    SPIN_SECONDS,
+    SPINNER,
+    ChoiceScreen,
+    Composer,
+    DetachScreen,
+    Mention,
+    NewSessionScreen,
+    as_live,
+    mention_note,
+    mentions_in,
+)
 from panopsis.textbox import MessageBox, TextInput
 from panopsis.tui_keys import KeysScreen
 from panopsis.tui_settings import SettingsScreen
@@ -1937,14 +1948,14 @@ class PanopsisApp(App):
             on_change=self._driven_changed, on_rate_limit=self._rate_limit_seen, cli_path=self.config.cli_path,
             client_factory=self.client_factory,
         )
-        driven.title = title
+        driven.title = title if title != "(untitled)" else ""  # what History calls one it has no title for
         self.driven[driven.key] = driven
         if space := self._made_space():
             self.driven_space[driven.key] = space
         if resume:
             known, past = self._past(resume)
             if known is not None:
-                driven.title = known.title if known.title != "(untitled)" else title
+                driven.title = known.title if known.title != "(untitled)" else driven.title
                 driven.worktree = known.worktree
             if start:
                 driven.events = past
@@ -2134,7 +2145,8 @@ class PanopsisApp(App):
             return
         if p is None:
             if text.strip() or driven.images:
-                self.run_worker(driven.send(text), group="driven", exclusive=False)
+                note = mention_note(mentions_in(text, self.mentionable(key)))
+                self.run_worker(driven.send(text, note), group="driven", exclusive=False)
         elif p.kind == "question":
             driven.answer(text)
         elif p.kind == "plan":
@@ -2176,6 +2188,24 @@ class PanopsisApp(App):
         driven.images.pop()
         self._mark_dirty(key)
         return True
+
+    def mentionable(self, key: str) -> list[Mention]:
+        """The sessions a session's box can name with @: your others that Claude Code lists, which are
+        the ones it can message, as the wall calls them and in its order."""
+        driven = self.driven.get(key)
+        own = driven.session_id if driven is not None else None
+        ran_here = {d.session_id: d for d in self.driven.values() if d.session_id}
+        hidden = {*self.config.hidden_sessions, *self._closing_sessions}
+        now = datetime.now(timezone.utc)
+        mentions = []
+        for s in sorted(self._monitored, key=lambda s: (s.started or now, s.name)):
+            if s.session_id == own or s.session_id in hidden:
+                continue
+            d = ran_here.get(s.session_id)
+            title = (d.title if d is not None else s.title) or s.name
+            where = " · ".join(part for part in (s.project, s.worktree) if part)
+            mentions.append(Mention(s.name, title, where, d.state if d is not None else s.state))
+        return mentions
 
     def command_catalog(self, key: str) -> commands_mod.Catalog:
         """The slash commands for a session's box: its own Claude Code's list once it has started."""
