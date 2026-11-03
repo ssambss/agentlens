@@ -209,6 +209,29 @@ def test_questions_are_answered_in_the_sdk_shape():
     asyncio.run(go())
 
 
+def test_what_claude_asked_and_what_you_answered_stay_in_the_conversation():
+    from claude_agent_sdk import ToolResultBlock, UserMessage
+
+    questions = {"questions": [
+        {"question": "Which colour?", "header": "Colour", "options": [{"label": "Red"}, {"label": "Blue"}]},
+        {"question": "Which size?", "header": "Size", "options": [{"label": "S"}, {"label": "L"}]},
+    ]}
+    d, _ = make({})
+    d.handle(AssistantMessage([ToolUseBlock("q1", "AskUserQuestion", questions)], "claude-opus-5-5"))
+    asked = d.events[-1]
+    assert (asked.kind, asked.text) == ("question", "Which colour? (+1 more)")
+    assert asked.detail == "**Which colour?**\n\n- Red\n- Blue\n\n**Which size?**\n\n- S\n- L"
+    answers = {"Which colour?": "Blue", "Which size?": "extra large, please"}
+    d.handle(UserMessage([ToolResultBlock("q1", "Your questions have been answered.")],
+                         tool_use_result={**questions, "answers": answers}))
+    assert (d.events[-1].kind, d.events[-1].detail) == ("answer", "Colour: Blue\nSize: extra large, please")
+    # Declined, as Esc does: an error result, which here is no error, just a question left unanswered.
+    d.handle(AssistantMessage([ToolUseBlock("q2", "AskUserQuestion", questions)], "claude-opus-5-5"))
+    d.handle(UserMessage([ToolResultBlock("q2", "The user declined to answer.", is_error=True)]))
+    assert [(e.kind, e.tag) for e in d.events] == [("question", ""), ("answer", ""), ("question", ""),
+                                                   ("answer", "declined")]
+
+
 def test_plan_approval_and_feedback():
     plan = {"plan": "## Plan\n1. Do the thing"}
 

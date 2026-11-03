@@ -31,9 +31,11 @@ are panopsis's own; you can change them ([keys](#keys)).
 
 One pane per open session, read as a conversation: your messages on a tinted card,
 Claude's replies as markdown, runs of tool calls folded into one line
-(`▸ Read a.py · Edit a.py ×2 · Bash ×3`). Panes keep their place, and the border colour
-is the state: yellow needs you (heavier for a question or a plan to approve), green
-working, blue waiting on its own subagents.
+(`▸ Read a.py · Edit a.py ×2 · Bash ×3`). A question Claude asked you reads as what it
+asked, with its options, and then what you answered, on a card like your messages
+(or that you didn't answer, and what you said instead). Panes keep their place, and the
+border colour is the state: yellow needs you (heavier for a question or a plan to
+approve), green working, blue waiting on its own subagents.
 
 Beside the state, at the bottom of the border, is how full the session's context window
 is (`working 4m · 42% context`). It takes the theme's warning colour at 75% and its error
@@ -333,7 +335,7 @@ work.py     what you work on: languages, build and Claude Code setup per repo
 features.py which Claude Code features your sessions use, so advice can suggest new ones
 live.py     open sessions + transcript tails, as live state
 read.py     the sessions needing you that you've already read (~/.panopsis/read.json)
-feed.py     how activity reads: conversation blocks, markdown, folded tool calls
+feed.py     how activity reads: conversation blocks, markdown, folded tool calls, questions and answers
 subagent_map.py  the zoom view's map: subagents in waves, nested under who launched them
 tui.py      the app
 driver.py   sessions panopsis runs itself (experimental)

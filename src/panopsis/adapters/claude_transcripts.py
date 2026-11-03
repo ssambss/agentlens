@@ -21,6 +21,7 @@ from pathlib import Path
 
 from panopsis.model import (
     AWAY,
+    DECLINED,
     DELEGATED,
     DORMANT,
     MODEL,
@@ -425,8 +426,10 @@ def _span_kind(record: dict, tool_names: dict[str, str], is_main: bool) -> str:
 
 
 def extract_events(records: list[dict], is_main: bool) -> list[Event]:
-    """Turn records into a readable activity feed: prompts, replies, tool calls, errors."""
+    """Turn records into a readable activity feed: prompts, replies, tool calls, errors, and Claude's
+    questions with your answers."""
     events: list[Event] = []
+    asked: dict[str, list[dict]] = {}  # questions Claude asked, by call, until they're answered
     for r in records:
         t = r["_ts"]
         if r.get("subtype") == "compact_boundary":
@@ -447,6 +450,10 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
                         # A background subagent's final report is its reply, not a tool call.
                         events.append(Event(t, "claude", _one_line(report), report[:DETAIL_CHARS]))
                         continue
+                    if name == QUESTION_TOOL:  # what it asked you, not a tool call
+                        asked[block.get("id", "")] = questions_of(tool_input)
+                        events.append(question_event(t, tool_input))
+                        continue
                     summary = tool_summary(tool_input, r.get("cwd"))
                     events.append(Event(t, "tool", f"{name}: {summary}" if summary else name))
             continue
@@ -463,11 +470,87 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
             text = _one_line(match[1]) if match else label.get(_origin_kind(r), "background task update")
             events.append(Event(t, "notice", text, body[:DETAIL_CHARS]))
         else:
-            for block in _content(r):
-                if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
+            results = [b for b in _content(r) if isinstance(b, dict) and b.get("type") == "tool_result"]
+            outcome = r.get("toolUseResult") if len(results) == 1 else None  # what the tool made of it
+            for block in results:
+                questions = asked.pop(block.get("tool_use_id", ""), None)
+                if questions is not None or _answers(outcome):  # asked before the tail, the answers say it all
+                    events.append(answer_event(t, questions or [], outcome, _result_text(block),
+                                               bool(block.get("is_error"))))
+                elif block.get("is_error"):
                     body = _result_text(block)
                     events.append(Event(t, "error", _one_line(body) or "tool error", body[:DETAIL_CHARS]))
     return events
+
+
+# Claude's questions (AskUserQuestion), and what you answered ---------------------------------------
+# A question reads as the conversation does: what Claude asked, with its options, then your answer
+# on a card as your messages are. In a transcript the answers are beside the result, keyed by
+# question; the result's text has them too, as "question"="answer". Declining is an error result.
+
+QUESTION_TOOL = "AskUserQuestion"
+_SAID = "the user said:"  # in a declined question's result, before why
+
+
+def questions_of(tool_input: dict) -> list[dict]:
+    """The questions an AskUserQuestion call asked, each with its text, header and options."""
+    questions = tool_input.get("questions")
+    return [q for q in questions if isinstance(q, dict) and q.get("question")] if isinstance(questions, list) else []
+
+
+def question_event(at: datetime, tool_input: dict) -> Event:
+    """What Claude asked: the first question, and for the conversation, every one with its options."""
+    questions = questions_of(tool_input)
+    if not questions:
+        return Event(at, "tool", QUESTION_TOOL)
+    parts = []
+    for q in questions:
+        labels = [str(o.get("label", "")) for o in q.get("options") or [] if isinstance(o, dict) and o.get("label")]
+        options = "".join(f"\n- {label}" for label in labels)
+        parts.append(f"**{' '.join(str(q['question']).split())}**" + (f"\n{options}" if options else ""))
+    more = f" (+{len(questions) - 1} more)" if len(questions) > 1 else ""
+    return Event(at, "question", _one_line(str(questions[0]["question"])) + more, "\n\n".join(parts)[:DETAIL_CHARS])
+
+
+def answer_event(at: datetime, questions: list[dict], outcome, result: str, is_error: bool) -> Event:
+    """What you answered: one answer, or each under its question's header. Declined, why, if you said."""
+    if is_error:
+        why = result.split(_SAID, 1)[1] if _SAID in result else ""
+        return Event(at, "answer", _one_line(why), why.strip()[:DETAIL_CHARS], tag=DECLINED)
+    answers = _answers(outcome)
+    if isinstance(outcome, dict) and questions_of(outcome):
+        questions = questions_of(outcome)
+    if answers is None:
+        answers = _answers_in(result, questions)
+    notes = outcome.get("annotations") if isinstance(outcome, dict) else None
+    headers = {str(q["question"]): str(q.get("header") or q["question"]) for q in questions}
+    lines, said = [], []
+    for question, answer in answers.items():
+        answer = str(answer)
+        said.append(answer)
+        lines.append(f"{headers.get(question, question)}: {answer}" if len(answers) > 1 else answer)
+        note = (notes.get(question) or {}).get("notes") if isinstance(notes, dict) else None
+        if isinstance(note, str) and note.strip():
+            lines.append(f"Note: {note.strip()}")
+    return Event(at, "answer", _one_line(" · ".join(said)), "\n".join(lines)[:DETAIL_CHARS])
+
+
+def _answers(outcome) -> dict | None:
+    answers = outcome.get("answers") if isinstance(outcome, dict) else None
+    return answers if isinstance(answers, dict) and answers else None
+
+
+def _answers_in(result: str, questions: list[dict]) -> dict[str, str]:
+    """The answers in a result's text: `... answered: "Which way?"="Sound first", "Where?"="Bluetooth". ...`"""
+    found = {}
+    for q in questions:
+        mark = f'"{q["question"]}"="'
+        start = result.find(mark)
+        if start >= 0:
+            rest = result[start + len(mark):]
+            end = re.search(r'"(?:, "|\.(?:\s|$)|$)', rest)
+            found[str(q["question"])] = rest[:end.start()] if end else rest
+    return found or dict(re.findall(r'"([^"]+)"="([^"]*)"', result))
 
 
 def tool_summary(tool_input: dict, cwd: str | None = None) -> str:

@@ -2,8 +2,9 @@
 
 Your messages and Claude's are separate, spaced blocks; Claude's replies render as
 markdown (headings, lists, tables, highlighted code); runs of tool calls fold into a
-single muted summary line. The dense one-line-per-event log is still available as
-"activity" mode for when you want to see every command.
+single muted summary line. A question Claude asked you reads as its own block, with its
+options, and your answer as a card, as your messages are. The dense one-line-per-event
+log is still available as "activity" mode for when you want to see every command.
 
 Web addresses are links, and the margins around your messages and code blocks are marked
 as frame, so copying text from the screen leaves them out (see selectable.py).
@@ -29,7 +30,7 @@ from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
-from panopsis.model import Event
+from panopsis.model import DECLINED, Event
 
 PANE_BLOCKS = 14  # conversation blocks kept in a pane; it scrolls to the newest
 PANE_MESSAGE_LINES = 12  # a long reply is clipped in a pane; zoom shows all of it
@@ -126,7 +127,7 @@ def palette_from(variables: dict[str, str], dark: bool) -> Palette:
 
 @dataclass
 class Block:
-    kind: str  # you | claude | tools | notice | compact
+    kind: str  # you | claude | question | answer | tools | notice | compact
     at: datetime
     text: str = ""
     events: list[Event] = field(default_factory=list)
@@ -141,7 +142,7 @@ def to_blocks(events: list[Event]) -> list[Block]:
                 blocks[-1].events.append(e)
             else:
                 blocks.append(Block("tools", e.at, events=[e]))
-        elif e.kind in ("you", "claude"):
+        elif e.kind in ("you", "claude", "question", "answer"):
             blocks.append(Block(e.kind, e.at, e.detail or e.text, tag=e.tag))
         else:
             blocks.append(Block(e.kind, e.at, e.text))
@@ -208,6 +209,19 @@ def _render_block(block: Block, palette: Palette, stamp: str, full: bool, clip: 
         body = _clip_lines(block.text, PANE_MESSAGE_LINES) if clip else block.text
         who = ("Claude Code", "bold dim") if block.tag == "command" else ("Claude", f"bold {palette.claude}")
         return Group(Text.assemble(who, (stamp, "dim")), markdown(body, palette.code_theme))
+    if block.kind == "question":
+        body = _clip_lines(block.text, PANE_MESSAGE_LINES) if clip else block.text
+        return Group(Text.assemble(("Claude asked", f"bold {palette.claude}"), (stamp, "dim")),
+                     markdown(body, palette.code_theme))
+    if block.kind == "answer":
+        declined = block.tag == DECLINED
+        label = Text.assemble(("You didn't answer" if declined else "You answered", f"bold {palette.you}"),
+                              (stamp, "dim"))
+        if not block.text:
+            return Framed(label, (0, 1), f"on {palette.card}")
+        body = with_links(Text(_clip_lines(block.text, PANE_PROMPT_LINES) if clip else block.text,
+                               style="dim" if declined else ""))
+        return Framed(Group(label, body), (0, 1), f"on {palette.card}")
     if block.kind == "tools":
         if not full:
             return tools_summary(block.events, palette)
@@ -231,6 +245,8 @@ def activity_log(events: list[Event], palette: Palette, *, show_times: bool = Tr
         "error": ("  ✗ ", palette.error),
         "notice": ("  ◆ ", palette.notice),
         "compact": ("  ⟳ ", "dim"),
+        "question": ("ai  ", f"bold {palette.claude}"),
+        "answer": ("you ", f"bold {palette.you}"),
     }
     text = Text()
     for i, (event, count) in enumerate(collapse_repeats(events)[-limit:]):
@@ -240,8 +256,13 @@ def activity_log(events: list[Event], palette: Palette, *, show_times: bool = Tr
             text.append(f"{event.at.astimezone():%H:%M} ", style="dim")
         label, style = labels.get(event.kind, ("    ", ""))
         text.append(label, style=style)
+        if event.kind in ("question", "answer"):
+            said = {"question": "asked: ", "answer": "answered: "}[event.kind]
+            if event.tag == DECLINED:
+                said = "didn't answer: " if event.text else "didn't answer"
+            text.append(said, style="dim")
         line = Text(event.text, style=palette.tool if event.kind == "tool" else "")
-        if event.kind in ("you", "claude") and len(event.text) < LINE_LIMIT:
+        if event.kind in ("you", "claude", "answer") and len(event.text) < LINE_LIMIT:
             with_links(line)
         text.append_text(line)
         if count > 1:

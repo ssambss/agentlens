@@ -24,6 +24,8 @@ AWAY = "away"  # waiting on you or on background work for longer than the away t
 
 ACTIVE_KINDS = (MODEL, TOOL, DELEGATED)
 
+DECLINED = "declined"  # an answer event's tag: you didn't answer Claude's question
+
 
 @dataclass
 class Span:
@@ -41,10 +43,10 @@ class Event:
     """One line of a session's activity feed, for the live views."""
 
     at: datetime
-    kind: str  # you | claude | tool | error | notice | compact
+    kind: str  # you | claude | question | answer | tool | error | notice | compact
     text: str  # one line, for panes
-    detail: str = ""  # fuller text, for the zoomed view
-    tag: str = ""  # e.g. "queued": a message you sent while Claude was working
+    detail: str = ""  # fuller text, for the zoomed view; a question's is markdown
+    tag: str = ""  # e.g. "queued": a message you sent while Claude was working; DECLINED
 
 
 @dataclass

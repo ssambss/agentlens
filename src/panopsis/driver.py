@@ -31,7 +31,14 @@ from pathlib import Path
 from typing import Any
 
 from panopsis import usage
-from panopsis.adapters.claude_transcripts import image_marks, tool_summary
+from panopsis.adapters.claude_transcripts import (
+    QUESTION_TOOL,
+    answer_event,
+    image_marks,
+    question_event,
+    questions_of,
+    tool_summary,
+)
 from panopsis.clipboard import PastedImage
 from panopsis.commands import Catalog
 from panopsis.model import Event
@@ -182,6 +189,7 @@ class DrivenSession:
         self.turn_tokens = 0
         self._streamed: dict[str | None, int] = {}  # characters of each reply still streaming, by subagent
         self.pending: PendingRequest | None = None
+        self._asked: dict[str, list[dict]] = {}  # questions Claude asked, by call, until they're answered
         self.cost_usd = 0.0
         self.error: str | None = None
         self.parked = False  # restored from last time: connects to Claude Code when you next type
@@ -512,7 +520,11 @@ class DrivenSession:
                     self.events.append(Event(now, "claude", first[:240], block.text, tag=tag))
                 elif block_kind == "ToolUseBlock":
                     summary = tool_summary(block.input or {}, self.cwd)
-                    self.events.append(Event(now, "tool", f"{block.name}: {summary}" if summary else block.name))
+                    if block.name == QUESTION_TOOL:  # what it asked you, not a tool call
+                        self._asked[block.id] = questions_of(block.input or {})
+                        self.events.append(question_event(now, block.input or {}))
+                    else:
+                        self.events.append(Event(now, "tool", f"{block.name}: {summary}" if summary else block.name))
                     self.detail = running(block.name, summary)
             if getattr(message, "session_id", None):
                 self.session_id = message.session_id
@@ -520,11 +532,17 @@ class DrivenSession:
             return
         if kind == "UserMessage":
             for block in getattr(message, "content", None) or []:
-                if type(block).__name__ == "ToolResultBlock" and getattr(message, "parent_tool_use_id", None) is None:
+                if type(block).__name__ != "ToolResultBlock":
+                    continue
+                if getattr(message, "parent_tool_use_id", None) is None:
                     self.detail = "thinking"  # over what the tool gave back, until its next reply starts
-                if type(block).__name__ == "ToolResultBlock" and getattr(block, "is_error", False):
-                    content = block.content if isinstance(block.content, str) else " ".join(
-                        c.get("text", "") for c in block.content or [] if isinstance(c, dict))
+                content = block.content if isinstance(block.content, str) else " ".join(
+                    c.get("text", "") for c in block.content or [] if isinstance(c, dict))
+                questions = self._asked.pop(block.tool_use_id, None)
+                if questions is not None:
+                    self.events.append(answer_event(now, questions, getattr(message, "tool_use_result", None),
+                                                    content, bool(getattr(block, "is_error", False))))
+                elif getattr(block, "is_error", False):
                     first = next((ln for ln in content.splitlines() if ln.strip()), "tool error")
                     self.events.append(Event(now, "error", first[:240], content[:4000]))
             self.on_change(self)

@@ -1353,6 +1353,82 @@ def test_activity_log_collapses_repeats():
     assert "×2" in activity_log(events, Palette()).plain
 
 
+def answered(minutes, tool_id, content, outcome=None, is_error=False):
+    """The record Claude Code writes once you've answered its questions (or declined to)."""
+    record = tool_result(minutes, tool_id, permission_source="user")
+    record["message"]["content"][0].update(content=content, **({"is_error": True} if is_error else {}))
+    if outcome is not None:
+        record["toolUseResult"] = outcome
+    return record
+
+
+QUESTIONS = [
+    {"question": "Which way was it?", "header": "Lag", "multiSelect": False,
+     "options": [{"label": "Sound ahead of picture", "description": "You hear it first"},
+                 {"label": "Picture ahead of sound", "description": "You see it first"}]},
+    {"question": "Where does the sound go?", "header": "Output", "multiSelect": False,
+     "options": [{"label": "Speakers"}, {"label": "Bluetooth"}]},
+]
+
+
+def test_what_claude_asked_and_what_you_answered_read_as_the_conversation(projects):
+    path = write_jsonl(projects / "demo" / "s.jsonl", common([
+        human(0, "the sound is out of step"),
+        tool_use(1, "AskUserQuestion", "q1", questions=QUESTIONS),
+        answered(3, "q1", 'Your questions have been answered: "Which way was it?"="Sound ahead of picture", '
+                          '"Where does the sound go?"="my USB headset". You can now continue.',
+                 {"questions": QUESTIONS, "answers": {"Which way was it?": "Sound ahead of picture",
+                                                      "Where does the sound go?": "my USB headset"},
+                  "annotations": {"Where does the sound go?": {"notes": "the one with the long cable"}}}),
+        text(4, "Then it's the headset's latency."),
+    ], "s"))
+    _, events = load_tail(path, tail_bytes=100_000)
+    asked, answer = events["main"][1:3]
+    assert (asked.kind, asked.text) == ("question", "Which way was it? (+1 more)")
+    assert (answer.kind, answer.text) == ("answer", "Sound ahead of picture · my USB headset")
+    assert answer.detail == ("Lag: Sound ahead of picture\nOutput: my USB headset\n"
+                             "Note: the one with the long cable")  # each under its question's header
+    out = plain(conversation(events["main"], Palette()))
+    assert "AskUserQuestion" not in out and "Claude asked" in out and "You answered" in out
+    for shown in ("Which way was it?", "Picture ahead of sound", "Bluetooth", "Output: my USB headset"):
+        assert shown in out
+    assert "You see it first" not in out  # the options, not their descriptions
+    assert "asked: Which way was it? (+1 more)" in activity_log(events["main"], Palette()).plain
+    assert "answered: Sound ahead of picture · my USB headset" in activity_log(events["main"], Palette()).plain
+
+
+def test_answers_come_from_the_results_text_when_it_is_all_there_is(projects):
+    # Asked before the part of the transcript that's read, or by a Claude Code that wrote no answers beside it.
+    one = [QUESTIONS[0]]
+    path = write_jsonl(projects / "demo" / "s.jsonl", common([
+        tool_use(1, "AskUserQuestion", "q1", questions=one),
+        answered(2, "q1", 'The user answered: "Which way was it?"="Sound ahead of picture". Read the answers.'),
+        answered(3, "q0", "Your questions have been answered.",  # its call is before the tail
+                 {"questions": one, "answers": {"Which way was it?": "Picture ahead of sound"}}),
+    ], "s"))
+    _, events = load_tail(path, tail_bytes=100_000)
+    assert [(e.kind, e.detail) for e in events["main"][1:]] == [("answer", "Sound ahead of picture"),
+                                                                ("answer", "Picture ahead of sound")]
+
+
+def test_a_question_you_declined_says_so_not_that_a_tool_failed(projects):
+    path = write_jsonl(projects / "demo" / "s.jsonl", common([
+        tool_use(1, "AskUserQuestion", "q1", questions=[QUESTIONS[0]]),
+        answered(2, "q1", "The user doesn't want to proceed with this tool use. The tool use was rejected. To tell "
+                          "you how to proceed, the user said:\nThe user wants to clarify these questions.\n    "
+                          "Start by asking them what they would like to clarify.", is_error=True),
+        tool_use(3, "AskUserQuestion", "q2", questions=[QUESTIONS[1]]),
+        answered(4, "q2", "The user doesn't want to proceed with this tool use.", is_error=True),
+    ], "s"))
+    _, events = load_tail(path, tail_bytes=100_000)
+    assert [(e.kind, e.tag, e.text) for e in events["main"]] == [
+        ("question", "", "Which way was it?"), ("answer", "declined", "The user wants to clarify these questions."),
+        ("question", "", "Where does the sound go?"), ("answer", "declined", "")]
+    out = plain(conversation(events["main"], Palette()))
+    assert out.count("You didn't answer") == 2 and "✗" not in out
+    assert "didn't answer: The user wants to clarify" in activity_log(events["main"], Palette()).plain
+
+
 def test_subagent_feeds_are_extracted():
     from datetime import datetime
 
