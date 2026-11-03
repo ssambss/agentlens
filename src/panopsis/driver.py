@@ -183,6 +183,7 @@ class DrivenSession:
         self.name = name or f"new-{self.key[2:6]}"
         self.title = ""  # your first message until Claude Code titles the session (see _name)
         self.titled = False  # Claude Code has given it a title
+        self.named = False  # Claude Code has a name saved for it, which it takes back when resumed
         self.worktree = ""  # the Claude Code worktree it moved into, read from its transcript
         self.on_change = on_change
         self.on_rate_limit = on_rate_limit
@@ -271,7 +272,9 @@ class DrivenSession:
         self.error = None
         self._reader = asyncio.ensure_future(self._read(self._client))
         self._set(WAITING, "ready")
-        if self.resume and self.title:  # back under the name it went by, not its folder's again
+        if self.resume and self.title and not self.named:
+            # One from before panopsis named its sessions, or one Claude Code never titled until now:
+            # a named one takes its name back by itself, and a name you gave it stays.
             self._renaming = asyncio.ensure_future(self._give_name(self._client))
         if first_prompt or images:
             self.images = [*(images or []), *self.images]  # the first message's, then any pasted since
@@ -348,11 +351,15 @@ class DrivenSession:
 
     async def _give_name(self, client) -> None:
         """Name the session after its title in Claude Code, so your other sessions, and Claude in
-        them, can tell it from the others in its folder. An older Claude Code keeps its own name."""
+        them, can tell it from the others in its folder. Once: Claude Code keeps the name, and gives
+        it back when the session is resumed. An older Claude Code keeps its own name."""
+        if self.named:
+            return
         try:
             await rename(client, self.title, self.session_id)
         except Exception:  # noqa: BLE001 - it's still the session it was, under Claude Code's name
-            pass
+            return
+        self.named = True
 
     async def interrupt(self) -> None:
         if self._client is not None and self.state in (WORKING, PERMISSION, QUESTION, APPROVAL):

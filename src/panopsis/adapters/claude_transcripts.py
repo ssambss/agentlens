@@ -165,6 +165,7 @@ def load_session(
         main=_build_run(records, path.stem, "main", title, False, is_main=True, away_after=away_after),
         cwd=next((r["cwd"] for r in records if r.get("cwd")), ""),
         worktree=worktree_name(next((r["cwd"] for r in reversed(records) if r.get("cwd")), "")),
+        name=next((r["agentName"] for r in reversed(records) if r.get("agentName")), ""),
     )
     summaries = 0
     for r in records:

@@ -106,6 +106,9 @@ class Session:
     manual_compactions: int = 0  # of `compactions`, the ones you ran with /compact
     permission_modes: Counter = field(default_factory=Counter)  # your prompts, by the permission mode they went in
     commands: Counter = field(default_factory=Counter)  # slash commands you typed: "/model"
+    # The name Claude Code knows it by, if it has saved one (/rename, or panopsis naming it after its title),
+    # which it takes back when resumed. Without one, a resumed session goes by its folder's name again.
+    name: str = ""
 
     @property
     def start(self) -> datetime:

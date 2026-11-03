@@ -214,8 +214,10 @@ panopsis never reads or passes credentials.
   has there. Unless you name a session, that's its folder's with two characters after it
   (`tubeless-d4`), alike for every session in a repo and its worktrees, so neither you nor
   Claude could tell which is which. Sessions you start here take their title as their name
-  once Claude Code gives them one, and a session you bring back takes its title again, so
-  "ask the shared links session what it decided" reaches the right one. `@` in the box lists
+  once Claude Code gives them one, and Claude Code keeps it for them, so "ask the shared
+  links session what it decided" reaches the right one. One from before panopsis named its
+  sessions takes its title the next time it runs: here, in Claude Code from panopsis, or in
+  the background. A name you gave a session with `/rename` stays. `@` in the box lists
   your other open sessions by what the wall calls them and puts in the name Claude Code
   knows them by, such as `@"Shared links"`, or `@tubeless-d4` for one in a terminal or an
   editor, which keeps its own name. Claude Code's own box tells Claude a mention is a

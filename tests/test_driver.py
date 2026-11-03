@@ -1,6 +1,7 @@
 """Driven sessions against a fake Claude Code: no real CLI, no usage spent."""
 
 import asyncio
+import contextlib
 import time
 
 from claude_agent_sdk import (
@@ -146,14 +147,15 @@ def test_claude_code_titles_a_session_run_here(monkeypatch):
     asyncio.run(go())
 
 
-def test_a_resumed_session_takes_its_name_back_and_one_without_a_title_keeps_claude_codes():
+def test_a_resumed_session_with_no_name_takes_its_title_and_one_without_a_title_keeps_claude_codes():
     async def go():
-        d, fakes = make({}, resume="sess-42")
+        d, fakes = make({}, resume="sess-42")  # from before panopsis named its sessions
         d.title = "Parser performance"
         await d.start()
         await settle(lambda: fakes[0].controls)
         assert fakes[0].controls == [{"subtype": "rename_session", "title": "Parser performance", "source": "host",
                                       "session_id": "sess-42"}]
+        assert d.named
         await d.close()
 
         untitled, fakes = make({}, resume="sess-43")
@@ -161,6 +163,21 @@ def test_a_resumed_session_takes_its_name_back_and_one_without_a_title_keeps_cla
         await asyncio.sleep(0.05)
         assert fakes[0].controls == []  # its folder's name and two characters, as Claude Code gave it
         await untitled.close()
+    asyncio.run(go())
+
+
+def test_a_resumed_session_with_a_name_keeps_it(monkeypatch):
+    monkeypatch.setattr(FakeClaude, "titles", {"Parser performance\nand the tokenizer?": "Parser performance"})
+
+    async def go():
+        d, fakes = make({}, resume="sess-42")
+        d.title, d.named = "Parser performance", True  # Claude Code has one saved: panopsis's, or your /rename
+        await d.start()
+        await d.send("and the tokenizer?")
+        await settle(lambda: d.titled)
+        await asyncio.sleep(0.05)
+        assert [c["subtype"] for c in fakes[0].controls] == ["generate_session_title"]  # titled, not renamed
+        await d.close()
     asyncio.run(go())
 
 
@@ -859,6 +876,11 @@ def test_background_resume_judges_success_by_the_session_appearing(monkeypatch):
                                         list_sessions=lambda: next(listings), wait_seconds=1)
     assert ok and msg == "backgrounded · 1715db93"
     assert runs[0] == ["claude", "--resume", "sess-1", "--bg", "--permission-mode", "acceptEdits", "--", "go on"]
+    # One Claude Code has no name saved for goes by its title there, as it does here.
+    listings = iter([[], [{"sessionId": "sess-1", "kind": "background"}]])
+    tui_mod.background_resume("claude", "sess-1", "D:/w", "default", "go on", "Parser performance",
+                              list_sessions=lambda: next(listings), wait_seconds=1)
+    assert runs[1][:5] == ["claude", "--resume", "sess-1", "--name", "Parser performance"]
     # Exit code 0 but nothing appeared (e.g. "Workspace not trusted"): a failure.
     Done.stdout = "Workspace not trusted. Run `claude` in D:/w once."
     ok, msg = tui_mod.background_resume("claude", "sess-1", "D:/w", "default", "go on",
@@ -1226,6 +1248,46 @@ def test_sessions_come_back_under_claude_codes_title(projects, tmp_path, isolate
             pane = app.query_one(f"#s-{driven.key}", tui_mod.SessionPane)
             assert pane.border_title == "parser · repo · here"
             assert pane.query_one(".headline").content.plain.startswith("Parser support\n")
+
+    asyncio.run(go())
+
+
+def test_a_session_from_before_panopsis_named_its_sessions_takes_its_title_wherever_it_continues(
+        projects, tmp_path, monkeypatch):
+    app, folder, fakes = app_with_session(projects, tmp_path)
+    _write(projects / "repo" / "s-old.jsonl", _common([
+        _human(0, "can we add a parser?"), {"type": "ai-title", "aiTitle": "Repo parser support"}],
+        "s-old", cwd=str(folder)))
+    _write(projects / "repo" / "s-named.jsonl", _common([
+        _human(0, "why is it slow?"), {"type": "ai-title", "aiTitle": "Parser performance"},
+        {"type": "agent-name", "agentName": "parser"}], "s-named", cwd=str(folder)))  # you ran /rename parser
+    runs = []
+    monkeypatch.setattr(_subprocess, "run", lambda cmd, **kw: runs.append(cmd))
+    monkeypatch.setattr(tui_mod.terminal, "set_title", lambda *a, **kw: None)
+
+    def renamed():
+        return {f.options.resume: [c["title"] for c in f.controls if c["subtype"] == "rename_session"]
+                for f in fakes}
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            monkeypatch.setattr(app, "suspend", contextlib.nullcontext)
+            app.config.cli_path = "claude"
+            # Continued here: the one without a name takes its title, and yours stays.
+            old, named = (app.open_driven(str(folder), resume=s) for s in ("s-old", "s-named"))
+            await until(pilot, lambda: len(fakes) == 2 and all(d.state == WAITING for d in (old, named)))
+            await pilot.pause(0.1)
+            assert renamed() == {"s-old": ["Repo parser support"], "s-named": []}
+            await app._end_driven(old, quiet=True)
+            await app._end_driven(named, quiet=True)
+            # Paused, as after a restart, then opened in Claude Code: the same there.
+            for session_id in ("s-old", "s-named"):
+                driven = app.open_driven(str(folder), resume=session_id, start=False)
+                await pilot.pause(0.1)
+                await app._handoff_driven(driven)
+                await pilot.pause(0.1)
+            assert runs == [["claude", "--resume", "s-old", "--name", "Repo parser support"],
+                            ["claude", "--resume", "s-named"]]
 
     asyncio.run(go())
 

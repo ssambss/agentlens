@@ -206,10 +206,11 @@ def background_ids(list_sessions: Callable[[], list[dict]]) -> set[str]:
 
 
 def background_resume(
-    claude: str | None, session_id: str, cwd: str, mode: str, instruction: str,
+    claude: str | None, session_id: str, cwd: str, mode: str, instruction: str, name: str = "",
     list_sessions: Callable[[], list[dict]] = open_sessions, wait_seconds: float = 8.0,
 ) -> tuple[bool, str]:
-    """Hand a conversation to Claude Code's background service (`claude --resume <id> --bg`).
+    """Hand a conversation to Claude Code's background service (`claude --resume <id> --bg`),
+    under `name` if it has none yet (see named_after).
 
     Success is judged by a background session actually appearing, not by output wording:
     on a false "failed" the caller would reopen the session here and two clients would
@@ -217,7 +218,7 @@ def background_resume(
     if not claude:
         return False, "`claude` CLI not found on PATH"
     before = background_ids(list_sessions)
-    cmd = [claude, "--resume", session_id, "--bg", "--permission-mode", mode, "--", instruction]
+    cmd = [claude, "--resume", session_id, *named_after(name), "--bg", "--permission-mode", mode, "--", instruction]
     try:
         result = subprocess.run(cmd, cwd=cwd or None, capture_output=True, text=True, encoding="utf-8",
                                 errors="replace", timeout=120, stdin=subprocess.DEVNULL, env=terminal.claude_env())
@@ -233,6 +234,13 @@ def background_resume(
         if time.monotonic() > deadline:
             return False, output or f"claude exited with {result.returncode}"
         time.sleep(0.5)
+
+
+def named_after(title: str) -> list[str]:
+    """For a session Claude Code has no name saved for, one from before panopsis named its sessions:
+    the flag that names it after its title where Claude Code resumes it, as it does a session run
+    here. One with a name takes it back by itself."""
+    return ["--name", title] if title and title != "(untitled)" else []
 
 
 def stop_background(claude: str | None, session_id: str, name: str = "", job_id: str = "") -> tuple[bool, str]:
@@ -1212,7 +1220,8 @@ class HistoryScreen(QuietFocusScreen):
     def action_continue_in_claude(self) -> None:
         session = self._selected_session()
         if session is not None:
-            self.app.handoff(session.id, session.cwd)  # type: ignore[attr-defined]
+            unnamed = "" if session.name else session.title
+            self.app.handoff(session.id, session.cwd, unnamed)  # type: ignore[attr-defined]
 
     @on(DataTable.RowSelected, "#history")
     def _selected(self, event: DataTable.RowSelected) -> None:
@@ -1961,6 +1970,7 @@ class PanopsisApp(App):
             if known is not None:
                 driven.title = known.title if known.title != "(untitled)" else driven.title
                 driven.worktree = known.worktree
+                driven.named = bool(known.name)
             if start:
                 driven.events = past
             else:
@@ -2378,13 +2388,15 @@ class PanopsisApp(App):
 
     async def _detach(self, driven: DrivenSession, instruction: str) -> bool:
         session_id, cwd, mode, title = driven.session_id, driven.cwd, driven.permission_mode, driven.title
+        unnamed = "" if driven.named else title
         # Claude Code continues a session in place only if nothing else has it open.
         await self._end_driven(driven, quiet=True)
         if not instruction:
             self.notify("Continue it any time: History (o here, c in Claude Code) or your editor.",
                         title="Released", timeout=6)
             return True
-        ok, output = await asyncio.to_thread(background_resume, self._claude(), session_id, cwd, mode, instruction)
+        ok, output = await asyncio.to_thread(background_resume, self._claude(), session_id, cwd, mode, instruction,
+                                             name=unnamed)
         if ok:
             self.notify(output, title="Detached: it keeps working in the background", timeout=8)
         else:
@@ -2498,10 +2510,12 @@ class PanopsisApp(App):
             self.pop_screen()
         await driven.close()  # one client at a time on a session
         self.driven.pop(driven.key, None)
-        self.handoff(driven.session_id, driven.cwd)
+        self.handoff(driven.session_id, driven.cwd, "" if driven.named else driven.title)
         self.open_driven(driven.cwd, resume=driven.session_id, title=driven.title, mode=driven.permission_mode)
 
-    def handoff(self, session_id: str | None, cwd: str) -> None:
+    def handoff(self, session_id: str | None, cwd: str, unnamed: str = "") -> None:
+        """Continue a session in full Claude Code, in this terminal; `unnamed`, the title of one it
+        has no name saved for, names it after that."""
         if session_id and session_id in {s.session_id for s in self._monitored}:
             self.notify("That session is open somewhere else; switch to it there.", severity="warning")
             return
@@ -2509,7 +2523,7 @@ class PanopsisApp(App):
         if not claude:
             self.notify("`claude` CLI not found on PATH", severity="error")
             return
-        cmd = [claude, "--resume", session_id] if session_id else [claude]
+        cmd = [claude, "--resume", session_id, *named_after(unnamed)] if session_id else [claude]
         with self.suspend():
             subprocess.run(cmd, cwd=cwd if cwd and Path(cwd).is_dir() else None)
             terminal.set_title()  # Claude Code named the tab while you were in it
