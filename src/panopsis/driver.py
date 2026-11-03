@@ -24,7 +24,7 @@ import re
 import shutil
 import uuid
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -183,7 +183,7 @@ class DrivenSession:
         self.name = name or f"new-{self.key[2:6]}"
         self.title = ""  # your first message until Claude Code titles the session (see _name)
         self.titled = False  # Claude Code has given it a title
-        self.named = False  # Claude Code has a name saved for it, which it takes back when resumed
+        self.known_as = ""  # the name Claude Code has saved for it, which it takes back when resumed
         self.worktree = ""  # the Claude Code worktree it moved into, read from its transcript
         self.on_change = on_change
         self.on_rate_limit = on_rate_limit
@@ -272,7 +272,7 @@ class DrivenSession:
         self.error = None
         self._reader = asyncio.ensure_future(self._read(self._client))
         self._set(WAITING, "ready")
-        if self.resume and self.title and not self.named:
+        if self.resume and self.title and not self.known_as:
             # One from before panopsis named its sessions, or one Claude Code never titled until now:
             # a named one takes its name back by itself, and a name you gave it stays.
             self._renaming = asyncio.ensure_future(self._give_name(self._client))
@@ -289,9 +289,24 @@ class DrivenSession:
         self.state, self.detail = PAUSED, "from last time · type to continue"
         self.on_change(self)
 
-    async def send(self, text: str, note: str = "") -> None:
+    async def wake(self, why: str = "ready") -> None:
+        """Start Claude Code for a paused session without a message, under its name: another session
+        can message it then. Paused, Claude Code doesn't list it, so nothing could. `why`: what the
+        pane says while it waits."""
+        if self.parked:
+            self.parked = False
+            self._set(STARTING, "starting Claude Code…")
+            self._connecting = asyncio.ensure_future(self.start())
+        if self._connecting is not None:
+            await asyncio.shield(self._connecting)
+        if self._renaming is not None:
+            await asyncio.shield(self._renaming)  # a message for it finds it by that name
+        if self._client is not None and (self.state, self.detail) == (WAITING, "ready"):
+            self._set(WAITING, why)
+
+    async def send(self, text: str, note: str = "", first: Awaitable | None = None) -> None:
         """Your message, and a note for Claude with it that the pane doesn't show as yours: what the
-        sessions it names are."""
+        sessions it names are. `first`: what Claude reading it waits for, those sessions starting."""
         text = text.strip()
         starting = self._connecting is not None and not self._connecting.done()
         images = [] if text.startswith("/") else self.images  # a command leaves them for the next message
@@ -317,6 +332,12 @@ class DrivenSession:
             await asyncio.shield(self._connecting)
             if self._client is None:
                 return  # start() has shown why
+        if first is not None:
+            if not busy:
+                self._set(WORKING, "starting the sessions it names…")
+            await first
+            if self._client is None:
+                return  # closed meanwhile
         if not busy:
             self._set(WORKING, "thinking")
         else:
@@ -353,13 +374,14 @@ class DrivenSession:
         """Name the session after its title in Claude Code, so your other sessions, and Claude in
         them, can tell it from the others in its folder. Once: Claude Code keeps the name, and gives
         it back when the session is resumed. An older Claude Code keeps its own name."""
-        if self.named:
+        if self.known_as:
             return
+        title = self.title
         try:
-            await rename(client, self.title, self.session_id)
+            await rename(client, title, self.session_id)
         except Exception:  # noqa: BLE001 - it's still the session it was, under Claude Code's name
             return
-        self.named = True
+        self.known_as = title
 
     async def interrupt(self) -> None:
         if self._client is not None and self.state in (WORKING, PERMISSION, QUESTION, APPROVAL):

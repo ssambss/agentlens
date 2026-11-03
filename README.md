@@ -220,9 +220,12 @@ panopsis never reads or passes credentials.
   the background. A name you gave a session with `/rename` stays. `@` in the box lists
   your other open sessions by what the wall calls them and puts in the name Claude Code
   knows them by, such as `@"Shared links"`, or `@tubeless-d4` for one in a terminal or an
-  editor, which keeps its own name. Claude Code's own box tells Claude a mention is a
-  session; a message sent through the SDK doesn't, so panopsis adds a line saying so to
-  what Claude reads. The pane shows your message as you typed it.
+  editor, which keeps its own name. A session paused here, as they all are when you reopen
+  panopsis, isn't running, so Claude Code doesn't list it and nothing can message it. `@`
+  lists those too, and a message that names one starts it first, under its name. Claude
+  Code's own box tells Claude a mention is a session; a message sent through the SDK
+  doesn't, so panopsis adds a line saying so to what Claude reads. The pane shows your
+  message as you typed it.
 - Alt+V in the box pastes a screenshot or image from the clipboard (Ctrl+V too, where the
   terminal passes it through). It shows above the box as `[Image #1]`, Backspace in an
   empty box removes it, and it goes with your next message, shrunk to 2000 px on the long

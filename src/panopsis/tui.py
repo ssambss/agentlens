@@ -1970,7 +1970,7 @@ class PanopsisApp(App):
             if known is not None:
                 driven.title = known.title if known.title != "(untitled)" else driven.title
                 driven.worktree = known.worktree
-                driven.named = bool(known.name)
+                driven.known_as = known.name
             if start:
                 driven.events = past
             else:
@@ -2171,8 +2171,10 @@ class PanopsisApp(App):
             return
         if p is None:
             if text.strip() or driven.images:
-                note = mention_note(mentions_in(text, self.mentionable(key)))
-                self.run_worker(driven.send(text, note), group="driven", exclusive=False)
+                mentioned = [] if text.strip().startswith("/") else mentions_in(text, self.mentionable(key))
+                asleep = [self.driven[m.key] for m in mentioned if m.key in self.driven]
+                first = asyncio.ensure_future(self._wake(asleep, driven)) if asleep else None
+                self.run_worker(driven.send(text, mention_note(mentioned), first), group="driven", exclusive=False)
         elif p.kind == "question":
             driven.answer(text)
         elif p.kind == "plan":
@@ -2215,23 +2217,44 @@ class PanopsisApp(App):
         self._mark_dirty(key)
         return True
 
+    async def _wake(self, asleep: list[DrivenSession], by: DrivenSession) -> None:
+        """Start the paused sessions a message names, under their names, before Claude reads it, so it
+        can message them. They have nothing to do yet, so they don't count as needing you."""
+        why = f"ready · started so {by.title} can message it" if by.title else "ready · started for another session"
+        await asyncio.gather(*(d.wake(why) for d in asleep), return_exceptions=True)
+        now = datetime.now(timezone.utc)
+        for d in asleep:
+            self.mark_read(as_live(d, now))
+
     def mentionable(self, key: str) -> list[Mention]:
         """The sessions a session's box can name with @: your others that Claude Code lists, which are
-        the ones it can message, as the wall calls them and in its order."""
+        the ones it can message, and the ones paused here, which a message naming them starts. As the
+        wall calls them and in its order."""
         driven = self.driven.get(key)
         own = driven.session_id if driven is not None else None
         ran_here = {d.session_id: d for d in self.driven.values() if d.session_id}
         hidden = {*self.config.hidden_sessions, *self._closing_sessions}
         now = datetime.now(timezone.utc)
-        mentions = []
-        for s in sorted(self._monitored, key=lambda s: (s.started or now, s.name)):
+        found = []
+        for s in self._monitored:
             if s.session_id == own or s.session_id in hidden:
                 continue
             d = ran_here.get(s.session_id)
             title = (d.title if d is not None else s.title) or s.name
             where = " · ".join(part for part in (s.project, s.worktree) if part)
-            mentions.append(Mention(s.name, title, where, d.state if d is not None else s.state))
-        return mentions
+            state = d.state if d is not None else s.state
+            found.append((s.started or now, s.name, Mention(s.name, title, where, state)))
+        listed = {s.session_id for s in self._monitored}
+        for d in self.driven.values():
+            # Paused since you last quit panopsis, or since Claude Code stopped under it: by the name
+            # Claude Code has saved for it, or, if none, its title, which it takes as it starts.
+            name = d.known_as or d.title
+            if d.key == key or not d.parked or not name or d.session_id in hidden | listed:
+                continue
+            where = " · ".join(part for part in (Path(d.cwd).name, d.worktree) if part)
+            found.append((d.started, name, Mention(name, d.title or name, where, "paused · your message starts it",
+                                                   d.key)))
+        return [m for *_, m in sorted(found, key=lambda f: f[:2])]
 
     def command_catalog(self, key: str) -> commands_mod.Catalog:
         """The slash commands for a session's box: its own Claude Code's list once it has started."""
@@ -2388,7 +2411,7 @@ class PanopsisApp(App):
 
     async def _detach(self, driven: DrivenSession, instruction: str) -> bool:
         session_id, cwd, mode, title = driven.session_id, driven.cwd, driven.permission_mode, driven.title
-        unnamed = "" if driven.named else title
+        unnamed = "" if driven.known_as else title
         # Claude Code continues a session in place only if nothing else has it open.
         await self._end_driven(driven, quiet=True)
         if not instruction:
@@ -2510,7 +2533,7 @@ class PanopsisApp(App):
             self.pop_screen()
         await driven.close()  # one client at a time on a session
         self.driven.pop(driven.key, None)
-        self.handoff(driven.session_id, driven.cwd, "" if driven.named else driven.title)
+        self.handoff(driven.session_id, driven.cwd, "" if driven.known_as else driven.title)
         self.open_driven(driven.cwd, resume=driven.session_id, title=driven.title, mode=driven.permission_mode)
 
     def handoff(self, session_id: str | None, cwd: str, unnamed: str = "") -> None:

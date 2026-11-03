@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import time
+from datetime import datetime, timezone
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -155,7 +156,7 @@ def test_a_resumed_session_with_no_name_takes_its_title_and_one_without_a_title_
         await settle(lambda: fakes[0].controls)
         assert fakes[0].controls == [{"subtype": "rename_session", "title": "Parser performance", "source": "host",
                                       "session_id": "sess-42"}]
-        assert d.named
+        assert d.known_as == "Parser performance"
         await d.close()
 
         untitled, fakes = make({}, resume="sess-43")
@@ -171,13 +172,39 @@ def test_a_resumed_session_with_a_name_keeps_it(monkeypatch):
 
     async def go():
         d, fakes = make({}, resume="sess-42")
-        d.title, d.named = "Parser performance", True  # Claude Code has one saved: panopsis's, or your /rename
+        d.title, d.known_as = "Parser performance", "parser"  # saved in Claude Code: panopsis's, or your /rename
         await d.start()
         await d.send("and the tokenizer?")
         await settle(lambda: d.titled)
         await asyncio.sleep(0.05)
         assert [c["subtype"] for c in fakes[0].controls] == ["generate_session_title"]  # titled, not renamed
         await d.close()
+    asyncio.run(go())
+
+
+def test_a_paused_session_woken_for_another_starts_under_its_name_and_a_message_waits_for_it():
+    async def go():
+        d, fakes = make({}, resume="sess-42")  # from before panopsis named its sessions, paused since
+        d.title = "Parser performance"
+        d.park([])
+        await d.wake("ready · started so Fix the build can message it")
+        assert fakes[0].controls == [{"subtype": "rename_session", "title": "Parser performance", "source": "host",
+                                      "session_id": "sess-42"}]
+        assert (d.state, d.detail) == (WAITING, "ready · started so Fix the build can message it")
+        assert fakes[0].sent == []  # nothing to do until another session messages it
+        await d.close()
+
+        other, others = make({"ask it": [text("Asked."), done()]})
+        await other.start()
+        woken = asyncio.get_running_loop().create_future()
+        sending = asyncio.ensure_future(other.send("ask it", first=woken))
+        await asyncio.sleep(0.05)
+        assert others[0].sent == [] and other.events[-1].text == "ask it"  # shown, not read yet
+        assert other.detail == "starting the sessions it names…"
+        woken.set_result(None)
+        await sending
+        assert others[0].sent == ["ask it"]
+        await other.close()
     asyncio.run(go())
 
 
@@ -1489,7 +1516,7 @@ def test_folder_trust_reads_claude_code_config(tmp_path):
 from claude_agent_sdk import ConversationResetMessage, RateLimitEvent, RateLimitInfo  # noqa: E402
 
 from panopsis.tui import UsageScreen  # noqa: E402
-from panopsis.tui_driven import CommandMenu, Composer, ComposerInput  # noqa: E402
+from panopsis.tui_driven import CommandMenu, Composer, ComposerInput, as_live  # noqa: E402
 
 
 def command_output(t):
@@ -1599,6 +1626,52 @@ def test_at_lists_your_other_sessions_and_puts_in_the_name_claude_code_knows_the
             assert fakes[0].sent == ["ask @tubeless-d4 what it decided\n\n(@tubeless-d4 is another of my Claude Code "
                                      "sessions on this machine, which you can message by that name.)"]
             assert driven.events[-1].detail == "ask @tubeless-d4 what it decided"
+
+    asyncio.run(go())
+
+
+def test_at_names_a_session_paused_here_and_your_message_starts_it_first(projects, tmp_path, monkeypatch):
+    app, folder, fakes = app_with_session(projects, tmp_path)
+    _write(projects / "repo" / "s-old.jsonl", _common([
+        _human(0, "the icon on the taskbar"), {"type": "ai-title", "aiTitle": "Taskbar icon"}], "s-old",
+        cwd=str(folder)))
+    order = []  # what each session's Claude Code was asked, by the session it resumed
+    query, control = FakeClaude.query, FakeClaude._send_control_request
+
+    async def logged_query(self, prompt):
+        order.append((self.options.resume, "message"))
+        await query(self, prompt)
+
+    async def logged_control(self, request):
+        order.append((self.options.resume, request["subtype"]))
+        return await control(self, request)
+
+    monkeypatch.setattr(FakeClaude, "query", logged_query)
+    monkeypatch.setattr(FakeClaude, "_send_control_request", logged_control)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            paused = app.open_driven(str(folder), resume="s-old", start=False)  # as after a restart
+            driven = await started(app, pilot, folder)
+            driven.title = "Fix the build"
+            app._focus_key(driven.key)
+            composer = next(c for c in app.query(Composer) if c.key == driven.key)
+            box = composer.query_one(ComposerInput)
+            await pilot.press("i", *"ask ", "@")
+            # Claude Code doesn't list it, as it isn't running, but it's on the wall.
+            [mention] = composer.suggestions
+            assert (mention.title, mention.state) == ("Taskbar icon", "paused · your message starts it")
+            await pilot.press("enter")
+            await until(pilot, lambda: not composer.menu_open)
+            assert box.value == 'ask @"Taskbar icon" '
+            await pilot.press(*"what it decided", "enter")
+            await until(pilot, lambda: (None, "message") in order and paused.state == WAITING)
+            # It starts under its title before Claude reads your message, so it can message it.
+            assert order.index(("s-old", "rename_session")) < order.index((None, "message"))
+            assert fakes[0].sent[-1].endswith('(@"Taskbar icon" is another of my Claude Code sessions on this '
+                                              "machine, which you can message by that name.)")
+            assert paused.detail == "ready · started so Fix the build can message it"
+            assert not app.needs_you(as_live(paused, datetime.now(timezone.utc)))  # nothing for you there yet
 
     asyncio.run(go())
 

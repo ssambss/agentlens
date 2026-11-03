@@ -287,6 +287,7 @@ class Mention:
     title: str  # what the wall calls it
     where: str  # its project, and worktree
     state: str
+    key: str = ""  # one paused here, by its pane: Claude Code doesn't list it, so a message naming it starts it
 
     @property
     def text(self) -> str:
