@@ -35,7 +35,9 @@ from textual.notifications import Notification, Notify
 from textual.screen import ModalScreen, Screen
 from textual.theme import Theme
 from textual.widget import Widget
-from textual.widgets import DataTable, Footer, Header, Input, Label, LoadingIndicator, Markdown, OptionList, Static, Tree
+from textual.widgets import (
+    DataTable, Footer, Header, Input, Label, LoadingIndicator, Markdown, OptionList, Static, TextArea, Tree,
+)
 from textual.widgets.option_list import Option
 from textual.widgets.tree import TreeNode
 from textual.worker import get_current_worker
@@ -69,6 +71,7 @@ from panopsis.driver import (
 )
 from panopsis.keys import binding as bind
 from panopsis.tui_driven import SPIN_SECONDS, SPINNER, ChoiceScreen, Composer, DetachScreen, NewSessionScreen, as_live
+from panopsis.textbox import MessageBox, TextInput
 from panopsis.tui_keys import KeysScreen
 from panopsis.tui_settings import SettingsScreen
 from panopsis.feed import Palette, activity_log, conversation, palette_from
@@ -1056,7 +1059,7 @@ class HistoryScreen(QuietFocusScreen):
         yield Header(show_clock=True)
         with VerticalScroll(classes="reading"):
             yield Static(id="history-status")
-            yield Input(placeholder="Filter by title or project…", id="history-filter")
+            yield TextInput(placeholder="Filter by title or project…", id="history-filter")
             yield DataTable(id="history", cursor_type="row", zebra_stripes=True)
         yield KeyFooter()
 
@@ -1308,7 +1311,7 @@ class MoveToSpaceScreen(PacedScreen, ModalScreen[str | None]):
         with Vertical(id="move-dialog"):
             yield Static(Text.assemble("Move ", (self.session_title or "this session", "bold"), " to a space"))
             yield OptionList(*self.spaces, id="move-options")
-            yield Input(placeholder="…or type a new space name and press Enter", id="move-new")
+            yield TextInput(placeholder="…or type a new space name and press Enter", id="move-new")
 
     @on(OptionList.OptionSelected)
     def _picked(self, event: OptionList.OptionSelected) -> None:
@@ -1417,7 +1420,7 @@ class PanopsisApp(App):
         NewSessionScreen { align: center middle; }
         #new-dialog { width: 80; max-width: 100%; height: auto; padding: 1 2; border: round $accent;
                       background: $surface; }
-        #new-dialog Input, #new-dialog Select { margin-top: 1; }
+        #new-dialog Input, #new-dialog MessageBox, #new-dialog Select { margin-top: 1; }
         #new-error { height: auto; }
         #new-folder-row { height: auto; }
         #new-folder-row Input { width: 1fr; }
@@ -1558,7 +1561,7 @@ class PanopsisApp(App):
         return WallScreen(id="_default")
 
     def get_driver_class(self) -> type[Driver]:
-        return terminal.fit_glyphs_to_console(super().get_driver_class())
+        return terminal.read_windows_keys(terminal.fit_glyphs_to_console(super().get_driver_class()))
 
     @property
     def _background_screens(self) -> list[Screen]:
@@ -1621,7 +1624,7 @@ class PanopsisApp(App):
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
         """Hide keys from the footer (and disable them) on screens where they mean nothing."""
-        if isinstance(self.focused, Input) and action in self.TYPED_KEY_ACTIONS:
+        if isinstance(self.focused, (Input, TextArea)) and action in self.TYPED_KEY_ACTIONS:
             return False  # in a text box these keys type; the box's hint says to press Esc first
         if action in self.FINDINGS_AND_ADVICE:
             return self.config.findings_and_advice
@@ -1733,7 +1736,7 @@ class PanopsisApp(App):
         self._repaint()
         for screen in self.screen_stack:
             for composer in screen.query(Composer):
-                composer.update_menu(composer.query_one(Input).value)  # its hint names a key
+                composer.update_menu(composer.query_one(MessageBox).value)  # its hint names a key
 
     def _apply_colors(self) -> None:
         self.refresh_css()

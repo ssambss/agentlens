@@ -18,7 +18,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, DirectoryTree, Input, Label, OptionList, Select, Static, Tree
+from textual.widgets import Button, DirectoryTree, Label, OptionList, Select, Static, TextArea, Tree
 
 from panopsis import keys as keys_mod
 from panopsis.commands import Catalog, Suggestion
@@ -41,6 +41,7 @@ from panopsis.frames import PacedScreen
 from panopsis.live import LiveSession
 from panopsis.model import Event
 from panopsis.selectable import Selectable
+from panopsis.textbox import MessageBox, TextInput
 
 MODE_LABELS = {
     "default": "Ask before edits and commands (default)",
@@ -178,7 +179,7 @@ def placeholder(d: DrivenSession) -> str:
     return "Message Claude…  (Enter to send, Esc to leave the box)"
 
 
-class ImageInput(Input):
+class ImageInput(MessageBox):
     """A box a message is typed in, with images to go with it: Alt+V (or Ctrl+V, where the
     terminal lets it through) pastes an image from the clipboard, and Backspace in the empty
     box takes the last one off."""
@@ -263,8 +264,8 @@ class CommandMenu(OptionList, can_focus=False):
 
 def default_hint() -> Text:
     """Under the box: what to type, with your key for the keys list."""
-    return Text(f"Type / for Claude Code's commands · Esc leaves the box; then {keys_mod.name('show-keys')} lists "
-                "every key · Alt+V pastes an image", style="dim")
+    return Text(f"Type / for Claude Code's commands · Shift+Enter starts a new line · Esc leaves the box; then "
+                f"{keys_mod.name('show-keys')} lists every key · Alt+V pastes an image", style="dim")
 
 
 MENU_HINT = "↑↓ choose · Tab fills it in · Enter runs it · Esc closes the list"
@@ -348,7 +349,7 @@ class Composer(Vertical):
     def show(self, d: DrivenSession, palette: Palette) -> None:
         try:
             card = self.query_one(".request", Selectable)
-            box = self.query_one(Input)
+            box = self.query_one(ComposerInput)
             images = self.query_one(".composer-images", Static)
         except Exception:  # noqa: BLE001 - not composed yet
             return
@@ -390,7 +391,7 @@ class Composer(Vertical):
             if d is None or not self.screen.is_current:
                 return  # under the zoomed-in view, say: nothing to draw
             status = self.query_one(".composer-status", Static)
-            box = self.query_one(Input)
+            box = self.query_one(ComposerInput)
         except Exception:  # noqa: BLE001 - being removed
             return
         line = activity_line(d, now(), int(time.monotonic() / SPIN_SECONDS), self._palette, typing=box.has_focus,
@@ -406,9 +407,9 @@ class Composer(Vertical):
     def _catalog(self) -> Catalog:
         return self.app.command_catalog(self.key)  # type: ignore[attr-defined]
 
-    @on(Input.Changed)
-    def _changed(self, event: Input.Changed) -> None:
-        self.update_menu(event.value)
+    @on(TextArea.Changed)
+    def _changed(self, event: TextArea.Changed) -> None:
+        self.update_menu(event.text_area.text)
 
     def update_menu(self, text: str) -> None:
         try:
@@ -466,11 +467,9 @@ class Composer(Vertical):
         box = self.query_one(ComposerInput)
         if s.choice is None and (not run or s.command.needs_argument):
             box.value = s.text + " "
-            box.cursor_position = len(box.value)
-            return  # Input.Changed reopens the menu with the argument's values, if any
+            return  # TextArea.Changed reopens the menu with the argument's values, if any
         if not run:
             box.value = s.text
-            box.cursor_position = len(box.value)
             return
         box.value = ""
         self.close_menu()
@@ -484,7 +483,7 @@ class Composer(Vertical):
         self.focus_input()
 
     def focus_input(self) -> None:
-        box = self.query_one(Input)
+        box = self.query_one(ComposerInput)
         if not box.disabled:
             box.focus()
 
@@ -499,10 +498,10 @@ class Composer(Vertical):
         else:
             self.screen.set_focus(None)
 
-    @on(Input.Submitted)
-    def _submitted(self, event: Input.Submitted) -> None:
+    @on(MessageBox.Submitted)
+    def _submitted(self, event: MessageBox.Submitted) -> None:
         text = event.value
-        event.input.value = ""
+        event.box.value = ""
         self.app.composer_submit(self.key, text)  # type: ignore[attr-defined]
 
 
@@ -523,20 +522,20 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
             yield Static(Text("Runs your own Claude Code in this folder, typeable right here (experimental).",
                              style="dim"))
             with Horizontal(id="new-folder-row"):
-                yield Input(self.folder, placeholder="Folder to work in", id="new-folder")
+                yield TextInput(self.folder, placeholder="Folder to work in", id="new-folder")
                 yield Button("Browse…", id="new-browse")
             # The folder isn't always the space's: in a space you made, it goes in that space wherever it works.
             yield Static(self._space_line(self.folder, ""), id="new-space")
             yield Select([(label, mode) for mode, label in MODE_LABELS.items()], value=self.mode,
                          allow_blank=False, id="new-mode")
             yield Static(folder_note(self.folder), id="new-note")
-            yield FirstMessageInput(placeholder="First message (optional, Alt+V pastes an image), Enter to start",
-                                    id="new-prompt")
+            yield FirstMessageInput(placeholder="First message (optional, Alt+V pastes an image), Enter to start, "
+                                                "Shift+Enter for a new line", id="new-prompt")
             yield Static(id="new-images")
             yield Static(id="new-error")
 
     def on_mount(self) -> None:
-        self.query_one("#new-prompt", Input).focus()
+        self.query_one("#new-prompt", MessageBox).focus()
         self._show_images()
 
     def paste_image(self, otherwise: Callable[[], None] | None = None) -> None:
@@ -554,15 +553,16 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
         line.display = bool(self.images)
         line.update(images_line(self.images))
 
-    @on(Input.Changed, "#new-folder")
-    def _folder_changed(self, event: Input.Changed) -> None:
+    @on(TextInput.Changed, "#new-folder")
+    def _folder_changed(self, event: TextInput.Changed) -> None:
         self.query_one("#new-note", Static).update(folder_note(event.value.strip().strip('"')))
         self._show_space()
 
-    @on(Input.Changed, "#new-prompt")
+    @on(TextArea.Changed, "#new-prompt")
     def _show_space(self) -> None:
-        folder = self.query_one("#new-folder", Input).value.strip().strip('"')
-        self.query_one("#new-space", Static).update(self._space_line(folder, self.query_one("#new-prompt", Input).value))
+        folder = self.query_one("#new-folder", TextInput).value.strip().strip('"')
+        prompt = self.query_one("#new-prompt", MessageBox).value
+        self.query_one("#new-space", Static).update(self._space_line(folder, prompt))
 
     def _space_line(self, folder: str, prompt: str) -> Text:
         name = self.space(folder, prompt) if self.space else ""
@@ -570,26 +570,27 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
 
     @on(Button.Pressed, "#new-browse")
     def _browse(self) -> None:
-        box = self.query_one("#new-folder", Input)
+        box = self.query_one("#new-folder", TextInput)
 
         def picked(folder: str | None) -> None:
             if folder:
                 box.value = folder
                 self.query_one("#new-error", Static).update("")
-            self.query_one("#new-prompt", Input).focus()
+            self.query_one("#new-prompt", MessageBox).focus()
 
         self.app.push_screen(FolderPickerScreen(box.value.strip().strip('"')), picked)
 
-    @on(Input.Submitted)
-    def _start(self, event: Input.Submitted) -> None:
-        folder = self.query_one("#new-folder", Input).value.strip().strip('"')
+    @on(TextInput.Submitted)
+    @on(MessageBox.Submitted)
+    def _start(self) -> None:
+        folder = self.query_one("#new-folder", TextInput).value.strip().strip('"')
         if not folder or not Path(folder).is_dir():
             self.query_one("#new-error", Static).update(Text(f"No such folder: {folder}", style="red"))
-            self.query_one("#new-folder", Input).focus()
+            self.query_one("#new-folder", TextInput).focus()
             return
         self.dismiss({
             "cwd": str(Path(folder)),
-            "prompt": self.query_one("#new-prompt", Input).value,
+            "prompt": self.query_one("#new-prompt", MessageBox).value,
             "images": list(self.images),
             "mode": self.query_one("#new-mode", Select).value,
         })
@@ -784,9 +785,9 @@ class DetachScreen(PacedScreen, ModalScreen[dict | None]):
                     f"{self.cwd} isn't trusted in terminal Claude Code yet, and background sessions need that. "
                     "Ctrl+T opens Claude Code there: accept the trust prompt, type /exit, and detaching "
                     "continues. Enter tries anyway.", style="yellow"))
-            yield Input("Continue where you left off." if self.working else "",
-                        placeholder="What should it do while you're away? (empty: just release it)",
-                        id="detach-instruction")
+            yield TextInput("Continue where you left off." if self.working else "",
+                            placeholder="What should it do while you're away? (empty: just release it)",
+                            id="detach-instruction")
             yield Static(id="detach-error")
 
     def on_mount(self) -> None:
@@ -798,15 +799,15 @@ class DetachScreen(PacedScreen, ModalScreen[dict | None]):
             event.stop()
             self.dismiss({"action": "release", "instruction": ""})
 
-    @on(Input.Submitted)
-    def _go(self, event: Input.Submitted) -> None:
+    @on(TextInput.Submitted)
+    def _go(self, event: TextInput.Submitted) -> None:
         instruction = event.value.strip()
         self.dismiss({"action": "detach" if instruction else "release", "instruction": instruction})
 
     def action_trust(self) -> None:
         if self.home:
             return
-        instruction = self.query_one("#detach-instruction", Input).value.strip()
+        instruction = self.query_one("#detach-instruction", TextInput).value.strip()
         if not instruction:
             self.query_one("#detach-error", Static).update(
                 Text("Say what it should do in the background first.", style="red"))

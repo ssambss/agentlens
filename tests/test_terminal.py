@@ -123,3 +123,29 @@ def test_in_windows_own_console_window_the_cursor_is_hidden_again_after_a_resize
 
     assert terminal.HIDE_CURSOR in written_after_resize(classic=True)
     assert terminal.HIDE_CURSOR not in written_after_resize(classic=False)  # other terminals keep it hidden
+
+
+def test_in_windows_shift_enter_and_ctrl_backspace_come_through_as_such(monkeypatch):
+    # Windows' consoles send both Enters as \r, and Ctrl+Backspace as \x08, which Textual reads as Backspace.
+    from textual import events
+
+    def meant(key: str, character: str, shift: bool = False) -> str:
+        return terminal.windows_key(events.Key(key, character), lambda: shift).key
+
+    assert meant("enter", "\r", shift=True) == "shift+enter"
+    assert meant("enter", "\r") == "enter"
+    assert meant("backspace", "\x08") == "ctrl+backspace"
+    assert meant("backspace", "\x7f", shift=True) == "backspace"  # Backspace, and Shift+Backspace
+    assert meant("a", "a", shift=True) == "a"
+
+    class Driver:
+        def process_message(self, message) -> None:
+            self.got = message
+
+    monkeypatch.setattr(terminal, "shift_down", lambda: True)
+    monkeypatch.setattr(terminal, "WINDOWS", True)
+    driver = terminal.read_windows_keys(Driver)()
+    driver.process_message(events.Key("enter", "\r"))
+    assert driver.got.key == "shift+enter"
+    monkeypatch.setattr(terminal, "WINDOWS", False)
+    assert terminal.read_windows_keys(Driver) is Driver  # elsewhere the terminal says which it was

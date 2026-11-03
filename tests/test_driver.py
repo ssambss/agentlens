@@ -1284,7 +1284,7 @@ def test_session_actions_work_while_typing_in_its_box(projects, tmp_path):
             driven = await started(app, pilot, folder)
             app._focus_key(driven.key)
             await pilot.press("i")
-            assert isinstance(app.focused, tui_mod.Input)
+            assert isinstance(app.focused, tui_mod.MessageBox)
             assert app._focused_driven(strict=True) is driven  # typing in the box still counts as "in" it
             assert app.check_action("detach", ()) is False  # 'd' would type a letter, so it's hidden
             await pilot.press("d")
@@ -1691,6 +1691,54 @@ def test_ctrl_v_pastes_text_when_there_is_no_image(projects, tmp_path, clipboard
             await pilot.press("ctrl+v")
             await until(pilot, lambda: len(driven.images) == 1)
             assert app.focused.value == "some text"
+
+    asyncio.run(go())
+
+
+def test_a_message_takes_lines_and_is_edited_as_in_a_windows_text_box(projects, tmp_path, system_clipboard):
+    app, folder, fakes = app_with_session(projects, tmp_path)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            driven = await started(app, pilot, folder)
+            app._focus_key(driven.key)
+            await pilot.press("i", *"fix the parser")
+            box = app.focused
+            height = box.outer_size.height
+            await pilot.press("shift+enter", *"and its tests", "ctrl+j", *"then push")
+            await pilot.pause()
+            assert box.value == "fix the parser\nand its tests\nthen push" and fakes[0].sent == []
+            assert box.outer_size.height == height + 2  # the box grows with the message
+            await pilot.press("ctrl+backspace")  # a word at a time
+            assert box.value == "fix the parser\nand its tests\nthen "
+            # Select by words (the end of a line is a stop, as in Windows), and copy.
+            await pilot.press("ctrl+shift+left", "ctrl+shift+left", "ctrl+shift+left", "ctrl+c")
+            assert system_clipboard == ["tests\nthen "]
+            await pilot.press("enter")
+            await until(pilot, lambda: fakes[0].sent)
+            assert fakes[0].sent == ["fix the parser\nand its tests\nthen"] and box.value == ""
+            assert driven.events[-1].detail == "fix the parser\nand its tests\nthen"  # your card shows every line
+
+    asyncio.run(go())
+
+
+def test_one_line_boxes_take_a_word_with_ctrl_backspace_too(projects, tmp_path):
+    app, folder, _ = app_with_session(projects, tmp_path)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await pilot.press("n")
+            await pilot.pause(0.1)
+            box = app.screen.query_one("#new-folder", tui_mod.TextInput)
+            box.focus()
+            await pilot.pause()  # focusing it selects all of it
+            box.value = "D:/work/repo two"
+            box.cursor_position = len(box.value)
+            await pilot.press("ctrl+backspace")  # Textual's own Input takes the word to the right
+            assert box.value == "D:/work/repo "
+            box.cursor_position = 0
+            await pilot.press("ctrl+delete")
+            assert box.value == "work/repo "
 
     asyncio.run(go())
 

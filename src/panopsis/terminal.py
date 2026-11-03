@@ -1,5 +1,6 @@
 """The terminal tab panopsis runs in: its name, kept while the `claude` processes it starts share it,
-and in Windows' own console window, glyphs its font can draw and a cursor that stays hidden."""
+in Windows, the keys its consoles don't pass on as such, and in Windows' own console window,
+glyphs its font can draw and a cursor that stays hidden."""
 
 from __future__ import annotations
 
@@ -7,11 +8,12 @@ import functools
 import os
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from textual import events
     from textual.driver import Driver
 
 TITLE = "panopsis"
@@ -111,6 +113,48 @@ def fit_glyphs_to_console(driver_class: type[Driver]) -> type[Driver]:
 def fit_glyphs(text: str) -> str:
     """The text with the glyphs Windows' own console window's font lacks swapped for ones it has."""
     return _LACKING.sub(lambda m: CONSOLE_GLYPHS[m[0]], text)
+
+
+# Keys --------------------------------------------------------------------------------------------
+# Windows' consoles pass keys on to an app as text, as Textual reads them, and the text leaves two
+# out. Enter and Shift+Enter are both \r: whether Shift is down as it comes tells them apart.
+# Ctrl+Backspace is \x08, which Textual takes for Backspace (\x7f, as the consoles send it).
+
+VK_SHIFT = 0x10
+
+
+def read_windows_keys(driver_class: type[Driver]) -> type[Driver]:
+    """In Windows, Textual's driver passing on Shift+Enter and Ctrl+Backspace as such."""
+    if not WINDOWS:
+        return driver_class
+
+    class KeysDriver(driver_class):  # type: ignore[valid-type, misc]
+        def process_message(self, message) -> None:
+            from textual import events
+
+            if isinstance(message, events.Key):
+                message = windows_key(message, shift_down)
+            super().process_message(message)
+
+    return KeysDriver
+
+
+def windows_key(key: events.Key, shift_down: Callable[[], bool]) -> events.Key:
+    """The key a Windows console meant by the one Textual read."""
+    from textual import events
+
+    if key.key == "enter" and shift_down():
+        return events.Key("shift+enter", None)
+    if key.key == "backspace" and key.character == "\x08":
+        return events.Key("ctrl+backspace", None)
+    return key
+
+
+def shift_down() -> bool:
+    """Whether a Shift key is down now. Read as the key comes in, it's down for Shift+Enter."""
+    import ctypes
+
+    return bool(ctypes.WinDLL("user32").GetAsyncKeyState(VK_SHIFT) & 0x8000)
 
 
 def _kernel32():

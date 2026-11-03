@@ -164,6 +164,7 @@ panopsis never reads or passes credentials.
 | Key | Does |
 |---|---|
 | `i`, Esc | type in the session's box; leave it |
+| Enter, Shift+Enter | in the box: send the message; start a new line (Ctrl+J too) |
 | `/` | in the box: the session's own commands, skills and plugins, and their values (`/model`, `/effort`) |
 | `1` `2` `3` | allow, allow and don't ask again, deny. For a question, pick an option; for a plan, `1` approves and `3` says what to change |
 | `x` | stop the current turn |
@@ -176,6 +177,12 @@ panopsis never reads or passes credentials.
   it has written so far, so a long file being written still counts up. It shows with tool
   calls hidden too.
 - You can type while Claude works; the message goes in at its next step.
+- The box is edited as a Windows text box is: Ctrl+Backspace and Ctrl+Delete delete a
+  word, Shift with the arrows, Home and End selects (with Ctrl, a word at a time), and
+  Ctrl+C, Ctrl+X and Ctrl+Z copy, cut and undo. It grows to ten lines with your message.
+  Ctrl+Backspace deletes a word in panopsis's other boxes too. Not every terminal tells
+  Shift+Enter from Enter: Windows' do, through panopsis, and so do those with the kitty
+  keyboard protocol (kitty, WezTerm, Ghostty, foot). In the others, Ctrl+J starts a line.
 - In the box, `/usage` opens the usage view, `/exit` closes the session, and `/clear`
   starts a new conversation in the same pane.
 - Alt+V in the box pastes a screenshot or image from the clipboard (Ctrl+V too, where the
@@ -340,6 +347,8 @@ subagent_map.py  the zoom view's map: subagents in waves, nested under who launc
 tui.py      the app
 driver.py   sessions panopsis runs itself (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu
+textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
+terminal.py the tab's name, and in Windows the keys its consoles don't pass on
 tui_settings.py  the settings screen (,)
 keys.py     the keys you can change, their presets, and which key each has now
 tui_keys.py the keys list (?), where Enter on a key changes it

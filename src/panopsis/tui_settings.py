@@ -21,6 +21,7 @@ from textual.widgets import Button, Checkbox, Input, Label, Select, Static
 
 from panopsis import config as config_mod, editor as editor_mod, keys as keys_mod, preferences
 from panopsis.frames import PacedScreen
+from panopsis.textbox import TextInput
 from panopsis.tui_driven import MODE_LABELS
 from panopsis.tui_keys import KeysScreen
 
@@ -117,15 +118,15 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             editors.append(("Your own command", OWN_EDITOR))
             picked = cfg.editor if cfg.editor in editor_mod.EDITORS else OWN_EDITOR if cfg.editor else AUTO_EDITOR
             yield row("Editor", Select(editors, value=picked, allow_blank=False, compact=True, id="set-editor-pick"))
-            own = row("", Input((cfg.editor or "") if picked == OWN_EDITOR else "",
-                                placeholder="kate --line {line} {file}", compact=True, id="set-editor"),
+            own = row("", TextInput((cfg.editor or "") if picked == OWN_EDITOR else "",
+                                    placeholder="kate --line {line} {file}", compact=True, id="set-editor"),
                       Checkbox("In this terminal", cfg.editor_terminal, compact=True, id="set-editor-terminal"),
                       id="set-editor-own")
             own.display = picked == OWN_EDITOR
             yield own
             yield Static(id="set-editor-note", classes="settings-note")
-            yield row("Claude Code", Input(cfg.cli_path or "", placeholder="empty: claude on your PATH",
-                                           compact=True, id="set-cli"))
+            yield row("Claude Code", TextInput(cfg.cli_path or "", placeholder="empty: claude on your PATH",
+                                               compact=True, id="set-cli"))
             yield row("Usage meter", Select(usage, value=cfg.usage_minutes, allow_blank=False, compact=True,
                                             id="set-usage"))
             yield row("History", Select(history, value=cfg.history_days, allow_blank=False, compact=True,
