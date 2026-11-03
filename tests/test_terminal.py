@@ -4,6 +4,7 @@ console window, the cursor stays hidden and everything is drawn with glyphs its 
 import asyncio
 import io
 import shutil
+import threading
 import subprocess
 
 from conftest import StreamingClaude, claude_result
@@ -149,3 +150,50 @@ def test_in_windows_shift_enter_and_ctrl_backspace_come_through_as_such(monkeypa
     assert driver.got.key == "shift+enter"
     monkeypatch.setattr(terminal, "WINDOWS", False)
     assert terminal.read_windows_keys(Driver) is Driver  # elsewhere the terminal says which it was
+
+
+def test_the_icon_is_four_panes_on_violet_at_every_size():
+    from io import BytesIO
+
+    from PIL import Image
+
+    from panopsis import icon
+
+    for size in (16, 20, 24, 32, 48, 256):
+        image = icon.draw(size)
+        assert image.size == (size, size) and image.mode == "RGBA"
+        assert image.getpixel((0, 0))[3] == 0  # rounded corners
+        margin, gap, pane = icon._layout(size)
+        assert 2 * margin + 2 * pane + gap == size and pane >= 5
+        lit = image.getpixel((margin + pane // 2, margin + pane // 2 if size < 48 else margin + 1))
+        assert lit[:3] == (0xF0, 0x7B, 0xE0)  # the pane that needs you
+    assert Image.open(BytesIO(icon.png(32))).size == (32, 32)
+
+
+def test_the_window_gets_its_own_icon_back_once_however_panopsis_ends(monkeypatch):
+    done: list[str] = []
+    handlers: list = []
+    monkeypatch.setattr(terminal, "WINDOWS", True)
+    monkeypatch.setattr(terminal, "host_window", lambda: 0x508C4)
+    monkeypatch.setattr(terminal, "_give_icon", lambda window: done.append(f"given {window:#x}") or
+                        (lambda: done.append("put back")))
+    monkeypatch.setattr(terminal, "_closing", lambda put_back: handlers.append(put_back) or "handler")
+
+    class Kernel32:
+        def SetConsoleCtrlHandler(self, handler, add):
+            done.append(f"handler {'on' if add else 'off'}")
+
+    monkeypatch.setattr(terminal, "_kernel32", Kernel32)
+    with terminal.iconed():
+        for _ in range(100):
+            if handlers:
+                break
+            threading.Event().wait(0.01)
+        handlers[0]()  # the tab it's in closed
+    assert done == ["given 0x508c4", "put back", "handler off"]  # not put back twice
+
+    done.clear()
+    monkeypatch.setattr(terminal, "host_window", lambda: None)  # another terminal: its window is left alone
+    with terminal.iconed():
+        pass
+    assert done == []

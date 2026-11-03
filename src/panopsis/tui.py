@@ -3214,7 +3214,7 @@ def run(interval: float | None = None, project: str | None = None, root: Path = 
     # Everything loaded so far (the modules: Textual, Rich, the SDK) stays until the app quits. Out
     # of the collector's sight, its full sweeps go over less: they held up keys while sessions streamed.
     gc.freeze()
-    with terminal.titled():
+    with terminal.titled(), terminal.iconed():
         PanopsisApp(provider=provider, root=root, interval=interval, project=project).run()
     if timings.ENABLED:
         print(timings.report())

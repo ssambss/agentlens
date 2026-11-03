@@ -37,6 +37,12 @@ asked, with its options, and then what you answered, on a card like your message
 border colour is the state: yellow needs you (heavier for a question or a plan to
 approve), green working, blue waiting on its own subagents.
 
+In Windows, the window panopsis is in has panopsis's icon, four panes on violet, and a
+taskbar button of its own, so you can find it among your other terminals. That's
+Windows' own console window or Windows Terminal's; a Windows Terminal window with other
+tabs keeps the icon while panopsis is one of them. When panopsis quits, or you close its
+tab, the window gets its own icon back.
+
 Beside the state, at the bottom of the border, is how full the session's context window
 is (`working 4m · 42% context`). It takes the theme's warning colour at 75% and its error
 colour at 90%, as the plan meter does: Claude Code compacts the conversation when it's
@@ -348,7 +354,8 @@ tui.py      the app
 driver.py   sessions panopsis runs itself (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
-terminal.py the tab's name, and in Windows the keys its consoles don't pass on
+terminal.py the tab's name, and in Windows the keys its consoles don't pass on, and panopsis's icon
+icon.py     the icon, drawn for each size it's shown at
 tui_settings.py  the settings screen (,)
 keys.py     the keys you can change, their presets, and which key each has now
 tui_keys.py the keys list (?), where Enter on a key changes it
