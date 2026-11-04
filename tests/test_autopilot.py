@@ -230,6 +230,29 @@ def test_turned_on_while_a_session_waits_it_reads_that_turn():
     asyncio.run(go())
 
 
+def test_a_turn_claude_code_started_itself_is_yours():
+    # Another session's message, or a background task finishing: your messages say nothing of it.
+    decide, asked = fake_haiku(Decision("", "done"), Decision("Done. Restart panopsis.", "echoed"))
+
+    async def go():
+        d, fakes = make({"go": [text("Done with that."), done()], "next": [text("Shall I go on?"), done()]},
+                        autopilot="autonomous", decide=decide)
+        await d.start("go")
+        await settle(lambda: d.state == WAITING and len(asked) == 1)
+        await fakes[0]._play([text("Not me: this session works on something else."), done()])
+        await settle(lambda: d.state == WAITING and d.events[-1].text.startswith("Not me"))
+        await asyncio.sleep(0.1)
+        assert len(asked) == 1 and fakes[0].sent == ["go"] and d.detail == "turn finished"
+        d.set_autopilot("balanced")  # p on it, waiting: still not one to read
+        await asyncio.sleep(0.1)
+        assert len(asked) == 1 and d.state == WAITING
+        await d.send("next")  # yours again: it reads the turn your message starts
+        await settle(lambda: len(asked) == 2)
+        assert asked[1][2] == "Shall I go on?"
+        await d.close()
+    asyncio.run(go())
+
+
 def test_your_setting_changing_starts_at_the_next_turn_not_the_one_waiting_on_you():
     decide, asked = fake_haiku(Decision("go ahead", "in scope"))
 

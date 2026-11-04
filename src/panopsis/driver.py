@@ -230,6 +230,12 @@ class DrivenSession:
         self.decide = decide or self._decide
         self._piloting: asyncio.Task | None = None  # autopilot reading the turn that just ended
         self._interrupted = False  # you stopped the turn under way: autopilot leaves it to you
+        # Whether panopsis sent a message (yours or autopilot's) since the last turn ended, and so
+        # whether that turn was ours. Claude Code starts turns of its own too: another session's
+        # message, a background task finishing. Your messages don't say what those are about, so
+        # autopilot leaves them to you.
+        self._sent = False
+        self._turn_ours = False
 
     # Lifecycle --------------------------------------------------------------------------
 
@@ -339,6 +345,7 @@ class DrivenSession:
         shown = f"{image_marks(len(images))} {text}".strip()
         tag = AUTOPILOT if by_autopilot else "queued" if busy else ""
         self.events.append(Event(now, "you", shown.splitlines()[0][:240], shown, tag=tag))
+        self._sent = True
         if not self.title and text and not text.startswith("/") and not by_autopilot:
             self.title = text.splitlines()[0][:80]
         if self._client is None or starting:
@@ -487,7 +494,7 @@ class DrivenSession:
         self.autopilot, self.piloted = level, 0
         reading = self._cancel_pilot()
         if level != "off" and self.state in (WAITING, WORKING) and (reading or read_now and self.state == WAITING) \
-                and self._client is not None and self.pending is None and self._reply():
+                and self._turn_ours and self._client is not None and self.pending is None and self._reply():
             self._set(WORKING, "autopilot is reading the reply")
             self._piloting = asyncio.ensure_future(self._pilot())
         elif reading:
@@ -496,8 +503,8 @@ class DrivenSession:
             self.on_change(self)
 
     def _pilot_due(self, message) -> bool:
-        return (self.autopilot != "off" and not self._interrupted and not getattr(message, "is_error", False)
-                and self._client is not None and bool(self._reply()))
+        return (self.autopilot != "off" and self._turn_ours and not self._interrupted
+                and not getattr(message, "is_error", False) and self._client is not None and bool(self._reply()))
 
     def _cancel_pilot(self) -> bool:
         """Stop autopilot reading a turn. Whether it was."""
@@ -770,6 +777,7 @@ class DrivenSession:
                 errors = getattr(message, "errors", None) or [getattr(message, "result", "") or "the turn failed"]
                 self.events.append(Event(now, "error", str(errors[0])[:240], "\n".join(map(str, errors))))
             self._cancel_pilot()  # another turn ended meanwhile (another session's message started it)
+            self._turn_ours, self._sent = self._sent, False
             if self._pilot_due(message):
                 self._set(WORKING, "autopilot is reading the reply")
                 self._piloting = asyncio.ensure_future(self._pilot())
