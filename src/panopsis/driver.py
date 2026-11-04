@@ -550,8 +550,10 @@ class DrivenSession:
                     f"It would have said: {decision.send}")
             detail = f"autopilot: {autopilot_mod.IN_A_ROW} answers in a row, over to you"
         else:
-            note, detail = f"Autopilot left this for you: {decision.reason}", decision.reason or "turn finished"
-        self._note(note)
+            # The reply above says it already; the line under its title is for the wall.
+            note, detail = "", decision.reason or "turn finished"
+        if note:
+            self._note(note)
         self._set(WAITING, detail[:200])
 
     # Internals --------------------------------------------------------------------------

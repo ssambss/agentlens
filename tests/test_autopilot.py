@@ -98,8 +98,7 @@ def test_balanced_gives_the_go_ahead_then_leaves_the_finished_work_for_you():
         assert fakes[0].sent == ["fix the null bugs", by_autopilot("go ahead")]
         assert [(e.kind, e.text, e.tag) for e in d.events] == [
             ("you", "fix the null bugs", ""), ("claude", "Fixed parser.py. Should I go on with cli.py?", ""),
-            ("you", "go ahead", AUTOPILOT), ("claude", "All three fixed.", ""),
-            ("notice", "Autopilot left this for you: done: all three fixed", "")]
+            ("you", "go ahead", AUTOPILOT), ("claude", "All three fixed.", "")]  # no note: the reply says it
         assert asked == [("balanced", [("fix the null bugs", False)], "Fixed parser.py. Should I go on with cli.py?"),
                          ("balanced", [("fix the null bugs", False), ("go ahead", True)], "All three fixed.")]
         assert d.title == "fix the null bugs"  # its message doesn't name the session

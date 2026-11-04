@@ -263,10 +263,10 @@ answers it the way you would, or leaves it for you:
 
 Finished work, design choices, things to try by hand, a session that's stuck, and anything
 that pushes, merges, releases or deletes, it leaves for you. Then the session rings as it
-would without autopilot, and its pane says what it needs, like "wants a pick: Redis or
-in-memory". Questions, permission prompts and plans come in the middle of a turn, so it
-never sees them: those are always yours. After five answers in a row to one session, the
-next one is yours anyway.
+would without autopilot, and the line under its title says what it needs, like "Claude
+wants you to pick: Redis or in-memory". Questions, permission prompts and plans come in
+the middle of a turn, so it never sees them: those are always yours. After five answers in
+a row to one session, the next one is yours anyway.
 
 Its messages show as Autopilot's, in the pane and in History, and Claude is told you didn't
 type them. The report doesn't count them as yours, nor the seconds before them as Claude
