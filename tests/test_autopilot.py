@@ -92,7 +92,44 @@ def test_its_own_runs_are_left_off_the_wall(monkeypatch):
     assert [e["sessionId"] for e in live.open_sessions()] == ["b"]
 
 
+def test_what_it_decided_is_kept_and_read_back(isolated_home, monkeypatch):
+    first = autopilot.Entry(datetime(2026, 11, 4, 20, 0, tzinfo=timezone.utc), "s1", "Parser", "repo",
+                            "Claude asked whether to add a test", "Yes, add a test for it.")
+    left = autopilot.Entry(datetime(2026, 11, 4, 20, 5, tzinfo=timezone.utc), "s1", "Parser", "repo",
+                           "Claude fixed the parser and asks if you want it committed")
+    autopilot.record(first)
+    with autopilot.log_path().open("a", encoding="utf-8") as f:
+        f.write("not a decision\n")
+    autopilot.record(left)
+    assert autopilot.load() == [first, left]  # the line it can't read is left out
+    monkeypatch.setattr(autopilot, "KEPT", 2)
+    monkeypatch.setattr(autopilot, "TRIM_BYTES", 10)
+    autopilot.record(first)  # past the size: only the newest are kept
+    assert autopilot.load() == [left, first] and len(autopilot.log_path().read_text("utf-8").splitlines()) == 2
+    assert autopilot.load_seen() is None
+    autopilot.save_seen(left.at)
+    assert autopilot.load_seen() == left.at
+
+
 # A session acting on it --------------------------------------------------------------------
+
+def test_it_says_what_it_decided_about_each_turn():
+    decide, _ = fake_check(Decision("go ahead", "Claude asked whether to go on with cli.py"),
+                           Decision("", "Claude fixed all three"))
+    scripts = {"fix the null bugs": [text("Fixed parser.py. Should I go on with cli.py?"), done()],
+               by_autopilot("go ahead"): [text("All three fixed."), done()]}
+    decided = []
+
+    async def go():
+        d, _ = make(scripts, autopilot="balanced", decide=decide, on_pilot=decided.append)
+        await d.start("fix the null bugs")
+        await settle(lambda: len(decided) == 2)
+        assert [(e.asked, e.said) for e in decided] == [("Claude asked whether to go on with cli.py", "go ahead"),
+                                                        ("Claude fixed all three", "")]
+        assert {(e.session_id, e.title, e.where) for e in decided} == {("sess-42", "fix the null bugs", "demo")}
+        await d.close()
+    asyncio.run(go())
+
 
 def test_balanced_gives_the_go_ahead_then_leaves_the_finished_work_for_you():
     decide, asked = fake_check(Decision("go ahead", "in scope"), Decision("", "done: all three fixed"))
@@ -376,6 +413,43 @@ def test_a_session_keeps_its_own_autopilot_through_claude_code_and_a_failed_deta
             await until(pilot, lambda: driven.remembered)
             saved = config_mod.load(isolated_home / "config.yaml").driven_sessions
             assert [(d["session_id"], d["own_autopilot"]) for d in saved] == [("sess-42", "off")]
+
+    asyncio.run(go())
+
+
+def test_d_lists_what_it_answered_and_enter_opens_that_session(projects, tmp_path, isolated_home):
+    app, folder, _ = app_with_session(projects, tmp_path, {
+        "go": [text("Fixed parser.py. Should I go on with cli.py?"), done()],
+        by_autopilot("Yes, go on with cli.py."): [text("All three fixed."), done()]})
+    app.decide, _ = fake_check(Decision("Yes, go on with cli.py.", "Claude asked whether to go on with cli.py"),
+                               Decision("", "Claude fixed all three"))
+
+    def summary():
+        return app.query_one("#summary").content.plain
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            app.config.autopilot = "balanced"
+            driven = await started(app, pilot, folder, "go")
+            await until(pilot, lambda: len(app.pilot_log) == 2)
+            await pilot.pause(0.1)
+            assert "autopilot answered 1" in summary()
+            assert len(autopilot.load()) == 2  # kept for the next launch too
+            await pilot.press("D")
+            await pilot.pause(0.2)
+            screen = app.screen
+            assert isinstance(screen, tui_mod.AutopilotScreen)
+            head = screen.query_one("#pilot-head").content.plain
+            assert "Today it answered 1 and left 1 for you" in head
+            answers = screen.query_one("#pilot-answers")
+            [shown] = [answers.get_option_at_index(i).prompt.plain for i in range(answers.option_count)]
+            assert "Claude asked whether to go on with cli.py" in shown and "→ Yes, go on with cli.py." in shown
+            assert shown.startswith("● ") and "go" in shown  # new, in the session it was in
+            assert app.pilot_new() == 0 and "autopilot answered" not in summary()  # seen now
+            assert autopilot.load_seen() == app.pilot_seen
+            await pilot.press("enter")
+            await until(pilot, lambda: isinstance(app.screen, tui_mod.ZoomScreen))
+            assert app.screen.session_id == driven.key
 
     asyncio.run(go())
 

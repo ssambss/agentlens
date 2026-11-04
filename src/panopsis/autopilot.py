@@ -5,6 +5,9 @@ routine answer (autonomous). Anything else it leaves for you, with a line on wha
 Through your own `claude`, with no tools, so it can't read or change anything: it only answers.
 Questions, permission prompts and plans come in the middle of a turn, as requests the pane
 answers, so it never sees them: those are always yours.
+
+What it decided is kept in ~/.panopsis/autopilot.jsonl, for the list of what it answered for you
+(D), with when you last opened that list in autopilot-seen.json.
 """
 
 from __future__ import annotations
@@ -12,8 +15,11 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
 
+from panopsis.preferences import home
 from panopsis.terminal import claude_env
 
 # off, then what each level answers for you, as the settings and the p key say it.
@@ -32,6 +38,8 @@ TIMEOUT = 120
 SAID = 4  # your last messages it reads
 CHARS = 2000  # of each of them
 REPLY_CHARS = 8000  # of Claude's reply, from its end
+KEPT = 500  # decisions the log keeps, the newest
+TRIM_BYTES = 400_000  # past this, the log is cut back to KEPT
 
 # With its message, so Claude knows you didn't type it. The transcript keeps it, which is how
 # panopsis tells its messages from yours there (said_by_it): keep this wording.
@@ -78,6 +86,77 @@ class Decision:
     reason: str  # one line: what it told the session and why, or what the session needs from you
 
 
+@dataclass(frozen=True)
+class Entry:
+    """A turn it read, for the list of what it answered for you."""
+
+    at: datetime
+    session_id: str
+    title: str
+    where: str  # its folder, and its worktree
+    asked: str  # what Claude asked, or where it stopped; in one it left you, what it needs from you
+    said: str = ""  # what it sent for you; empty, it left the turn to you
+
+
+def log_path() -> Path:
+    return home() / "autopilot.jsonl"
+
+
+def seen_path() -> Path:
+    return home() / "autopilot-seen.json"
+
+
+def record(entry: Entry, path: Path | None = None) -> None:
+    """Add a decision to the log; past TRIM_BYTES, keep only the newest KEPT."""
+    path = path or log_path()
+    line = json.dumps({**asdict(entry), "at": entry.at.isoformat()}, ensure_ascii=False)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        if path.stat().st_size > TRIM_BYTES:
+            kept = path.read_text(encoding="utf-8").splitlines()[-KEPT:]
+            path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    except OSError:
+        pass  # only the list of its answers goes without it
+
+
+def load(path: Path | None = None) -> list[Entry]:
+    """The newest KEPT decisions, oldest first. A line it can't read is left out."""
+    path = path or log_path()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    entries = []
+    for line in lines[-KEPT:]:
+        try:
+            data = json.loads(line)
+            entries.append(Entry(datetime.fromisoformat(data["at"]), str(data.get("session_id") or ""),
+                                 str(data.get("title") or ""), str(data.get("where") or ""),
+                                 str(data.get("asked") or ""), str(data.get("said") or "")))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return entries
+
+
+def load_seen(path: Path | None = None) -> datetime | None:
+    """When you last had the list of its answers open; None if never."""
+    try:
+        return datetime.fromisoformat(json.loads((path or seen_path()).read_text(encoding="utf-8"))["seen"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def save_seen(at: datetime, path: Path | None = None) -> None:
+    path = path or seen_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"seen": at.isoformat()}), encoding="utf-8")
+    except OSError:
+        pass  # only so a restart remembers
+
+
 def said_by_it(text: str) -> str | None:
     """A message in a transcript as autopilot sent it, without its note; None if you sent it."""
     body = text.rstrip()
@@ -111,7 +190,9 @@ reason: one short line the developer reads on the wall, under the session's titl
 "you", the way a colleague would: what Claude's reply needs from them, or else what it says, like \
 "Claude wants you to pick: Redis or in-memory", "Claude fixed the parser and asks if you want it committed" or \
 "Claude answered you: the setting only applies to new sessions". Never call them "the developer", and don't \
-explain why you decided."""
+explain why you decided. With "continue", reason is only what Claude asked, or where it stopped, like "Claude \
+asked whether to add a test for --json": they read it beside your message, in the list of what you answered for \
+them, so don't say who answered or what."""
 
 
 def command(claude: str) -> list[str]:

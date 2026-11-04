@@ -1268,6 +1268,73 @@ class SessionDetailScreen(QuietFocusScreen):
         self.query_one("#body", Static).update(Group(*session_parts(session, rows, self.data.findings_for(session.id))))
 
 
+class AutopilotScreen(PacedScreen):
+    """What autopilot answered for you, in every session, newest first: what Claude asked, and what
+    it said. Enter opens that session. The turns it left you are only counted: their replies say it."""
+
+    TITLE = "Autopilot"
+    BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        yield Static(id="pilot-head")
+        yield OptionList(id="pilot-answers")
+        yield KeyFooter()
+
+    def on_mount(self) -> None:
+        app: PanopsisApp = self.app  # type: ignore[assignment]
+        self.seen = app.pilot_seen  # new: since you last looked, though you're looking now
+        self.shown: list[autopilot_mod.Entry] = []
+        app.saw_autopilot()
+        self.paint()
+        self.query_one("#pilot-answers", OptionList).focus()
+
+    def paint(self) -> None:
+        app: PanopsisApp = self.app  # type: ignore[assignment]
+        palette, today = app.palette, datetime.now(timezone.utc).astimezone().date()
+        todays = [e for e in app.pilot_log if e.at.astimezone().date() == today]
+        answered = sum(1 for e in todays if e.said)
+        self.shown = [e for e in reversed(app.pilot_log) if e.said]
+        head = Text()
+        head.append("What autopilot answered for you\n", style="bold")
+        head.append(f"Today it answered {answered} and left {len(todays) - answered} for you. ")
+        if self.shown:
+            head.append("Enter opens the session.", style="dim")
+        else:
+            head.append(f"\nNothing yet. Once it answers a turn in a session it's on for "
+                        f"({keys_mod.name('autopilot')}, or the settings), what Claude asked and what it said "
+                        "show here.", style="dim")
+        self.query_one("#pilot-head", Static).update(head)
+        answers = self.query_one("#pilot-answers", OptionList)
+        was = answers.highlighted
+        answers.clear_options()
+        rows: list[Option | None] = []
+        for i, e in enumerate(self.shown):
+            rows += [None] if rows else []  # a line between them
+            rows.append(Option(self._answer(e, palette, today), id=str(i)))
+        answers.add_options(rows)
+        answers.display = bool(self.shown)
+        if self.shown:  # so Enter has one to open: the newest, or where you were
+            answers.highlighted = min(was or 0, len(self.shown) - 1)
+
+    def _answer(self, e: autopilot_mod.Entry, palette: Palette, today) -> Text:
+        local = e.at.astimezone()
+        new = self.seen is None or e.at > self.seen
+        text = Text()
+        text.append("● " if new else "  ", style=palette.notice)
+        text.append(f"{local:%H:%M}" if local.date() == today else f"{local:%b %d %H:%M}", style="dim")
+        text.append(f"  {e.title or '(untitled)'}", style="bold")
+        if e.where:
+            text.append(f"  {e.where}", style="dim")
+        text.append(f"\n    {e.asked or 'Claude stopped there'}\n")
+        text.append(f"    → {e.said}", style=palette.you)
+        return text
+
+    @on(OptionList.OptionSelected, "#pilot-answers")
+    def _open(self, event: OptionList.OptionSelected) -> None:
+        self.app.open_pilot_entry(self.shown[int(event.option.id or 0)])  # type: ignore[attr-defined]
+
+
 class UsageScreen(PacedScreen):
     """Your plan's limits as meters, and what Claude Code says is using them (its /usage)."""
 
@@ -1508,6 +1575,7 @@ class PanopsisApp(App):
         bind("profile", "profile", "Profile", show=False),
         bind("rules", "rules", "Rules", show=False),
         bind("usage", "usage", "Usage", show=False),
+        bind("autopilot-log", "autopilot_log", "What autopilot answered", show=False),
         bind("toggle-sidebar", "toggle_sidebar", "Sidebar", show=False),
         bind("toggle-tools", "toggle_tools", "Tool calls", show=False),
         bind("space-prev", "space(-1)", "Prev space", show=False),
@@ -1561,6 +1629,8 @@ class PanopsisApp(App):
         self._seen_states: dict[str, str] = {}
         self._alerts: dict[str, Notification] = {}  # sessions whose alert you haven't followed yet: its toast
         self.read = ReadSessions()  # sessions needing you that you've read: they don't count until they next do
+        self.pilot_log = autopilot_mod.load()  # what autopilot decided, oldest first: D lists its answers
+        self.pilot_seen = autopilot_mod.load_seen()  # when you last had that list open
         self._needing: frozenset[str] = frozenset()  # sessions that need you, as the footer last saw them
         self._space_nodes: dict[str, TreeNode[str]] = {}
         self.driven: dict[str, DrivenSession] = {}  # sessions panopsis runs itself, by pane key
@@ -1991,7 +2061,7 @@ class PanopsisApp(App):
         driven = DrivenSession(
             cwd, resume=resume, permission_mode=mode or self.config.default_mode,
             on_change=self._driven_changed, on_rate_limit=self._rate_limit_seen, cli_path=self.config.cli_path,
-            client_factory=self.client_factory, decide=self.decide,
+            client_factory=self.client_factory, decide=self.decide, on_pilot=self._autopilot_decided,
             autopilot=own_autopilot if own_autopilot in autopilot_mod.LEVELS else self.config.autopilot,
         )
         driven.own_autopilot = own_autopilot in autopilot_mod.LEVELS
@@ -2877,6 +2947,10 @@ class PanopsisApp(App):
         # Clickable while it counts something, like j.
         text.append(f"{needs} need you", style=Style(bold=True, meta={"@click": "app.jump"}) if needs else "dim")
         text.append(f"  ·  {working} working  ·  {background} waiting on agents  ·  {len(sessions)} open")
+        if answered := self.pilot_new():  # clickable, like the count of those that need you
+            text.append("  ·  ")
+            text.append(f"autopilot answered {answered}",
+                        style=Style(color=self.palette.notice, bold=True, meta={"@click": "app.autopilot_log"}))
         if self.current_space != ALL:
             text.append(f"   space: {self.current_space}", style="bold")
         if self.only_needs_you:
@@ -3204,6 +3278,43 @@ class PanopsisApp(App):
         if not isinstance(self.screen, UsageScreen):
             self.push_screen(UsageScreen())
 
+    # What autopilot answered ----------------------------------------------------------------
+
+    def _autopilot_decided(self, entry: autopilot_mod.Entry) -> None:
+        autopilot_mod.record(entry)
+        self.pilot_log = (self.pilot_log + [entry])[-autopilot_mod.KEPT:]
+        if isinstance(self.screen, AutopilotScreen):
+            self.saw_autopilot()
+            self.screen.paint()
+        self._summary()
+
+    def pilot_new(self) -> int:
+        """Its answers since you last had their list open."""
+        return sum(1 for e in self.pilot_log if e.said and (self.pilot_seen is None or e.at > self.pilot_seen))
+
+    def saw_autopilot(self) -> None:
+        self.pilot_seen = datetime.now(timezone.utc)
+        autopilot_mod.save_seen(self.pilot_seen)
+        self._summary()
+
+    def action_autopilot_log(self) -> None:
+        if not isinstance(self.screen, AutopilotScreen):
+            self.push_screen(AutopilotScreen())
+
+    def open_pilot_entry(self, entry: autopilot_mod.Entry) -> None:
+        """The session one of its answers was in, zoomed in, if it's still open here."""
+        key = next((d.key for d in self.driven.values() if d.session_id == entry.session_id), None)
+        if key is None and entry.session_id in self.sessions:
+            key = entry.session_id  # back in a terminal, or Claude Code's background service
+        if key is None:
+            self.notify(f"It isn't open here now. History ({keys_mod.name('history')}) has it.",
+                        title=entry.title or "That session", timeout=6)
+            return
+        self.pop_screen()
+        if isinstance(self.screen, ZoomScreen):
+            self.pop_screen()  # zoomed into another one when you opened the list
+        self.call_after_refresh(self._zoom_into, key)
+
     # Analysis screens -----------------------------------------------------------------------
 
     def request_analysis(self, callback: Callable[[Analysis], None], force: bool = False) -> None:
@@ -3347,6 +3458,8 @@ class PanopsisApp(App):
             ("Advise", "Personalized recommendations from Claude, checked against current practice", self.action_advise),
             ("History", "Browse past sessions", self.action_history),
             ("Usage", "Your plan's session and weekly limits, and what's using them", self.action_usage),
+            ("What autopilot answered", "In every session: what Claude asked, and what it said for you "
+             f"({keys_mod.name('autopilot-log')})", self.action_autopilot_log),
             ("Profile", "Your derived working style and stated preferences", self.action_profile),
             ("Rules", "Active rules; mute the ones that don't fit you", self.action_rules),
             ("Go to a session that needs you", f"The newest alert first, then each in turn ({keys_mod.name('jump')})",

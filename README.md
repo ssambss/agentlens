@@ -98,6 +98,7 @@ changed.
 | `H` | history |
 | `R` `A` `P` `L` | report, advice, profile, rules, once [turned on](#findings-and-advice-experimental) |
 | `U`, `,` | usage and what's using it; settings |
+| `D` | what [autopilot](#autopilot) answered for you, in every session |
 
 Drag to select text and Ctrl+C copies it, over SSH too. Links open on click: web pages in
 your browser, file links like `[app.py:42](src/app.py#L42)` in your editor at that line.
@@ -284,6 +285,21 @@ the session you're on a level of its own, until it comes round to your setting's
 Each pane's bottom border says when autopilot is on: `autopilot autonomous` as your setting
 is, or `autopilot balanced, this pane` for a level of its own (`autopilot off, this pane`,
 too, when your setting is on).
+
+**What it answered**, so you needn't watch the sessions to know: `D` lists its answers in
+every session, newest first, each with what Claude asked and what it said for you:
+
+```
+● 14:32  Config loader split  panopsis · config-split
+    Claude asked whether to update the remaining three callers
+    → Yes, carry on with tui_driven.py, feed.py and report.py.
+```
+
+Enter opens that session. The turns it left you are only counted, at the top ("today it
+answered 7 and left 3 for you"), since their replies say what they need. `●` marks the
+answers since you last looked, and until you do, the line at the top of the wall says how
+many (`autopilot answered 4`; clicking it opens the list). They're kept in
+`~/.panopsis/autopilot.jsonl`, the newest 500, so a restart or a closed pane doesn't lose them.
 
 **Your Claude login:** these sessions use your own `claude` sign-in, made through
 Anthropic's own flow. panopsis never signs you in, and never reads, stores or passes on a

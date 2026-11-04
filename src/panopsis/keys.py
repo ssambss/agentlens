@@ -110,6 +110,7 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
         Fixed("ctrl+backspace", "in a text box: delete the word before the cursor (ctrl+delete: after it)"),
         Fixed("click", "open a link: web pages in your browser, files in your editor"),
         Action("usage", "U", "usage: how much of your plan's session and weekly limits is used"),
+        Action("autopilot-log", "D", "what autopilot answered for you, in every session; enter opens one"),
         Action("jump", "j", "go to a session that needs you: the newest alert first, then each in turn"),
         Fixed("ctrl+p", "search all commands by name"),
         Action("show-keys", "question_mark", "this list"),

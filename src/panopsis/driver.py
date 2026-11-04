@@ -181,6 +181,7 @@ class DrivenSession:
         cli_path: str | None = None,
         autopilot: str = "off",
         decide: Callable[..., Awaitable[autopilot_mod.Decision]] | None = None,
+        on_pilot: Callable[[autopilot_mod.Entry], None] = lambda entry: None,
     ) -> None:
         self.key = "d-" + uuid.uuid4().hex[:10]  # stable id for the pane, before Claude Code assigns one
         self.cwd = cwd
@@ -195,6 +196,7 @@ class DrivenSession:
         self.worktree = ""  # the Claude Code worktree it moved into, read from its transcript
         self.on_change = on_change
         self.on_rate_limit = on_rate_limit
+        self.on_pilot = on_pilot  # what autopilot decided about a turn: answered it, or left it to you
         self.client_factory = client_factory
         self.cli_path = cli_path if cli_path is not None else find_claude()
         self.events: list[Event] = []
@@ -550,8 +552,11 @@ class DrivenSession:
         if decision is not None and decision.send and self.piloted < autopilot_mod.IN_A_ROW:
             self.piloted += 1
             self.turn_started = None  # its message starts the next turn
+            self.on_pilot(self._entry(decision.reason, decision.send))
             await self.send(decision.send, autopilot_mod.NOTE, by_autopilot=True)
             return
+        if decision is not None:
+            self.on_pilot(self._entry(decision.reason))  # left to you
         if decision is None:
             note, detail = f"Autopilot couldn't decide ({failed[:200]}), so this one is yours.", "turn finished"
         elif decision.send:
@@ -564,6 +569,10 @@ class DrivenSession:
         if note:
             self._note(note)
         self._set(WAITING, detail[:200])
+
+    def _entry(self, asked: str, said: str = "") -> autopilot_mod.Entry:
+        where = " · ".join(part for part in (Path(self.cwd).name, self.worktree) if part)
+        return autopilot_mod.Entry(datetime.now(timezone.utc), self.session_id or "", self.title, where, asked, said)
 
     # Internals --------------------------------------------------------------------------
 
