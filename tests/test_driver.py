@@ -5,6 +5,8 @@ import contextlib
 import time
 from datetime import datetime, timezone
 
+import pytest
+
 from claude_agent_sdk import (
     AssistantMessage,
     PermissionResultAllow,
@@ -1041,6 +1043,38 @@ def test_bringing_a_session_here_from_its_zoom_stays_in_it(projects, tmp_path, m
             await pilot.press("escape")
             await pilot.pause(0.1)
             assert app._focused_session(strict=True).session_id == driven.key and "beside" in app._alerts
+
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("status", ["busy", "idle"])
+def test_a_session_brought_here_mid_turn_carries_on(projects, tmp_path, monkeypatch, status):
+    # Stopping its background run cut the turn off, and here it only waited ("No response
+    # requested") until you asked whether it was working. One that had finished waits for you.
+    folder = tmp_path / "repo"
+    folder.mkdir()
+    listed = [{"sessionId": "sess-42", "id": "sess4200", "status": status, "name": "bg-1", "kind": "background",
+               "cwd": str(folder)}]
+    app = PanopsisApp(provider=lambda: list(listed), root=projects, interval=60)
+    fakes = []
+    app.client_factory = lambda options: fakes.append(FakeClaude(options, {})) or fakes[-1]
+    monkeypatch.setattr(tui_mod, "stop_background", lambda *a, **kw: (listed.clear(), (True, ""))[1])
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.2)
+            app._focus_key("sess-42")
+            await pilot.press("o")
+            await pilot.pause(0.1)
+            if status == "busy":  # it asks first, and says it goes on here
+                assert isinstance(app.screen, ChoiceScreen) and "carries on here" in app.screen.body
+                await pilot.press("o")
+            await settle(lambda: app.driven)
+            [driven] = app.driven.values()
+            await settle(lambda: fakes and driven.state != "starting")
+            await pilot.pause(0.1)
+            assert fakes[0].sent == ([tui_mod.CARRY_ON] if status == "busy" else [])
 
     asyncio.run(go())
 

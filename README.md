@@ -199,7 +199,7 @@ panopsis never reads or passes credentials.
 | `1` `2` `3` | allow, allow and don't ask again, deny. For a question, pick an option; for a plan, `1` approves and `3` says what to change |
 | `x` | stop the current turn |
 | `p` | [autopilot](#autopilot): off, balanced, autonomous, in turn |
-| `d`, `o` | detach to Claude Code's background service, which keeps working after you quit; bring a background session back |
+| `d`, `o` | detach to Claude Code's background service, which keeps working after you quit; bring a background session back, which stops it there, and one that was working carries on here where it left off |
 | Alt+V | in the box: paste an image from the clipboard, to go with your next message |
 | `c` | open it in full Claude Code in this terminal; quitting that comes back here |
 

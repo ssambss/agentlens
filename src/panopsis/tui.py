@@ -190,6 +190,7 @@ def look_themes() -> list[Theme]:
 
 
 BUSY = {WORKING, PERMISSION, QUESTION, APPROVAL}  # mid-turn: ending or detaching affects running work
+UNDER_WAY = BUSY | {BACKGROUND}  # stopping a background session cuts off this, its subagents included
 FLUSH_SECONDS = 0.15  # a streaming reply repaints at most ~7 times a second
 STREAMING_PANES = 3  # with more replies streaming at once, the panes you're not on repaint less often
 # Once the wall is filled in, history is read in the background, so the report screens open at once.
@@ -197,6 +198,11 @@ STREAMING_PANES = 3  # with more replies streaming at once, the panes you're not
 PRELOAD_SECONDS: float | None = 2.0
 # A report screen opened on history read longer ago than this shows it at once, and reads it again quietly.
 HISTORY_FRESH = timedelta(minutes=1)
+
+
+# What a session hears when it moves while working: detached as panopsis quits, or brought back
+# here, which stops its run there. Without it, it waits: "No response requested".
+CARRY_ON = "Continue where you left off."
 
 
 def background_ids(list_sessions: Callable[[], list[dict]]) -> set[str]:
@@ -2444,10 +2450,10 @@ class PanopsisApp(App):
         session = self._focused_session()
         if session is None or session.kind != "background":
             return
-        if session.state in BUSY:
+        if session.state in UNDER_WAY:
             self.push_screen(
-                ChoiceScreen("Bring it here?", "It's working in the background; bringing it here stops that turn "
-                             "first. The conversation carries over.",
+                ChoiceScreen("Bring it here?", "It's working in the background. Bringing it here stops it there, "
+                             "and it carries on here where it left off.",
                              {keys_mod.current("bring-here"): "bring it here"}),
                 lambda choice: choice and self.run_worker(self._bring_here(session), group="driven",
                                                           exclusive=False))
@@ -2457,6 +2463,8 @@ class PanopsisApp(App):
     async def _bring_here(self, session: LiveSession) -> None:
         # Stopping takes a few seconds and the new pane looks like the old one, so say what's happening.
         name = session.label
+        # As it is now, not when you pressed the key: the dialog may have been open a while.
+        working = self.sessions.get(session.session_id, session).state in UNDER_WAY
         self.notify("Stopping its background run, then opening it here…", title=f"Bringing {name} here", timeout=4)
         ok, output = await asyncio.to_thread(stop_background, self._claude(), session.session_id, session.name,
                                              session.job_id)
@@ -2466,10 +2474,14 @@ class PanopsisApp(App):
         zoomed = isinstance(self.screen, ZoomScreen) and self.screen.session_id == session.session_id
         if zoomed:
             self.pop_screen()  # that pane is about to be replaced by the one panopsis runs
-        driven = self.open_driven(session.cwd, resume=session.session_id, title=session.title, force=True)
+        # Stopped mid-turn, it would only wait here: what it was doing goes on instead.
+        driven = self.open_driven(session.cwd, resume=session.session_id, title=session.title, force=True,
+                                  prompt=CARRY_ON if working else "")
         if driven is None:
             return  # open_driven has said why
-        self.notify(f"Press {keys_mod.name('compose')} to type to it.", title=f"{name} is here now", timeout=6)
+        carries_on = "It carries on where it left off. " if working else ""
+        self.notify(f"{carries_on}Press {keys_mod.name('compose')} to type to it.", title=f"{name} is here now",
+                    timeout=6)
         if zoomed:  # into this one by name, not into whichever pane has focus by then
             self.call_after_refresh(self._zoom_into, driven.key)
 
@@ -2648,7 +2660,7 @@ class PanopsisApp(App):
         self.exit()
 
     async def _detach_all_and_exit(self, busy: list[DrivenSession]) -> None:
-        results = [await self._detach(d, "Continue where you left off.") for d in busy]
+        results = [await self._detach(d, CARRY_ON) for d in busy]
         if all(results):
             await self._close_all_and_exit()
         # Otherwise stay open: the failed ones were reopened here and the error is on screen.
