@@ -141,13 +141,13 @@ Everything else is on the settings screen (`,`), saved as you pick:
   installed. Under the picker you can see the exact command it will run.
 - **Keys**: a preset, panopsis's own or Vim's (`h` `j` `k` `l` move between panes too,
   and Space goes to a session that needs you), and a way into the keys list.
-- **Experimental**: [autopilot](#autopilot) for the sessions you start here, and
+- **Experimental**: [autopilot](#autopilot) for the sessions panopsis runs, and
   [findings and advice](#findings-and-advice-experimental), both off until you turn them
   on. With findings and advice on, **What you're aiming for** shows too: your goals and a
   deliberate working style.
 - **Another PC**: Export saves your settings in one file, and Import on the other PC puts
   them in place of its own, straight away. That's the look, keys, how far back History goes
-  and how long it keeps sessions, the usage meter, the mode and autopilot for new sessions
+  and how long it keeps sessions, the usage meter, the mode for new sessions, autopilot
   and your editor, with your goals, style, muted rules and thresholds. If the other PC doesn't have that
   editor, the settings screen says so. Nothing else about the PC goes in it: not your spaces
   (they're its folders), its Claude Code, or the sessions panopsis restores or hides, so the
@@ -198,7 +198,7 @@ panopsis never reads or passes credentials.
 | `@` | in the box: your other sessions, for Claude to ask or tell something |
 | `1` `2` `3` | allow, allow and don't ask again, deny. For a question, pick an option; for a plan, `1` approves and `3` says what to change |
 | `x` | stop the current turn |
-| `p` | [autopilot](#autopilot): off, balanced, autonomous, in turn |
+| `p` | [autopilot](#autopilot) for this pane: off, balanced, autonomous, in turn. Back on your setting's, it follows the setting again |
 | `d`, `o` | detach to Claude Code's background service, which keeps working after you quit; bring a background session back, which stops it there, and one that was working carries on here where it left off |
 | Alt+V | in the box: paste an image from the clipboard, to go with your next message |
 | `c` | open it in full Claude Code in this terminal; quitting that comes back here |
@@ -271,9 +271,15 @@ a row to one session, the next one is yours anyway.
 Its messages show as Autopilot's, in the pane and in History, and Claude is told you didn't
 type them. The report doesn't count them as yours, nor the seconds before them as Claude
 waiting on you. While it reads a reply, typing your own message goes instead of its answer,
-and `x` stops it. `p` changes it for the session you're on (the box says when it's on), and
-the settings pick it for new sessions. It's off unless you turn it on. Each check is a
-short `claude -p` on Haiku, with no tools, so it counts against your plan.
+and `x` stops it. It's off unless you turn it on. Each check is a short `claude -p` on
+Haiku, with no tools, so it counts against your plan.
+
+The setting is for every session panopsis runs. Changed, it reaches the open ones from their
+next turn, not the turn already waiting on you, so they aren't all read at once. `p` gives
+the session you're on a level of its own, until it comes round to your setting's again.
+Each pane's bottom border says when autopilot is on: `autopilot autonomous` as your setting
+is, or `autopilot balanced, this pane` for a level of its own (`autopilot off, this pane`,
+too, when your setting is on).
 
 **Your Claude login:** these sessions use your own `claude` sign-in, made through
 Anthropic's own flow. panopsis never signs you in, and never reads, stores or passes on a

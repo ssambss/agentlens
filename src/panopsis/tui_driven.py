@@ -162,6 +162,19 @@ def activity_line(d: DrivenSession, at: datetime, frame: int, palette: Palette, 
                          no_wrap=True, overflow="ellipsis")
 
 
+def own_autopilot(d: DrivenSession) -> str | None:
+    """The session's own autopilot level, set with p; None when it follows your setting."""
+    return d.autopilot if d.own_autopilot else None
+
+
+def pilot_label(d: DrivenSession, own: str = ", this pane") -> str:
+    """Autopilot on a pane: its level, and `own` when it's this session's, set with p, rather than your
+    setting's. Nothing when it's off, as your setting is."""
+    if d.autopilot == "off" and not d.own_autopilot:
+        return ""
+    return f"autopilot {d.autopilot}{own if d.own_autopilot else ''}"
+
+
 def placeholder(d: DrivenSession) -> str:
     if d.state == PERMISSION:
         return "Type a reason to deny, or press Esc and 1/2/3"
@@ -175,7 +188,8 @@ def placeholder(d: DrivenSession) -> str:
         return "Type to continue this session…  (Enter to send, Esc to leave the box)"
     if d.state in (ENDED, FAILED):
         return "Session closed"
-    pilot = f"autopilot {d.autopilot}, {keys_mod.name('autopilot')} changes it · " if d.autopilot != "off" else ""
+    pilot = pilot_label(d, " for this pane")
+    pilot = f"{pilot}, {keys_mod.name('autopilot')} changes it · " if pilot else ""
     if d.state == WORKING:
         return f"Message Claude… it reads this at its next step  ({pilot}Enter to send, Esc to leave the box)"
     return f"Message Claude…  ({pilot}Enter to send, Esc to leave the box)"

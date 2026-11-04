@@ -6,15 +6,22 @@ from datetime import datetime, timezone
 
 import pytest
 from rich.console import Console
+from rich.text import Text
 from conftest import at, common, human, text as said, write_jsonl
 from test_driver import app_with_session, done, make, settle, started, text, until
 
-from panopsis import autopilot, config as config_mod
+from panopsis import autopilot, config as config_mod, tui as tui_mod
 from panopsis.adapters.claude_transcripts import load_tail
 from panopsis.autopilot import NOTE, Decision
 from panopsis.driver import WAITING, WORKING
 from panopsis.feed import Palette, conversation
 from panopsis.model import AUTOPILOT, MODEL, WAITING_ON_YOU, Event
+from panopsis.tui_driven import placeholder
+
+
+def border(app, driven):
+    """A pane's bottom border, as it reads."""
+    return Text.from_markup(app.query_one(f"#s-{driven.key}", tui_mod.SessionPane).border_subtitle).plain
 
 
 def fake_haiku(*answers):
@@ -223,6 +230,20 @@ def test_turned_on_while_a_session_waits_it_reads_that_turn():
     asyncio.run(go())
 
 
+def test_your_setting_changing_starts_at_the_next_turn_not_the_one_waiting_on_you():
+    decide, asked = fake_haiku(Decision("go ahead", "in scope"))
+
+    async def go():
+        d, fakes = make({"go": [text("Shall I go on?"), done()]}, decide=decide)
+        await d.start("go")
+        await settle(lambda: d.state == WAITING and d.events[-1].kind == "claude")
+        d.set_autopilot("balanced", read_now=False)
+        await asyncio.sleep(0.1)
+        assert d.autopilot == "balanced" and asked == [] and fakes[0].sent == ["go"] and d.state == WAITING
+        await d.close()
+    asyncio.run(go())
+
+
 def test_its_messages_show_as_its_own():
     events = [Event(datetime.now(timezone.utc), "you", "go ahead", "go ahead", tag=AUTOPILOT)]
     console = Console(width=80, record=True)
@@ -248,51 +269,62 @@ def test_read_back_from_its_transcript_its_messages_are_still_its_own(projects):
 
 # In the app --------------------------------------------------------------------------------
 
-def test_p_turns_a_sessions_autopilot_round_and_it_comes_back_so(projects, tmp_path, isolated_home):
+def test_p_gives_a_pane_its_own_autopilot_until_it_comes_round_to_your_setting(projects, tmp_path, isolated_home):
     app, folder, _ = app_with_session(projects, tmp_path, {"go": [text("Working."), done()]})
     app.decide, _ = fake_haiku(Decision("", "done"))
+
+    def saved():
+        return [(d["session_id"], d["own_autopilot"])
+                for d in config_mod.load(isolated_home / "config.yaml").driven_sessions]
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
             driven = await started(app, pilot, folder, "go")
-            assert driven.autopilot == "off"
+            assert (driven.autopilot, driven.own_autopilot) == ("off", False) and "autopilot" not in border(app, driven)
             app._focus_key(driven.key)
             await pilot.press("p")
-            assert driven.autopilot == "balanced"
+            assert (driven.autopilot, driven.own_autopilot) == ("balanced", True)
             await pilot.press("p")
-            assert driven.autopilot == "autonomous"
+            assert (driven.autopilot, driven.own_autopilot) == ("autonomous", True)
             await until(pilot, lambda: driven.remembered)
-            saved = config_mod.load(isolated_home / "config.yaml").driven_sessions
-            assert [(d["session_id"], d["autopilot"]) for d in saved] == [("sess-42", "autonomous")]
-            await pilot.press("p")
-            assert driven.autopilot == "off"
+            assert saved() == [("sess-42", "autonomous")]
+            await pilot.pause(0.1)
+            assert "autopilot autonomous, this pane" in border(app, driven)
+            assert "autopilot autonomous for this pane, p changes it" in placeholder(driven)
+            await pilot.press("p")  # round to your setting's, off: it follows your setting again
+            assert (driven.autopilot, driven.own_autopilot) == ("off", False) and saved() == [("sess-42", "")]
+            await pilot.pause(0.1)
+            assert "autopilot" not in border(app, driven)
 
     asyncio.run(go())
 
 
-def test_new_sessions_start_with_the_settings_autopilot(projects, tmp_path):
-    app, folder, _ = app_with_session(projects, tmp_path)
-    app.decide, _ = fake_haiku(Decision("", "done"))
+def test_your_setting_is_for_every_session_here_but_those_with_their_own(projects, tmp_path):
+    app, folder, _ = app_with_session(projects, tmp_path, {"go": [text("Shall I go on?"), done()]})
+    app.decide, asked = fake_haiku(Decision("go ahead", "in scope"))
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            app.config.autopilot = "balanced"
-            driven = await started(app, pilot, folder)
-            assert driven.autopilot == "balanced"
-            restored = app.open_driven(str(folder), resume="sess-7", start=False, autopilot="autonomous", force=True)
-            assert restored.autopilot == "autonomous"
+            driven = await started(app, pilot, folder, "go")
+            await until(pilot, lambda: driven.state == WAITING)
+            own = app.open_driven(str(folder), resume="sess-7", start=False, own_autopilot="off", force=True)
             await pilot.pause(0.2)  # its pane mounted
+            app.change_setting("autopilot", "autonomous")
+            assert (driven.autopilot, own.autopilot) == ("autonomous", "off")
+            await pilot.pause(0.2)
+            assert asked == [] and driven.state == WAITING  # the turn already waiting on you stays yours
+            assert border(app, driven).endswith(" autopilot autonomous")  # yours, not this pane's own
+            assert "autopilot off, this pane" in border(app, own)
+            new = await started(app, pilot, folder)
+            assert (new.autopilot, new.own_autopilot) == ("autonomous", False)
 
     asyncio.run(go())
-
 
 
 def test_a_session_keeps_its_own_autopilot_through_claude_code_and_a_failed_detach(
         projects, tmp_path, isolated_home, monkeypatch):
     import contextlib
     import subprocess
-
-    from panopsis import tui as tui_mod
 
     app, folder, _ = app_with_session(projects, tmp_path)
     app.decide, _ = fake_haiku(Decision("", "done"))
@@ -306,21 +338,23 @@ def test_a_session_keeps_its_own_autopilot_through_claude_code_and_a_failed_deta
             app.config.cli_path = "claude"
             app.config.autopilot = "autonomous"
             driven = await started(app, pilot, folder)
-            driven.set_autopilot("off")  # p on this one, against the setting
+            app._focus_key(driven.key)
+            await pilot.press("p")  # from your setting's autonomous to this one's own, off
             await app._handoff_driven(driven)  # c, then back from Claude Code
             await pilot.pause(0.1)
             [driven] = app.driven.values()
-            assert driven.autopilot == "off"
+            assert (driven.autopilot, driven.own_autopilot) == ("off", True)
             await until(pilot, lambda: driven.remembered)
             await app._detach(driven, "keep going")  # Claude Code won't take it, so it stays here
             await pilot.pause(0.1)
             [driven] = app.driven.values()
-            assert driven.autopilot == "off"
+            assert (driven.autopilot, driven.own_autopilot) == ("off", True)
             await until(pilot, lambda: driven.remembered)
             saved = config_mod.load(isolated_home / "config.yaml").driven_sessions
-            assert [(d["session_id"], d["autopilot"]) for d in saved] == [("sess-42", "off")]
+            assert [(d["session_id"], d["own_autopilot"]) for d in saved] == [("sess-42", "off")]
 
     asyncio.run(go())
+
 
 def test_the_setting_is_saved_and_a_wrong_one_is_off(isolated_home):
     path = isolated_home / "config.yaml"
@@ -328,7 +362,11 @@ def test_the_setting_is_saved_and_a_wrong_one_is_off(isolated_home):
     cfg.remember_driven("s1", "D:/w", "Parser", "default", "balanced")
     config_mod.save(cfg)
     loaded = config_mod.load(path)
-    assert loaded.autopilot == "autonomous" and loaded.driven_sessions[0]["autopilot"] == "balanced"
+    assert loaded.autopilot == "autonomous" and loaded.driven_sessions[0]["own_autopilot"] == "balanced"
+    # Saved before the setting was for every session, its level was the setting's: it follows yours.
+    path.write_text(path.read_text(encoding="utf-8").replace("own_autopilot: balanced", "autopilot: balanced"),
+                    encoding="utf-8")
+    assert config_mod.load(path).driven_sessions[0]["own_autopilot"] == ""
     path.write_text(path.read_text(encoding="utf-8").replace("autopilot: autonomous", "autopilot: always"),
                     encoding="utf-8")
     assert config_mod.load(path).autopilot == "off"

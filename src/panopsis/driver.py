@@ -225,6 +225,7 @@ class DrivenSession:
         self._connecting: asyncio.Future | None = None  # a paused session starting Claude Code
         self._stderr: deque[str] = deque(maxlen=STDERR_LINES)
         self.autopilot = autopilot  # one of autopilot.LEVELS
+        self.own_autopilot = False  # its level is this session's own, set with p, rather than your setting's
         self.piloted = 0  # autopilot's messages since yours
         self.decide = decide or self._decide
         self._piloting: asyncio.Task | None = None  # autopilot reading the turn that just ended
@@ -479,12 +480,13 @@ class DrivenSession:
 
     # Autopilot --------------------------------------------------------------------------
 
-    def set_autopilot(self, level: str) -> None:
+    def set_autopilot(self, level: str, read_now: bool = True) -> None:
         """Turn autopilot to `level` (one of autopilot.LEVELS). Turned on while the session waits on
-        you after a turn, it reads that turn now; turned off, it stops reading one."""
+        you after a turn, it reads that turn now, unless `read_now` is False (your setting changing
+        for every session: then it starts at the next turn). Turned off, it stops reading one."""
         self.autopilot, self.piloted = level, 0
         reading = self._cancel_pilot()
-        if level != "off" and self.state in (WAITING, WORKING) and (reading or self.state == WAITING) \
+        if level != "off" and self.state in (WAITING, WORKING) and (reading or read_now and self.state == WAITING) \
                 and self._client is not None and self.pending is None and self._reply():
             self._set(WORKING, "autopilot is reading the reply")
             self._piloting = asyncio.ensure_future(self._pilot())

@@ -40,7 +40,7 @@ HEADER = """\
 #   Textual's names: r, R, ctrl+w, f5, question_mark. A comma between two gives an action both.
 # findings_and_advice: the Report (R), Profile (P), Rules (L) and Advice (A) screens and their
 #   commands. Experimental, so off unless you turn it on.
-# autopilot: for the sessions you start here, off, balanced or autonomous (p changes one session's).
+# autopilot: for the sessions panopsis runs, off, balanced or autonomous (p gives one its own).
 #   When a turn ends, Haiku reads the reply and answers it for you, or leaves it to you. Experimental.
 """
 
@@ -200,7 +200,7 @@ class Config:
     editor_terminal: bool = False  # your own command runs in this terminal, like vim
     keys: dict[str, str] = field(default_factory=dict)  # the keys you changed, by keys.ACTIONS id
     findings_and_advice: bool = False  # experimental: Report, Profile, Rules and Advice
-    autopilot: str = "off"  # experimental: for new sessions, one of autopilot.LEVELS
+    autopilot: str = "off"  # experimental: one of autopilot.LEVELS, for sessions without their own
     spaces: list[Space] = field(default_factory=list)
     # Sessions panopsis runs, restored (paused) on the next launch until you end or detach them.
     driven_sessions: list[dict] = field(default_factory=list)
@@ -217,8 +217,9 @@ class Config:
                 return space.name
         return repo_name(cwd)
 
-    def remember_driven(self, session_id: str, cwd: str, title: str, mode: str, autopilot: str = "off") -> None:
-        entry = {"session_id": session_id, "cwd": cwd, "title": title, "mode": mode, "autopilot": autopilot}
+    def remember_driven(self, session_id: str, cwd: str, title: str, mode: str, own_autopilot: str = "") -> None:
+        """`own_autopilot`: its own level, set with p; empty, it follows your setting."""
+        entry = {"session_id": session_id, "cwd": cwd, "title": title, "mode": mode, "own_autopilot": own_autopilot}
         for i, saved in enumerate(self.driven_sessions):
             if saved.get("session_id") == session_id:
                 self.driven_sessions[i] = entry  # in place: panes come back in this order
@@ -303,7 +304,8 @@ def parse(data: dict, path: Path | None = None) -> Config:
         autopilot=data["autopilot"] if data.get("autopilot") in AUTOPILOT_LEVELS else defaults.autopilot,
         spaces=spaces,
         driven_sessions=[
-            {k: str(d.get(k) or "") for k in ("session_id", "cwd", "title", "mode", "autopilot")}
+            # Not "autopilot": saved before the setting was for every session, that was the setting's.
+            {k: str(d.get(k) or "") for k in ("session_id", "cwd", "title", "mode", "own_autopilot")}
             for d in data.get("driven_sessions") or []
             if isinstance(d, dict) and d.get("session_id") and d.get("cwd")
         ],

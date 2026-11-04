@@ -41,8 +41,8 @@ INPUTS = {"set-editor": "editor", "set-cli": "cli_path"}
 BORDER_SAMPLE = [("selected", "selected"), ("question", "needs you"), ("working", "working"),
                  ("background", "background"), ("failed", "failed")]
 CHAT_SAMPLE = [("claude", "Claude"), ("tool", "tool calls"), ("notice", "notices"), ("error", "errors")]
-TRANSFER_NOTE = ("Export saves your look, keys, History and usage meter settings, the mode and autopilot for new "
-                 "sessions and your editor, with your goals and style, in this file; Browse… picks the folder it "
+TRANSFER_NOTE = ("Export saves your look, keys, History and usage meter settings, the mode for new sessions, "
+                 "autopilot and your editor, with your goals and style, in this file; Browse… picks the folder it "
                  "goes in. Import on another PC puts them in place of its own. Not your spaces, Claude Code or "
                  "sessions: those are this PC's.")
 
@@ -168,11 +168,11 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             pilot = cfg.autopilot if cfg.autopilot in AUTOPILOT_LEVELS else "off"
             yield row("Autopilot", Select([(label, level) for level, label in AUTOPILOT_LEVELS.items()], value=pilot,
                                           allow_blank=False, compact=True, id="set-autopilot"))
-            yield Static("For the sessions you start here. When a turn ends, Haiku reads Claude's reply with your "
-                         "last few messages and answers it the way you would, or leaves it for you, saying what it "
-                         "needs. Questions, permission prompts and plans are always yours. "
-                         f"{keys_mod.name('autopilot')} changes it for the session you're on. Each check sends "
-                         "that reply and those messages to Claude, through your own claude.",
+            yield Static("For every session panopsis runs, from its next turn. When a turn ends, Haiku reads "
+                         "Claude's reply with your last few messages and answers it the way you would, or leaves it "
+                         "for you, saying what it needs. Questions, permission prompts and plans are always yours. "
+                         f"{keys_mod.name('autopilot')} gives the session you're on its own, and its border says so. "
+                         "Each check sends that reply and those messages to Claude, through your own claude.",
                          classes="settings-note")
 
             # Only the experimental screens use these, so they show while those are on.
