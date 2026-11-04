@@ -102,9 +102,13 @@ Claude's reply this turn:
 ---
 
 Answer with action "continue" and the message to send it, short and in the developer's own words, like \
-their messages above; or with action "ask" and an empty message. reason: one short line for the developer \
-saying what you told it and why, or what it needs from them, like "wants a pick: Redis or in-memory" or \
-"done: fixed the parser, asks whether to commit"."""
+their messages above: an answer, a go-ahead or a pick that moves the work on, never only thanks, an \
+acknowledgement or small talk (if that's all you'd say, "ask"). Or with action "ask" and an empty message. \
+reason: one short line the developer reads on the session's pane, after "Autopilot left this for you:". Write it \
+to them, as "you", the way a colleague would: what Claude's reply needs from them, or else what it says, like \
+"Claude wants you to pick: Redis or in-memory", "Claude fixed the parser and asks if you want it committed" or \
+"Claude answered you: the setting only applies to new sessions". Never call them "the developer", and don't \
+explain why you decided."""
 
 
 def command(claude: str) -> list[str]:
