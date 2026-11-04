@@ -928,15 +928,29 @@ def test_dialog_text_wraps_inside_the_box(projects, tmp_path):
     asyncio.run(go((60, 44)))
 
 
-def test_quit_asks_when_sessions_are_working(projects, tmp_path):
-    app, folder, _ = app_with_session(projects, tmp_path, {"slow": [("ask", "Bash", {"command": "make"})]})
+def test_quit_asks_only_about_sessions_that_are_working(projects, tmp_path, monkeypatch):
+    # One waiting on your answer isn't working: it asked to detach it, where it would only wait.
+    scripts = {"ask": [("ask", "Bash", {"command": "make"})], "slow": [("pause", 10)]}
+    app, folder, _ = app_with_session(projects, tmp_path, scripts)
+    closed = []
+
+    async def close_all():
+        closed.append(True)
+
+    monkeypatch.setattr(app, "_close_all_and_exit", close_all)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            await started(app, pilot, folder, prompt="slow")
+            asking = await started(app, pilot, folder, prompt="ask")
+            await settle(lambda: asking.state == PERMISSION)
             await pilot.press("escape", "q")
             await pilot.pause(0.2)
-            assert isinstance(app.screen, ChoiceScreen) and "still working" in app.screen.title_text
+            assert closed and not isinstance(app.screen, ChoiceScreen)
+            working = await started(app, pilot, folder, prompt="slow")
+            assert working.state == "working"
+            await pilot.press("escape", "q")
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, ChoiceScreen) and app.screen.title_text == "1 session is still working"
 
     asyncio.run(go())
 

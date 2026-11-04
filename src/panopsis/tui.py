@@ -2656,7 +2656,10 @@ class PanopsisApp(App):
             self.notify(f"Couldn't start {chosen.editor.label}: {e}", title="No editor", severity="error")
 
     async def action_quit(self) -> None:
-        busy = [d for d in self.driven.values() if d.state in BUSY]
+        # Not one waiting on your answer (a question, a permission, a plan): it can't go on without
+        # you, so detached it would only wait there. It closes as the others do, and comes back
+        # paused with what it asked in its conversation.
+        busy = [d for d in self.driven.values() if d.state == WORKING]
         if not busy:
             await self._close_all_and_exit()
             return

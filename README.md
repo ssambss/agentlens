@@ -242,7 +242,8 @@ panopsis never reads or passes credentials.
 - They come back, paused, when you reopen panopsis, until you close (`w`) or detach them;
   a closed one's conversation stays in History. One that's open in a terminal or an editor
   by then comes back once it's closed there. Quitting while some are working asks whether
-  to detach them or stop them for now.
+  to detach them or stop them for now. One waiting on your answer isn't working: it can't
+  go on without you, so it closes, and comes back with what it asked in its conversation.
 - If Claude Code stops under a session (it exits, or sends something panopsis can't
   read), the pane says why and pauses; your next message continues the conversation.
 - Detaching needs a folder terminal Claude Code trusts, which your home folder never is.
