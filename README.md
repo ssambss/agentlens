@@ -34,7 +34,8 @@ Claude's replies as markdown, runs of tool calls folded into one line
 (`▸ Read a.py · Edit a.py ×2 · Bash ×3`). A question Claude asked you reads as what it
 asked, with its options, and then what you answered, on a card like your messages
 (or that you didn't answer, and what you said instead). A plan Claude asks you to
-approve reads as its replies do, all of it when you zoom in. Panes keep their place, and the
+approve reads as its replies do, all of it when you zoom in, and then that you approved
+it, or said to keep planning and what to change. Panes keep their place, and the
 border colour is the state: yellow needs you (heavier for a question or a plan to
 approve), green working, blue waiting on its own subagents.
 

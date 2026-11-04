@@ -32,10 +32,12 @@ from typing import Any
 
 from panopsis import usage
 from panopsis.adapters.claude_transcripts import (
+    KEEP_PLANNING,
     PLAN_TOOL,
     QUESTION_TOOL,
     answer_event,
     image_marks,
+    plan_answer_event,
     plan_event,
     question_event,
     questions_of,
@@ -204,7 +206,7 @@ class DrivenSession:
         self._streamed: dict[str | None, int] = {}  # characters of each reply still streaming, by subagent
         self.pending: PendingRequest | None = None
         self._asked: dict[str, list[dict]] = {}  # questions Claude asked, by call, until they're answered
-        self._planned: set[str] = set()  # the calls whose plan is in the conversation
+        self._plans: dict[str, bool] = {}  # plan calls, by id, until answered: whether the plan is shown
         self.cost_usd = 0.0
         self.error: str | None = None
         self.parked = False  # restored from last time: connects to Claude Code when you next type
@@ -421,7 +423,7 @@ class DrivenSession:
         if p is None:
             return
         if p.kind == "plan":
-            message = reason or "Keep planning."
+            message = reason or KEEP_PLANNING
         elif p.kind == "question":
             message = reason or "The user declined to answer."
         else:
@@ -480,14 +482,15 @@ class DrivenSession:
 
     def _show_plan(self, call: str | None, tool_input: dict) -> None:
         """Put a plan in the conversation, once: its call and the request to approve it can each
-        carry it, and either can come first."""
-        if call in self._planned:
+        carry it, and either can come first. The call is noted either way, so its result reads as
+        your answer."""
+        if call and self._plans.setdefault(call, False):
             return
         plan = plan_event(datetime.now(timezone.utc), tool_input)
         if plan is None:
             return  # the other one has it
         if call:
-            self._planned.add(call)
+            self._plans[call] = True
         self.events.append(plan)
 
     def _resolve(self, result) -> None:
@@ -615,6 +618,8 @@ class DrivenSession:
                 if questions is not None:
                     self.events.append(answer_event(now, questions, getattr(message, "tool_use_result", None),
                                                     content, bool(getattr(block, "is_error", False))))
+                elif self._plans.pop(block.tool_use_id, None) is not None:  # approved, or sent back
+                    self.events.append(plan_answer_event(now, content, bool(getattr(block, "is_error", False))))
                 elif getattr(block, "is_error", False):
                     first = next((ln for ln in content.splitlines() if ln.strip()), "tool error")
                     self.events.append(Event(now, "error", first[:240], content[:4000]))

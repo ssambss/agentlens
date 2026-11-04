@@ -17,6 +17,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+from panopsis.adapters.claude_transcripts import KEEP_PLANNING
 from panopsis.driver import APPROVAL, PERMISSION, QUESTION, WAITING, DrivenSession
 from panopsis.tui import PanopsisApp, DrivenPane
 
@@ -320,6 +321,22 @@ def test_what_claude_asked_and_what_you_answered_stay_in_the_conversation():
     d.handle(UserMessage([ToolResultBlock("q2", "The user declined to answer.", is_error=True)]))
     assert [(e.kind, e.tag) for e in d.events] == [("question", ""), ("answer", ""), ("question", ""),
                                                    ("answer", "declined")]
+
+
+def test_what_you_made_of_a_plan_stays_in_the_conversation():
+    # Sent back or approved, it reads as your answer, not as a tool call that failed.
+    from claude_agent_sdk import ToolResultBlock, UserMessage
+
+    d, _ = make({})
+    for call, result, is_error in [
+        ("p1", "also add tests", True),  # 3, and what to change
+        ("p2", KEEP_PLANNING, True),  # 3, and nothing said
+        ("p3", "User has approved your plan. You can now start coding.", False),
+    ]:
+        d.handle(AssistantMessage([ToolUseBlock(call, "ExitPlanMode", {"plan": "## Plan"})], "claude-opus-5-5"))
+        d.handle(UserMessage([ToolResultBlock(call, result, is_error=is_error)]))
+    assert [(e.kind, e.tag, e.detail) for e in d.events if e.kind != "plan"] == [
+        ("answer", "sent back", "also add tests"), ("answer", "sent back", ""), ("answer", "approved", "")]
 
 
 def test_plan_approval_and_feedback():

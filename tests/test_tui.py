@@ -1547,6 +1547,31 @@ def test_claudes_plan_reads_in_full_in_the_conversation(projects):
     assert "plan: Fix the parser" in activity_log(events["main"], Palette()).plain
 
 
+def test_what_you_made_of_a_plan_reads_as_your_answer(projects):
+    # In Claude Code: sent back with what to change, sent back with nothing said, or approved.
+    rejected = ("The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file "
+                "edit, the new_string was NOT written to the file). ")
+    path = write_jsonl(projects / "demo" / "s.jsonl", common([
+        tool_use(1, "ExitPlanMode", "p1", plan="# Plan A"),
+        answered(2, "p1", rejected + "To tell you how to proceed, the user said:\nalso cover the CLI", is_error=True),
+        tool_use(3, "ExitPlanMode", "p2", plan="# Plan B"),
+        answered(4, "p2", rejected + "STOP what you are doing and wait for the user to tell you how to proceed.",
+                 is_error=True),
+        tool_use(5, "ExitPlanMode", "p3", plan="# Plan C"),
+        answered(6, "p3", "User has approved your plan. You can now start coding."),
+    ], "s"))
+    _, events = load_tail(path, tail_bytes=100_000)
+    assert [(e.kind, e.tag, e.detail) for e in events["main"]] == [
+        ("plan", "", "# Plan A"), ("answer", "sent back", "also cover the CLI"),
+        ("plan", "", "# Plan B"), ("answer", "sent back", ""),
+        ("plan", "", "# Plan C"), ("answer", "approved", "")]
+    out = plain(conversation(events["main"], Palette()))
+    assert out.count("You said to keep planning") == 2 and "You approved the plan" in out
+    assert "also cover the CLI" in out and "✗" not in out and "doesn't want to proceed" not in out
+    log = activity_log(events["main"], Palette()).plain
+    assert "keep planning: also cover the CLI" in log and "approved the plan" in log
+
+
 def test_subagent_feeds_are_extracted():
     from datetime import datetime
 

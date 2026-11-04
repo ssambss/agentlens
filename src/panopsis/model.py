@@ -24,6 +24,8 @@ AWAY = "away"  # waiting on you or on background work for longer than the away t
 
 ACTIVE_KINDS = (MODEL, TOOL, DELEGATED)
 
+APPROVED = "approved"  # an answer event's tag: you approved Claude's plan
+SENT_BACK = "sent back"  # an answer event's tag: you sent Claude's plan back, to keep planning
 DECLINED = "declined"  # an answer event's tag: you didn't answer Claude's question
 
 

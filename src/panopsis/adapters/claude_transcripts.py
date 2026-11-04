@@ -20,11 +20,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from panopsis.model import (
+    APPROVED,
     AWAY,
     DECLINED,
     DELEGATED,
     DORMANT,
     MODEL,
+    SENT_BACK,
     TOOL,
     WAITING_ON_BACKGROUND,
     WAITING_ON_YOU,
@@ -427,10 +429,11 @@ def _span_kind(record: dict, tool_names: dict[str, str], is_main: bool) -> str:
 
 
 def extract_events(records: list[dict], is_main: bool) -> list[Event]:
-    """Turn records into a readable activity feed: prompts, replies, tool calls, errors, Claude's
-    questions with your answers, and its plans."""
+    """Turn records into a readable activity feed: prompts, replies, tool calls, errors, and Claude's
+    questions and plans with your answers."""
     events: list[Event] = []
     asked: dict[str, list[dict]] = {}  # questions Claude asked, by call, until they're answered
+    planned: set[str] = set()  # the calls that asked you to approve a plan
     for r in records:
         t = r["_ts"]
         if r.get("subtype") == "compact_boundary":
@@ -455,9 +458,11 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
                         asked[block.get("id", "")] = questions_of(tool_input)
                         events.append(question_event(t, tool_input))
                         continue
-                    if name == PLAN_TOOL and (plan := plan_event(t, tool_input)) is not None:
-                        events.append(plan)
-                        continue
+                    if name == PLAN_TOOL:
+                        planned.add(block.get("id", ""))
+                        if (plan := plan_event(t, tool_input)) is not None:
+                            events.append(plan)
+                            continue
                     summary = tool_summary(tool_input, r.get("cwd"))
                     events.append(Event(t, "tool", f"{name}: {summary}" if summary else name))
             continue
@@ -481,6 +486,8 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
                 if questions is not None or _answers(outcome):  # asked before the tail, the answers say it all
                     events.append(answer_event(t, questions or [], outcome, _result_text(block),
                                                bool(block.get("is_error"))))
+                elif block.get("tool_use_id", "") in planned:
+                    events.append(plan_answer_event(t, _result_text(block), bool(block.get("is_error"))))
                 elif block.get("is_error"):
                     body = _result_text(block)
                     events.append(Event(t, "error", _one_line(body) or "tool error", body[:DETAIL_CHARS]))
@@ -557,11 +564,14 @@ def _answers_in(result: str, questions: list[dict]) -> dict[str, str]:
     return found or dict(re.findall(r'"([^"]+)"="([^"]*)"', result))
 
 
-# Claude's plan (ExitPlanMode) ----------------------------------------------------------------------
+# Claude's plan (ExitPlanMode), and what you made of it ---------------------------------------------
 # The plan reads as a reply does, and all of it, however long: it's what you approve. Claude Code
-# puts the plan file's text in the call's input as `plan`.
+# puts the plan file's text in the call's input as `plan`. Then your answer, on a card as your
+# messages are: approved, or sent back, which is an error result, with what to change if you said.
 
 PLAN_TOOL = "ExitPlanMode"
+KEEP_PLANNING = "Keep planning."  # what panopsis tells Claude when you send a plan back and say nothing
+_REJECTED = "The user doesn't want to proceed with this tool use"  # Claude Code's, before what you said
 
 
 def plan_event(at: datetime, tool_input: dict) -> Event | None:
@@ -570,6 +580,18 @@ def plan_event(at: datetime, tool_input: dict) -> Event | None:
     if not (isinstance(plan, str) and plan.strip()):
         return None
     return Event(at, "plan", _one_line(plan).lstrip("# "), plan.strip())
+
+
+def plan_answer_event(at: datetime, result: str, is_error: bool) -> Event:
+    """What you made of a plan: approved it, or sent it back, with what to change if you said. Sent
+    back in Claude Code, that's after its own words; from panopsis, it's all the result says."""
+    if not is_error:
+        return Event(at, "answer", "", tag=APPROVED)
+    if result.startswith(_REJECTED):
+        said = result.split(_SAID, 1)[1] if _SAID in result else ""
+    else:
+        said = "" if result.strip() == KEEP_PLANNING else result
+    return Event(at, "answer", _one_line(said), said.strip()[:DETAIL_CHARS], tag=SENT_BACK)
 
 
 def tool_summary(tool_input: dict, cwd: str | None = None) -> str:

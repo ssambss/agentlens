@@ -4,8 +4,9 @@ Your messages and Claude's are separate, spaced blocks; Claude's replies render 
 markdown (headings, lists, tables, highlighted code); runs of tool calls fold into a
 single muted summary line. A question Claude asked you reads as its own block, with its
 options, and your answer as a card, as your messages are; a plan Claude asks you to
-approve reads as a reply does. The dense one-line-per-event log is still available as
-"activity" mode for when you want to see every command.
+approve reads as a reply does, and what you made of it as a card. The dense
+one-line-per-event log is still available as "activity" mode for when you want to see
+every command.
 
 Web addresses are links, and the margins around your messages and code blocks are marked
 as frame, so copying text from the screen leaves them out (see selectable.py).
@@ -31,7 +32,7 @@ from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
-from panopsis.model import DECLINED, Event
+from panopsis.model import APPROVED, DECLINED, SENT_BACK, Event
 
 PANE_BLOCKS = 14  # conversation blocks kept in a pane; it scrolls to the newest
 PANE_MESSAGE_LINES = 12  # a long reply is clipped in a pane; zoom shows all of it
@@ -197,6 +198,9 @@ def conversation(
 
 _GAP = Text("")
 
+# What an answer card says you did, by its tag; otherwise, you answered.
+ANSWERED = {DECLINED: "You didn't answer", APPROVED: "You approved the plan", SENT_BACK: "You said to keep planning"}
+
 
 def _render_block(block: Block, palette: Palette, stamp: str, full: bool, clip: bool) -> RenderableType:
     if block.kind == "you":
@@ -217,8 +221,7 @@ def _render_block(block: Block, palette: Palette, stamp: str, full: bool, clip: 
                      markdown(body, palette.code_theme))
     if block.kind == "answer":
         declined = block.tag == DECLINED
-        label = Text.assemble(("You didn't answer" if declined else "You answered", f"bold {palette.you}"),
-                              (stamp, "dim"))
+        label = Text.assemble((ANSWERED.get(block.tag, "You answered"), f"bold {palette.you}"), (stamp, "dim"))
         if not block.text:
             return Framed(label, (0, 1), f"on {palette.card}")
         body = with_links(Text(_clip_lines(block.text, PANE_PROMPT_LINES) if clip else block.text,
@@ -263,6 +266,10 @@ def activity_log(events: list[Event], palette: Palette, *, show_times: bool = Tr
             said = {"question": "asked: ", "answer": "answered: ", "plan": "plan: "}[event.kind]
             if event.tag == DECLINED:
                 said = "didn't answer: " if event.text else "didn't answer"
+            elif event.tag == SENT_BACK:
+                said = "keep planning: " if event.text else "keep planning"
+            elif event.tag == APPROVED:
+                said = "approved the plan"
             text.append(said, style="dim")
         line = Text(event.text, style=palette.tool if event.kind == "tool" else "")
         if event.kind in ("you", "claude", "answer") and len(event.text) < LINE_LIMIT:
