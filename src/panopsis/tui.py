@@ -1486,6 +1486,9 @@ class PanopsisApp(App):
                        background: $surface; }
         #keys-list { height: 1fr; margin: 1 0; background: transparent; scrollbar-size-vertical: 1; }
         #keys-list > .option-list--option-disabled { color: $foreground; }  /* keys you can't change read alike */
+        /* A tint, not the block cursor: the answer keeps its colour where you are, and reads. */
+        #pilot-answers > .option-list--option-highlighted, #pilot-answers:focus > .option-list--option-highlighted {
+            color: $foreground; background: $primary 20%; text-style: none; }
         KeyCaptureScreen { align: center middle; }
         #capture-dialog { width: 64; max-width: 100%; height: auto; padding: 1 2; border: round $accent;
                           background: $surface; }

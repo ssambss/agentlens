@@ -113,6 +113,15 @@ def test_what_it_decided_is_kept_and_read_back(isolated_home, monkeypatch):
 
 # A session acting on it --------------------------------------------------------------------
 
+def test_where_it_answered_reads_as_the_pane_does():
+    from panopsis.driver import DrivenSession
+
+    d = DrivenSession("D:/work/Tubeless/.claude/worktrees/linux-build")
+    d.worktree = "linux-build"
+    assert d._entry("Claude asked whether to go on").where == "linux-build · Tubeless"  # not the folder twice
+    assert DrivenSession("D:/work/demo")._entry("Claude asked whether to go on").where == "demo"
+
+
 def test_it_says_what_it_decided_about_each_turn():
     decide, _ = fake_check(Decision("go ahead", "Claude asked whether to go on with cli.py"),
                            Decision("", "Claude fixed all three"))

@@ -47,6 +47,7 @@ from panopsis.adapters.claude_transcripts import (
 )
 from panopsis.clipboard import PastedImage
 from panopsis.commands import Catalog
+from panopsis.config import repo_name
 from panopsis.model import AUTOPILOT, Event
 from panopsis.terminal import CLAUDE_ENV
 
@@ -571,7 +572,9 @@ class DrivenSession:
         self._set(WAITING, detail[:200])
 
     def _entry(self, asked: str, said: str = "") -> autopilot_mod.Entry:
-        where = " · ".join(part for part in (Path(self.cwd).name, self.worktree) if part)
+        # As its pane says it: the worktree, then the repository ("linux-build · Tubeless"), not the
+        # worktree's folder twice.
+        where = " · ".join(dict.fromkeys(part for part in (self.worktree, repo_name(self.cwd)) if part))
         return autopilot_mod.Entry(datetime.now(timezone.utc), self.session_id or "", self.title, where, asked, said)
 
     # Internals --------------------------------------------------------------------------
