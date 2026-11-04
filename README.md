@@ -223,7 +223,9 @@ panopsis never reads or passes credentials.
   once Claude Code gives them one, and Claude Code keeps it for them, so "ask the shared
   links session what it decided" reaches the right one. One from before panopsis named its
   sessions takes its title the next time it runs: here, in Claude Code from panopsis, or in
-  the background. A name you gave a session with `/rename` stays. `@` in the box lists
+  the background. A name you gave a session with `/rename` stays. Detached, a session
+  keeps its name too: Claude Code's background service would otherwise give it one of its
+  own, like "resume plan review", which nothing knows it by. `@` in the box lists
   your other open sessions by what the wall calls them and puts in the name Claude Code
   knows them by, such as `@"Shared links"`, or `@tubeless-d4` for one in a terminal or an
   editor, which keeps its own name. A session paused here, as they all are when you reopen

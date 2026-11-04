@@ -79,6 +79,21 @@ def test_title_record_without_timestamp_is_kept(projects):
     assert load_session(path).title == "Fix the build"
 
 
+def test_a_session_keeps_the_name_it_was_given_after_the_background_service_names_it(projects):
+    # Detached without --name, Claude Code's background service titles and names it anew. Claude Code
+    # still lists it, and messages it, by the name it was given, so "resume plan review" found nothing.
+    given = [{"type": "ai-title", "aiTitle": "Plan review"}, {"type": "custom-title", "customTitle": "Plan review"},
+             {"type": "agent-name", "agentName": "Plan review"}]
+    background = [{"type": "ai-title", "aiTitle": "resume plan review"},
+                  {"type": "agent-name", "agentName": "resume plan review"}]
+    path = write_jsonl(projects / "demo" / "sess-1.jsonl", common([human(0), *given, text(1), *background, text(2)]))
+    session = load_session(path)
+    assert (session.title, session.name) == ("Plan review", "Plan review")
+    # Never given one, it goes by Claude Code's.
+    path = write_jsonl(projects / "demo" / "sess-2.jsonl", common([human(0), text(1), *background], "sess-2"))
+    assert (load_session(path).title, load_session(path).name) == ("resume plan review", "resume plan review")
+
+
 def test_worktree_is_the_one_the_session_works_in_now(projects):
     tree = "D:\\work\\demo\\.claude\\worktrees\\fix-build"
     path = write_jsonl(projects / "demo" / "sess-1.jsonl", common([

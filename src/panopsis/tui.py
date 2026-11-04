@@ -219,7 +219,8 @@ def background_resume(
     list_sessions: Callable[[], list[dict]] = open_sessions, wait_seconds: float = 8.0,
 ) -> tuple[bool, str]:
     """Hand a conversation to Claude Code's background service (`claude --resume <id> --bg`),
-    under `name` if it has none yet (see named_after).
+    under `name`, the one it has or its title. Without one, the service names it anew from the
+    conversation ("resume plan review"), and other sessions can't find it by the name they know.
 
     Success is judged by a background session actually appearing, not by output wording:
     on a false "failed" the caller would reopen the session here and two clients would
@@ -246,9 +247,9 @@ def background_resume(
 
 
 def named_after(title: str) -> list[str]:
-    """For a session Claude Code has no name saved for, one from before panopsis named its sessions:
-    the flag that names it after its title where Claude Code resumes it, as it does a session run
-    here. One with a name takes it back by itself."""
+    """The flag that names a session where Claude Code resumes it. In a terminal, one with a name
+    takes it back by itself, so there it's for one with none yet, from before panopsis named its
+    sessions. The background service needs it for every one (see background_resume)."""
     return ["--name", title] if title and title != "(untitled)" else []
 
 
@@ -2449,7 +2450,7 @@ class PanopsisApp(App):
 
     async def _detach(self, driven: DrivenSession, instruction: str) -> bool:
         session_id, cwd, mode, title = driven.session_id, driven.cwd, driven.permission_mode, driven.title
-        unnamed = "" if driven.known_as else title
+        name = driven.known_as or title
         # Claude Code continues a session in place only if nothing else has it open.
         await self._end_driven(driven, quiet=True)
         if not instruction:
@@ -2457,7 +2458,7 @@ class PanopsisApp(App):
                         title="Released", timeout=6)
             return True
         ok, output = await asyncio.to_thread(background_resume, self._claude(), session_id, cwd, mode, instruction,
-                                             name=unnamed)
+                                             name=name)
         if ok:
             self.notify(output, title="Detached: it keeps working in the background", timeout=8)
         else:

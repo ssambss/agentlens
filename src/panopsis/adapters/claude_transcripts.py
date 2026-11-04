@@ -159,7 +159,11 @@ def load_session(
     if events is not None:
         events["main"] = extract_events(records, is_main=True)[-event_limit:]
     first = records[0]
-    title = next((r["aiTitle"] for r in reversed(records) if r.get("aiTitle")), "(untitled)")
+    # A name it was given (/rename, or panopsis naming it after its title) is its title and its name,
+    # as in Claude Code, which lists it and messages it by that. Claude Code's background service
+    # writes a title and a name of its own after it ("resume plan review"), which go by nothing.
+    named = next((r["customTitle"] for r in reversed(records) if r.get("customTitle")), "")
+    title = named or next((r["aiTitle"] for r in reversed(records) if r.get("aiTitle")), "(untitled)")
     session = Session(
         id=first.get("sessionId") or path.stem,
         project=_project_name(records, path),
@@ -169,7 +173,7 @@ def load_session(
         main=_build_run(records, path.stem, "main", title, False, is_main=True, away_after=away_after),
         cwd=next((r["cwd"] for r in records if r.get("cwd")), ""),
         worktree=worktree_name(next((r["cwd"] for r in reversed(records) if r.get("cwd")), "")),
-        name=next((r["agentName"] for r in reversed(records) if r.get("agentName")), ""),
+        name=named or next((r["agentName"] for r in reversed(records) if r.get("agentName")), ""),
     )
     summaries = 0
     for r in records:

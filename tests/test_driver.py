@@ -860,8 +860,8 @@ def test_detach_release_handoff_and_failure(projects, tmp_path, monkeypatch):
     calls = []
     outcome = {"ok": True}
 
-    def fake_resume(claude, session_id, cwd, mode, instruction, **kw):
-        calls.append((session_id, cwd, mode, instruction))
+    def fake_resume(claude, session_id, cwd, mode, instruction, name=""):
+        calls.append((session_id, cwd, mode, instruction, name))
         return (True, "backgrounded · 1715db93") if outcome["ok"] else (False, "Workspace not trusted.")
 
     monkeypatch.setattr(tui_mod, "background_resume", fake_resume)
@@ -876,13 +876,15 @@ def test_detach_release_handoff_and_failure(projects, tmp_path, monkeypatch):
             await pilot.press("enter")
             await pilot.pause(0.3)
             assert not app.driven and calls == []
-            # With an instruction: handed to the background service.
+            # With an instruction: handed to the background service, under the name it has. Without
+            # it, the service names it anew, and the sessions that know it by its name lose it.
             driven = await started(app, pilot, folder)
+            driven.title = driven.known_as = "Plan review"
             await pilot.press("d")
             await pilot.pause(0.1)
             await pilot.press(*"run the tests", "enter")
             await pilot.pause(0.4)
-            assert calls == [("sess-42", str(folder), "default", "run the tests")] and not app.driven
+            assert calls == [("sess-42", str(folder), "default", "run the tests", "Plan review")] and not app.driven
             # If Claude Code refuses, the session comes back here rather than being lost.
             outcome["ok"] = False
             driven = await started(app, pilot, folder)
