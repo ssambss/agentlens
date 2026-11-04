@@ -27,6 +27,7 @@ ACTIVE_KINDS = (MODEL, TOOL, DELEGATED)
 APPROVED = "approved"  # an answer event's tag: you approved Claude's plan
 SENT_BACK = "sent back"  # an answer event's tag: you sent Claude's plan back, to keep planning
 DECLINED = "declined"  # an answer event's tag: you didn't answer Claude's question
+AUTOPILOT = "autopilot"  # a message event's tag: autopilot sent it for you
 
 
 @dataclass
@@ -48,7 +49,7 @@ class Event:
     kind: str  # you | claude | question | answer | plan | tool | error | notice | compact
     text: str  # one line, for panes
     detail: str = ""  # fuller text, for the zoomed view; a question's and a plan's are markdown
-    tag: str = ""  # e.g. "queued": a message you sent while Claude was working; DECLINED
+    tag: str = ""  # e.g. "queued": a message you sent while Claude was working; DECLINED; AUTOPILOT
 
 
 @dataclass

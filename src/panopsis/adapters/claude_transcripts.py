@@ -19,8 +19,10 @@ from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from panopsis.autopilot import said_by_it as said_by_autopilot
 from panopsis.model import (
     APPROVED,
+    AUTOPILOT,
     AWAY,
     DECLINED,
     DELEGATED,
@@ -472,6 +474,8 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
             images = sum(1 for b in _content(r) if isinstance(b, dict) and b.get("type") == "image")
             body = f"{image_marks(images)} {_text_of(r)}".strip()
             events.append(Event(t, "you", _one_line(body), body[:DETAIL_CHARS]))
+        elif is_main and (said := _autopilot_said(r)) is not None:
+            events.append(Event(t, "you", _one_line(said), said[:DETAIL_CHARS], tag=AUTOPILOT))
         elif _origin_kind(r) in ("task-notification", "peer", "coordinator"):
             body = _text_of(r)
             match = re.search(r"<summary>(.*?)</summary>", body, re.S)
@@ -651,6 +655,8 @@ def _one_line(text: str, limit: int = 240) -> str:
 def _is_human_prompt(record: dict) -> bool:
     if record.get("type") != "user" or record.get("isMeta") or record.get("isCompactSummary"):
         return False
+    if _autopilot_said(record) is not None:
+        return False  # panopsis's autopilot sent it for you: not a prompt of yours, nor a wait on you
     kind = _origin_kind(record)
     if kind is not None:
         return kind == "human"
@@ -659,6 +665,13 @@ def _is_human_prompt(record: dict) -> bool:
     if isinstance(content, str):
         return not content.lstrip().startswith("<")
     return False
+
+
+def _autopilot_said(record: dict) -> str | None:
+    """What panopsis's autopilot said in this message, if it sent it: Claude Code writes it as one of yours."""
+    if record.get("type") != "user" or _origin_kind(record) not in (None, "human"):
+        return None
+    return said_by_autopilot(_text_of(record))
 
 
 def _slash_command(record: dict) -> str | None:

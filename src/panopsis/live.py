@@ -31,6 +31,7 @@ from panopsis.adapters.claude_transcripts import (
     worktree_name,
 )
 from panopsis.advise import SESSION_NAME as ADVISE_SESSION_NAME
+from panopsis.autopilot import SESSION_NAME as AUTOPILOT_SESSION_NAME
 from panopsis.curate import SESSION_NAME as CURATE_SESSION_NAME
 from panopsis.model import ACTIVE_KINDS, AgentRun, Event, FileChange, Session, Span
 from panopsis.terminal import claude_env
@@ -141,8 +142,9 @@ def open_sessions() -> list[dict]:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"`claude agents --json` exited with {result.returncode}")
     data = json.loads(result.stdout or "[]")
-    # panopsis's own advice, curator and usage runs are claude processes too, but not the user's sessions.
-    own = {ADVISE_SESSION_NAME, CURATE_SESSION_NAME, USAGE_SESSION_NAME}
+    # panopsis's own advice, curator, usage and autopilot runs are claude processes too, but not the user's
+    # sessions.
+    own = {ADVISE_SESSION_NAME, CURATE_SESSION_NAME, USAGE_SESSION_NAME, AUTOPILOT_SESSION_NAME}
     return [e for e in data if isinstance(e, dict) and e.get("sessionId") and e.get("name") not in own]
 
 

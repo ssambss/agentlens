@@ -23,6 +23,7 @@ from textual.widgets import Button, Checkbox, Input, Label, Select, Static
 from panopsis import config as config_mod, editor as editor_mod, keys as keys_mod, preferences, settings_file
 from panopsis.frames import PacedScreen
 from panopsis.textbox import TextInput
+from panopsis.autopilot import LEVELS as AUTOPILOT_LEVELS
 from panopsis.tui_driven import MODE_LABELS, FolderPickerScreen
 from panopsis.tui_keys import KeysScreen
 
@@ -40,10 +41,10 @@ INPUTS = {"set-editor": "editor", "set-cli": "cli_path"}
 BORDER_SAMPLE = [("selected", "selected"), ("question", "needs you"), ("working", "working"),
                  ("background", "background"), ("failed", "failed")]
 CHAT_SAMPLE = [("claude", "Claude"), ("tool", "tool calls"), ("notice", "notices"), ("error", "errors")]
-TRANSFER_NOTE = ("Export saves your look, keys, History and usage meter settings, the mode for new sessions and "
-                 "your editor, with your goals and style, in this file; Browse… picks the folder it goes in. Import "
-                 "on another PC puts them in place of its own. Not your spaces, Claude Code or sessions: those are "
-                 "this PC's.")
+TRANSFER_NOTE = ("Export saves your look, keys, History and usage meter settings, the mode and autopilot for new "
+                 "sessions and your editor, with your goals and style, in this file; Browse… picks the folder it "
+                 "goes in. Import on another PC puts them in place of its own. Not your spaces, Claude Code or "
+                 "sessions: those are this PC's.")
 
 
 def row(label: str, *widgets: Widget, id: str | None = None) -> Horizontal:
@@ -163,6 +164,15 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             yield Static(f"Report ({keys_mod.name('report')}), Profile ({keys_mod.name('profile')}), Rules "
                          f"({keys_mod.name('rules')}) and Advice ({keys_mod.name('advise')}): what your history "
                          "says about how you work, and advice from Claude on it. Early versions.",
+                         classes="settings-note")
+            pilot = cfg.autopilot if cfg.autopilot in AUTOPILOT_LEVELS else "off"
+            yield row("Autopilot", Select([(label, level) for level, label in AUTOPILOT_LEVELS.items()], value=pilot,
+                                          allow_blank=False, compact=True, id="set-autopilot"))
+            yield Static("For the sessions you start here. When a turn ends, Haiku reads Claude's reply with your "
+                         "last few messages and answers it the way you would, or leaves it for you, saying what it "
+                         "needs. Questions, permission prompts and plans are always yours. "
+                         f"{keys_mod.name('autopilot')} changes it for the session you're on. Each check sends "
+                         "that reply and those messages to Claude, through your own claude.",
                          classes="settings-note")
 
             # Only the experimental screens use these, so they show while those are on.
@@ -285,6 +295,11 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
     def _mode(self, event: Select.Changed) -> None:
         if event.value != self._app.config.default_mode:
             self._set("default_mode", event.value)
+
+    @on(Select.Changed, "#set-autopilot")
+    def _autopilot(self, event: Select.Changed) -> None:
+        if event.value != self._app.config.autopilot:
+            self._set("autopilot", event.value)
 
     @on(Select.Changed, "#set-editor-pick")
     def _editor(self, event: Select.Changed) -> None:

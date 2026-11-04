@@ -12,7 +12,8 @@ Keep it that way: no sign-in flow, token handling or shared logins here.
 
 The session's messages become the same Event feed the monitored panes show. Permission
 prompts, questions (AskUserQuestion) and plan approvals (ExitPlanMode) become a
-PendingRequest the UI answers; the turn waits until it does.
+PendingRequest the UI answers; the turn waits until it does. With autopilot on, a turn that
+ends is read by it first, and it may answer for you (see panopsis.autopilot).
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from panopsis import autopilot as autopilot_mod
 from panopsis import usage
 from panopsis.adapters.claude_transcripts import (
     KEEP_PLANNING,
@@ -45,7 +47,7 @@ from panopsis.adapters.claude_transcripts import (
 )
 from panopsis.clipboard import PastedImage
 from panopsis.commands import Catalog
-from panopsis.model import Event
+from panopsis.model import AUTOPILOT, Event
 from panopsis.terminal import CLAUDE_ENV
 
 # Live states for driven sessions, matching panopsis.live's names where they overlap.
@@ -177,6 +179,8 @@ class DrivenSession:
         on_rate_limit: Callable[[list[usage.Window]], None] = lambda windows: None,
         client_factory: Callable[[Any], Any] = default_client_factory,
         cli_path: str | None = None,
+        autopilot: str = "off",
+        decide: Callable[..., Awaitable[autopilot_mod.Decision]] | None = None,
     ) -> None:
         self.key = "d-" + uuid.uuid4().hex[:10]  # stable id for the pane, before Claude Code assigns one
         self.cwd = cwd
@@ -220,6 +224,11 @@ class DrivenSession:
         self._renaming: asyncio.Task | None = None  # a resumed session taking its name back
         self._connecting: asyncio.Future | None = None  # a paused session starting Claude Code
         self._stderr: deque[str] = deque(maxlen=STDERR_LINES)
+        self.autopilot = autopilot  # one of autopilot.LEVELS
+        self.piloted = 0  # autopilot's messages since yours
+        self.decide = decide or self._decide
+        self._piloting: asyncio.Task | None = None  # autopilot reading the turn that just ended
+        self._interrupted = False  # you stopped the turn under way: autopilot leaves it to you
 
     # Lifecycle --------------------------------------------------------------------------
 
@@ -309,9 +318,10 @@ class DrivenSession:
         if self._client is not None and (self.state, self.detail) == (WAITING, "ready"):
             self._set(WAITING, why)
 
-    async def send(self, text: str, note: str = "", first: Awaitable | None = None) -> None:
+    async def send(self, text: str, note: str = "", first: Awaitable | None = None, by_autopilot: bool = False) -> None:
         """Your message, and a note for Claude with it that the pane doesn't show as yours: what the
-        sessions it names are. `first`: what Claude reading it waits for, those sessions starting."""
+        sessions it names are. `first`: what Claude reading it waits for, those sessions starting.
+        `by_autopilot`: autopilot's message, which the pane shows as its own."""
         text = text.strip()
         starting = self._connecting is not None and not self._connecting.done()
         images = [] if text.startswith("/") else self.images  # a command leaves them for the next message
@@ -319,11 +329,16 @@ class DrivenSession:
             return
         if images:
             self.images = []
+        if not by_autopilot:
+            self.piloted = 0
+            if self._cancel_pilot() and self.state == WORKING:
+                self.state, self.turn_started = WAITING, None  # yours is the next turn, not one it was reading
         now = datetime.now(timezone.utc)
-        busy = self.state == WORKING
+        busy = self.state == WORKING and not by_autopilot
         shown = f"{image_marks(len(images))} {text}".strip()
-        self.events.append(Event(now, "you", shown.splitlines()[0][:240], shown, tag="queued" if busy else ""))
-        if not self.title and text and not text.startswith("/"):
+        tag = AUTOPILOT if by_autopilot else "queued" if busy else ""
+        self.events.append(Event(now, "you", shown.splitlines()[0][:240], shown, tag=tag))
+        if not self.title and text and not text.startswith("/") and not by_autopilot:
             self.title = text.splitlines()[0][:80]
         if self._client is None or starting:
             # Show the message right away: starting Claude Code takes a few seconds.
@@ -354,7 +369,7 @@ class DrivenSession:
         except Exception as e:  # noqa: BLE001
             await self._stopped(client, f"Couldn't send that to Claude Code ({e}), so panopsis stopped it.")
             return
-        if not self.titled and self._naming is None and text and not text.startswith("/"):
+        if not self.titled and self._naming is None and text and not text.startswith("/") and not by_autopilot:
             # What it's about: your first message, which it's called by until now, and this one.
             about = text if text.startswith(self.title) else f"{self.title}\n{text}"
             self._naming = asyncio.ensure_future(self._name(client, about))
@@ -389,7 +404,12 @@ class DrivenSession:
         self.known_as = title
 
     async def interrupt(self) -> None:
+        if self._cancel_pilot():
+            self._note("Autopilot stopped reading the reply: this one is yours.")
+            self._set(WAITING, "turn finished")
+            return
         if self._client is not None and self.state in (WORKING, PERMISSION, QUESTION, APPROVAL):
+            self._interrupted = True
             if self.pending and self.pending.future and not self.pending.future.done():
                 self._resolve(self._deny("Interrupted by the user.", interrupt=True))
             try:
@@ -398,7 +418,7 @@ class DrivenSession:
                 self._note(f"interrupt failed: {e}", kind="error")
 
     async def close(self) -> None:
-        for task in (self._reader, self._naming, self._renaming):
+        for task in (self._reader, self._naming, self._renaming, self._piloting):
             if task is not None:
                 task.cancel()
         if self._client is not None:
@@ -456,6 +476,83 @@ class DrivenSession:
             self._resolve(self._allow({**p.tool_input, "answers": dict(p.answers)}, None))
         else:
             self.on_change(self)
+
+    # Autopilot --------------------------------------------------------------------------
+
+    def set_autopilot(self, level: str) -> None:
+        """Turn autopilot to `level` (one of autopilot.LEVELS). Turned on while the session waits on
+        you after a turn, it reads that turn now; turned off, it stops reading one."""
+        self.autopilot, self.piloted = level, 0
+        reading = self._cancel_pilot()
+        if level != "off" and self.state in (WAITING, WORKING) and (reading or self.state == WAITING) \
+                and self._client is not None and self.pending is None and self._reply():
+            self._set(WORKING, "autopilot is reading the reply")
+            self._piloting = asyncio.ensure_future(self._pilot())
+        elif reading:
+            self._set(WAITING, "turn finished")
+        else:
+            self.on_change(self)
+
+    def _pilot_due(self, message) -> bool:
+        return (self.autopilot != "off" and not self._interrupted and not getattr(message, "is_error", False)
+                and self._client is not None and bool(self._reply()))
+
+    def _cancel_pilot(self) -> bool:
+        """Stop autopilot reading a turn. Whether it was."""
+        task, self._piloting = self._piloting, None
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
+
+    def _said(self) -> list[tuple[str, bool]]:
+        """Your last messages, oldest first, each with whether autopilot sent it."""
+        said = [(e.detail or e.text, e.tag == AUTOPILOT) for e in self.events if e.kind == "you"]
+        return said[-autopilot_mod.SAID:]
+
+    def _reply(self) -> str:
+        """What Claude has said since your last message: the turn autopilot reads. Nothing after a
+        slash command, whose output is Claude Code's."""
+        texts = []
+        for e in reversed(self.events):
+            if e.kind == "you":
+                if (e.detail or e.text).startswith("/"):
+                    return ""
+                break
+            if e.kind == "claude" and e.tag != "command":
+                texts.append(e.detail or e.text)
+        return "\n\n".join(reversed(texts))
+
+    async def _decide(self, level: str, title: str, said: list[tuple[str, bool]], reply: str):
+        return await asyncio.to_thread(autopilot_mod.decide, level, title, said, reply, self.cli_path)
+
+    async def _pilot(self) -> None:
+        """Have autopilot answer the turn that has just ended, or leave it for you saying why."""
+        try:
+            decision = await self.decide(self.autopilot, self.title, self._said(), self._reply())
+            failed = ""
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - it's yours, as it would be without autopilot
+            decision, failed = None, str(e) or type(e).__name__
+        if self._piloting is not asyncio.current_task() or self._client is None:
+            return  # stopped meanwhile
+        self._piloting = None
+        if decision is not None and decision.send and self.piloted < autopilot_mod.IN_A_ROW:
+            self.piloted += 1
+            self.turn_started = None  # its message starts the next turn
+            await self.send(decision.send, autopilot_mod.NOTE, by_autopilot=True)
+            return
+        if decision is None:
+            note, detail = f"Autopilot couldn't decide ({failed[:200]}), so this one is yours.", "turn finished"
+        elif decision.send:
+            note = (f"Autopilot has answered {autopilot_mod.IN_A_ROW} times in a row, so this one is yours. "
+                    f"It would have said: {decision.send}")
+            detail = f"autopilot: {autopilot_mod.IN_A_ROW} answers in a row, over to you"
+        else:
+            note, detail = f"Autopilot left this for you: {decision.reason}", decision.reason or "turn finished"
+        self._note(note)
+        self._set(WAITING, detail[:200])
 
     # Internals --------------------------------------------------------------------------
 
@@ -532,6 +629,7 @@ class DrivenSession:
         if client is not self._client:
             return  # already handled, or a client this session has since replaced
         self._client = None
+        self._cancel_pilot()
         if self.pending and self.pending.future and not self.pending.future.done():
             self.pending.future.cancel()
         self.pending = None
@@ -667,7 +765,13 @@ class DrivenSession:
             if getattr(message, "is_error", False):
                 errors = getattr(message, "errors", None) or [getattr(message, "result", "") or "the turn failed"]
                 self.events.append(Event(now, "error", str(errors[0])[:240], "\n".join(map(str, errors))))
-            self._set(WAITING, "turn finished")
+            self._cancel_pilot()  # another turn ended meanwhile (another session's message started it)
+            if self._pilot_due(message):
+                self._set(WORKING, "autopilot is reading the reply")
+                self._piloting = asyncio.ensure_future(self._pilot())
+            else:
+                self._set(WAITING, "turn finished")
+            self._interrupted = False
 
     def _note(self, text: str, kind: str = "notice") -> None:
         self.events.append(Event(datetime.now(timezone.utc), kind, text[:240], text))

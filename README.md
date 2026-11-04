@@ -8,7 +8,9 @@ The name is Greek for seeing everything at once.
   background. Grouped into spaces by repository. When one starts needing you it rings and
   lights up, and `j` takes you there.
 - **Sessions you start here** (experimental): type into them, answer their questions and
-  permission prompts, and hand them to Claude Code's background service and back.
+  permission prompts, and hand them to Claude Code's background service and back. With
+  [autopilot](#autopilot) on, Claude gives the go-aheads for you, and only what needs you
+  rings.
 - **History** of every past session, to read again or continue.
 
 It runs locally, on Claude Code's own session files
@@ -139,13 +141,14 @@ Everything else is on the settings screen (`,`), saved as you pick:
   installed. Under the picker you can see the exact command it will run.
 - **Keys**: a preset, panopsis's own or Vim's (`h` `j` `k` `l` move between panes too,
   and Space goes to a session that needs you), and a way into the keys list.
-- **Experimental**: [findings and advice](#findings-and-advice-experimental), off until you
-  tick it. With it on, **What you're aiming for** shows too: your goals and a deliberate
-  working style.
+- **Experimental**: [autopilot](#autopilot) for the sessions you start here, and
+  [findings and advice](#findings-and-advice-experimental), both off until you turn them
+  on. With findings and advice on, **What you're aiming for** shows too: your goals and a
+  deliberate working style.
 - **Another PC**: Export saves your settings in one file, and Import on the other PC puts
   them in place of its own, straight away. That's the look, keys, how far back History goes
-  and how long it keeps sessions, the usage meter, the mode for new sessions and your editor,
-  with your goals, style, muted rules and thresholds. If the other PC doesn't have that
+  and how long it keeps sessions, the usage meter, the mode and autopilot for new sessions
+  and your editor, with your goals, style, muted rules and thresholds. If the other PC doesn't have that
   editor, the settings screen says so. Nothing else about the PC goes in it: not your spaces
   (they're its folders), its Claude Code, or the sessions panopsis restores or hides, so the
   other PC keeps its own.
@@ -195,6 +198,7 @@ panopsis never reads or passes credentials.
 | `@` | in the box: your other sessions, for Claude to ask or tell something |
 | `1` `2` `3` | allow, allow and don't ask again, deny. For a question, pick an option; for a plan, `1` approves and `3` says what to change |
 | `x` | stop the current turn |
+| `p` | [autopilot](#autopilot): off, balanced, autonomous, in turn |
 | `d`, `o` | detach to Claude Code's background service, which keeps working after you quit; bring a background session back |
 | Alt+V | in the box: paste an image from the clipboard, to go with your next message |
 | `c` | open it in full Claude Code in this terminal; quitting that comes back here |
@@ -244,6 +248,32 @@ panopsis never reads or passes credentials.
   accept its trust prompt once.
 - A session open in a terminal or an editor can't also be driven from here. Close it
   there first.
+
+### Autopilot
+
+If you'd rather let sessions run than steer each turn, autopilot answers what you'd only
+nod along to. When a turn ends, Haiku reads Claude's reply with your last few messages and
+answers it the way you would, or leaves it for you:
+
+- **Balanced** gives the go-aheads: the "shall I go on with the rest?" in the middle of
+  what you asked for.
+- **Autonomous** also answers routine questions, such as a name, a small detail, or whether
+  to add tests, when your messages make the answer clear or a default is easy to change
+  later.
+
+Finished work, design choices, things to try by hand, a session that's stuck, and anything
+that pushes, merges, releases or deletes, it leaves for you. Then the session rings as it
+would without autopilot, and its pane says what it needs, like "wants a pick: Redis or
+in-memory". Questions, permission prompts and plans come in the middle of a turn, so it
+never sees them: those are always yours. After five answers in a row to one session, the
+next one is yours anyway.
+
+Its messages show as Autopilot's, in the pane and in History, and Claude is told you didn't
+type them. The report doesn't count them as yours, nor the seconds before them as Claude
+waiting on you. While it reads a reply, typing your own message goes instead of its answer,
+and `x` stops it. `p` changes it for the session you're on (the box says when it's on), and
+the settings pick it for new sessions. It's off unless you turn it on. Each check is a
+short `claude -p` on Haiku, with no tools, so it counts against your plan.
 
 **Your Claude login:** these sessions use your own `claude` sign-in, made through
 Anthropic's own flow. panopsis never signs you in, and never reads, stores or passes on a
@@ -299,7 +329,8 @@ From that:
 
 None of this reaches Claude. Rules aren't enforced; findings and advice are for you to act
 on, in your CLAUDE.md, your settings or how you work. Apart from the permission mode for
-sessions you start in the app, panopsis never changes how Claude works.
+sessions you start in the app, and [autopilot](#autopilot) answering them once you turn it
+on, panopsis never changes how Claude works.
 
 **Rule packs.** Practices change faster than tools ship, so rules are YAML. Each records
 its `source` and `reviewed` date, and rules older than the pack's `max_age_days` are
@@ -337,6 +368,9 @@ panopsis reads your sessions on your machine. The sessions you start in it are y
 - **The usage meter** runs Claude Code's `/usage` every few minutes, which asks Anthropic
   how much of your plan's limits you've used. Nothing from your sessions is sent. Turn it
   off in the settings.
+- **Autopilot**, in a session you've turned it on for, sends Claude's reply when a turn
+  ends, your last four messages to that session and its title, to Haiku. That's
+  conversation text, the session's own, which it sent when it ran. Off unless you turn it on.
 
 With findings and advice on, two more. For these `claude` gets two tools, web search and web
 fetch, and no others, so it can't read or change your files:
@@ -391,6 +425,7 @@ feed.py     how activity reads: conversation blocks, markdown, folded tool calls
 subagent_map.py  the zoom view's map: subagents in waves, nested under who launched them
 tui.py      the app
 driver.py   sessions panopsis runs itself (experimental)
+autopilot.py  Haiku answering a turn that has ended for you, or leaving it to you (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu and @ for your other sessions
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
 terminal.py the tab's name, panopsis's icon on its window or tab, and in Windows the keys its consoles don't pass on

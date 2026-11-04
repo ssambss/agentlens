@@ -32,7 +32,7 @@ from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
-from panopsis.model import APPROVED, DECLINED, SENT_BACK, Event
+from panopsis.model import APPROVED, AUTOPILOT, DECLINED, SENT_BACK, Event
 
 PANE_BLOCKS = 14  # conversation blocks kept in a pane; it scrolls to the newest
 PANE_MESSAGE_LINES = 12  # a long reply is clipped in a pane; zoom shows all of it
@@ -205,8 +205,11 @@ ANSWERED = {DECLINED: "You didn't answer", APPROVED: "You approved the plan", SE
 def _render_block(block: Block, palette: Palette, stamp: str, full: bool, clip: bool) -> RenderableType:
     if block.kind == "you":
         body = _clip_lines(block.text, PANE_PROMPT_LINES) if clip else block.text
-        label = Text.assemble(("You", f"bold {palette.you}"), (stamp, "dim"))
-        if block.tag == "queued":
+        who = "Autopilot" if block.tag == AUTOPILOT else "You"
+        label = Text.assemble((who, f"bold {palette.you}"), (stamp, "dim"))
+        if block.tag == AUTOPILOT:
+            label.append("  · for you, from Haiku", style="italic dim")
+        elif block.tag == "queued":
             label.append("  · sent while Claude was working", style="italic dim")
         card = Group(label, with_links(Text(body)))
         return Framed(card, (0, 1), f"on {palette.card}")
@@ -261,7 +264,7 @@ def activity_log(events: list[Event], palette: Palette, *, show_times: bool = Tr
         if show_times:
             text.append(f"{event.at.astimezone():%H:%M} ", style="dim")
         label, style = labels.get(event.kind, ("    ", ""))
-        text.append(label, style=style)
+        text.append("auto" if event.tag == AUTOPILOT else label, style=style)
         if event.kind in ("question", "answer", "plan"):
             said = {"question": "asked: ", "answer": "answered: ", "plan": "plan: "}[event.kind]
             if event.tag == DECLINED:

@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from panopsis import keys as keys_mod
+from panopsis.autopilot import LEVELS as AUTOPILOT_LEVELS
 from panopsis.preferences import home
 
 PANE_KEY = re.compile(r"d-[0-9a-f]{10}")  # DrivenSession.key: a pane's own id, not Claude Code's
@@ -39,6 +40,8 @@ HEADER = """\
 #   Textual's names: r, R, ctrl+w, f5, question_mark. A comma between two gives an action both.
 # findings_and_advice: the Report (R), Profile (P), Rules (L) and Advice (A) screens and their
 #   commands. Experimental, so off unless you turn it on.
+# autopilot: for the sessions you start here, off, balanced or autonomous (p changes one session's).
+#   When a turn ends, Haiku reads the reply and answers it for you, or leaves it to you. Experimental.
 """
 
 # How far back History goes, as the settings screen offers it: days, and what that is.
@@ -151,7 +154,7 @@ def color_preset(colors: dict[str, str]) -> str | None:
 # Not this PC's spaces (its folders), its Claude Code, or its sessions.
 PORTABLE = ("theme", "colors", "columns", "sidebar", "show_tools", "show_times", "refresh_seconds", "usage_minutes",
             "history_days", "history_keep_days", "default_mode", "editor", "editor_terminal", "keys",
-            "findings_and_advice")
+            "findings_and_advice", "autopilot")
 
 
 @dataclass
@@ -197,6 +200,7 @@ class Config:
     editor_terminal: bool = False  # your own command runs in this terminal, like vim
     keys: dict[str, str] = field(default_factory=dict)  # the keys you changed, by keys.ACTIONS id
     findings_and_advice: bool = False  # experimental: Report, Profile, Rules and Advice
+    autopilot: str = "off"  # experimental: for new sessions, one of autopilot.LEVELS
     spaces: list[Space] = field(default_factory=list)
     # Sessions panopsis runs, restored (paused) on the next launch until you end or detach them.
     driven_sessions: list[dict] = field(default_factory=list)
@@ -213,8 +217,8 @@ class Config:
                 return space.name
         return repo_name(cwd)
 
-    def remember_driven(self, session_id: str, cwd: str, title: str, mode: str) -> None:
-        entry = {"session_id": session_id, "cwd": cwd, "title": title, "mode": mode}
+    def remember_driven(self, session_id: str, cwd: str, title: str, mode: str, autopilot: str = "off") -> None:
+        entry = {"session_id": session_id, "cwd": cwd, "title": title, "mode": mode, "autopilot": autopilot}
         for i, saved in enumerate(self.driven_sessions):
             if saved.get("session_id") == session_id:
                 self.driven_sessions[i] = entry  # in place: panes come back in this order
@@ -296,9 +300,10 @@ def parse(data: dict, path: Path | None = None) -> Config:
         editor_terminal=bool(data.get("editor_terminal", defaults.editor_terminal)),
         keys=keys_mod.changed({}, {str(k): keys_mod.normalize(str(v)) for k, v in keys.items() if v}),
         findings_and_advice=bool(data.get("findings_and_advice", defaults.findings_and_advice)),
+        autopilot=data["autopilot"] if data.get("autopilot") in AUTOPILOT_LEVELS else defaults.autopilot,
         spaces=spaces,
         driven_sessions=[
-            {k: str(d.get(k) or "") for k in ("session_id", "cwd", "title", "mode")}
+            {k: str(d.get(k) or "") for k in ("session_id", "cwd", "title", "mode", "autopilot")}
             for d in data.get("driven_sessions") or []
             if isinstance(d, dict) and d.get("session_id") and d.get("cwd")
         ],

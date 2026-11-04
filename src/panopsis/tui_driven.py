@@ -175,9 +175,10 @@ def placeholder(d: DrivenSession) -> str:
         return "Type to continue this session…  (Enter to send, Esc to leave the box)"
     if d.state in (ENDED, FAILED):
         return "Session closed"
+    pilot = f"autopilot {d.autopilot}, {keys_mod.name('autopilot')} changes it · " if d.autopilot != "off" else ""
     if d.state == WORKING:
-        return "Message Claude… it reads this at its next step  (Enter to send, Esc to leave the box)"
-    return "Message Claude…  (Enter to send, Esc to leave the box)"
+        return f"Message Claude… it reads this at its next step  ({pilot}Enter to send, Esc to leave the box)"
+    return f"Message Claude…  ({pilot}Enter to send, Esc to leave the box)"
 
 
 class ImageInput(MessageBox):

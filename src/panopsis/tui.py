@@ -43,6 +43,7 @@ from textual.widgets.tree import TreeNode
 from textual.worker import get_current_worker
 
 from panopsis import activity as activity_mod, advise, analysis as analysis_mod, clipboard, commands as commands_mod
+from panopsis import autopilot as autopilot_mod
 from panopsis import config as config_mod
 from panopsis import editor as editor_mod, keys as keys_mod, preferences, settings_file, terminal, timings
 from panopsis import usage as usage_mod
@@ -1481,6 +1482,7 @@ class PanopsisApp(App):
                 tooltip="Search every command by name"),
         bind("claude-code", "handoff_focused", "Claude Code", show=False),
         bind("copy-reply", "copy_reply", "Copy reply", show=False),
+        bind("autopilot", "autopilot", "Autopilot", show=False),
         Binding("e", "end_session", show=False),
         Binding("ctrl+w", "end_session", show=False),
         *[Binding(str(n), f"choose({n})", show=False) for n in range(1, 10)],
@@ -1555,6 +1557,7 @@ class PanopsisApp(App):
         # Transcript tails of the sessions panopsis runs, by session id: their subagents and changed files.
         self._driven_tails: dict[str, Session | None] = {}
         self.client_factory = default_client_factory  # tests swap in a fake Claude Code
+        self.decide = None  # what autopilot asks; tests swap in a fake one (None: Haiku, see DrivenSession)
         self._usage_timer = None  # asks /usage every usage_minutes
         self.launch_editor = editor_mod.launch  # tests swap in a recorder
         self._last_key: str | None = None
@@ -1948,7 +1951,7 @@ class PanopsisApp(App):
 
     def open_driven(self, cwd: str, *, prompt: str = "", images: list | None = None, mode: str | None = None,
                     resume: str | None = None, title: str = "", force: bool = False, start: bool = True,
-                    apply: bool = True, focus: bool = True) -> DrivenSession | None:
+                    apply: bool = True, focus: bool = True, autopilot: str | None = None) -> DrivenSession | None:
         if resume and not force and resume in {s.session_id for s in self._monitored}:
             self.notify("That session is open somewhere else (a terminal or an editor). Close it there first, "
                         "so two clients don't write to it at once.", title="Already open", severity="warning")
@@ -1959,7 +1962,8 @@ class PanopsisApp(App):
         driven = DrivenSession(
             cwd, resume=resume, permission_mode=mode or self.config.default_mode,
             on_change=self._driven_changed, on_rate_limit=self._rate_limit_seen, cli_path=self.config.cli_path,
-            client_factory=self.client_factory,
+            client_factory=self.client_factory, decide=self.decide,
+            autopilot=autopilot if autopilot in autopilot_mod.LEVELS else self.config.autopilot,
         )
         driven.title = title if title != "(untitled)" else ""  # what History calls one it has no title for
         self.driven[driven.key] = driven
@@ -2008,7 +2012,7 @@ class PanopsisApp(App):
             if seen.title and seen.title != driven.title:
                 driven.title = seen.title
                 if driven.remembered:
-                    self.config.remember_driven(driven.session_id, driven.cwd, driven.title, driven.permission_mode)
+                    self._remember_entry(driven)
                     self._save_config()
 
     def _remember(self, driven: DrivenSession) -> None:
@@ -2022,11 +2026,15 @@ class PanopsisApp(App):
             driven.remembered = False
             self._save_config()
         if driven.session_id and not driven.remembered:
-            self.config.remember_driven(driven.session_id, driven.cwd, driven.title, driven.permission_mode)
+            self._remember_entry(driven)
             driven.remembered = True
             self._save_config()
         elif driven.remembered and self.config.retitle_driven(driven.session_id or "", driven.title):
             self._save_config()  # saved under your first message, before Claude Code titled it
+
+    def _remember_entry(self, driven: DrivenSession) -> None:
+        self.config.remember_driven(driven.session_id or "", driven.cwd, driven.title, driven.permission_mode,
+                                    driven.autopilot)
 
     def _restore_driven(self, monitored: list[LiveSession]) -> None:
         """Bring back last time's panopsis sessions, paused. One that's open elsewhere stays saved and
@@ -2047,7 +2055,8 @@ class PanopsisApp(App):
                 waiting.add(session_id)
             else:
                 self.open_driven(cwd, resume=session_id, title=saved.get("title", ""),
-                                 mode=saved.get("mode") or None, force=True, start=False, apply=False, focus=False)
+                                 mode=saved.get("mode") or None, force=True, start=False, apply=False, focus=False,
+                                 autopilot=saved.get("autopilot") or None)
         self._waiting = waiting
         if first or forgot:
             self._save_config()
@@ -2982,6 +2991,30 @@ class PanopsisApp(App):
 
         self.push_screen(MoveToSpaceScreen(session.title, options), chosen)
 
+    def action_autopilot(self) -> None:
+        """The next autopilot level for the session you're on: off, balanced, autonomous, then off."""
+        session = self._focused_session()
+        if session is None:
+            return
+        driven = self.driven.get(session.session_id)
+        if driven is None:
+            self.notify(f"Autopilot answers for you in the sessions panopsis runs. Bring this one here with "
+                        f"{keys_mod.name('bring-here')} first.", title="Not one panopsis runs", timeout=6)
+            return
+        levels = list(autopilot_mod.LEVELS)
+        level = levels[(levels.index(driven.autopilot) + 1) % len(levels)] if driven.autopilot in levels else levels[1]
+        driven.set_autopilot(level)
+        if driven.remembered:
+            self._remember_entry(driven)
+            self._save_config()
+        what = {"off": "Every turn that ends is yours again.",
+                "balanced": "When a turn ends, Haiku reads the reply and gives the go-aheads for you. "
+                            "Anything else it leaves for you, saying what it needs.",
+                "autonomous": "When a turn ends, Haiku reads the reply and gives the go-aheads for you, and "
+                              "answers the routine questions. Design choices and finished work it leaves for you."}
+        self.notify(f"{what[level]} {keys_mod.name('autopilot')} again changes it.",
+                    title=f"Autopilot: {level}", timeout=6)
+
     def action_attach(self) -> None:
         session = self._focused_session()
         if session is None:
@@ -3285,6 +3318,8 @@ class PanopsisApp(App):
             ("Open this session's folder in your editor", "Its repository or worktree, in the editor picked in "
              f"settings ({keys_mod.name('settings')})", self.action_open_folder),
             ("Move session to space", "Group the selected session with others", self.action_move_to_space),
+            ("Autopilot for this session", "Off, balanced (it gives the go-aheads) or autonomous (routine "
+             f"questions too), in turn ({keys_mod.name('autopilot')})", self.action_autopilot),
             ("Toggle sidebar", "Show or hide the spaces sidebar", self.action_toggle_sidebar),
             ("Toggle conversation / activity view", "Readable conversation or one line per event",
              self.action_toggle_view),

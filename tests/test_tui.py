@@ -11,6 +11,7 @@ import yaml
 from conftest import T0, at, common, edit_result, human, plain, text, tool_result, tool_use, write_jsonl
 from rich.console import Console
 from textual.color import Color
+from textual.css.query import NoMatches
 from textual.widgets import Button, Checkbox, Input, Select, Static
 
 from panopsis import advise, tui
@@ -65,6 +66,18 @@ def run_app(app, steps, size=(160, 40)):
             await pilot.pause(0.2)
             await steps(app, pilot)
     asyncio.run(go())
+
+
+async def until(pilot, condition, steps=100):
+    """Wait for what a step leads to, rather than a fixed time: the whole suite at once is slower."""
+    for _ in range(steps):
+        try:
+            if condition():
+                return
+        except NoMatches:
+            pass  # not mounted yet
+        await pilot.pause(0.03)
+    raise AssertionError("condition never became true")
 
 
 def test_grid_navigation_zoom_and_filter(projects):
@@ -597,7 +610,7 @@ def test_settings_screen_exports_and_imports_settings(projects, tmp_path, isolat
                                 keys=keys_mod.KEY_PRESETS["vim"][1], editor="vim")
         exported.write_text(yaml.safe_dump(data), encoding="utf-8")
         screen.query_one("#set-import", Button).press()
-        await pilot.pause(0.3)
+        await until(pilot, lambda: "Took the" in note())  # the screen is built again with them
         assert app.theme == "dracula" and app.palette.claude == "#F0A285" and app.config.keys["jump"] == "space"
         saved = config_mod.load(cfg.path)
         assert (saved.theme, saved.keys, saved.editor) == ("dracula", keys_mod.KEY_PRESETS["vim"][1], "vim")
@@ -638,9 +651,11 @@ def test_settings_screen_browses_to_where_the_export_goes(projects, tmp_path, is
 
         box.value = str(tmp_path / "mine.yaml")
         screen.query_one("#set-browse", Button).press()
-        await pilot.pause(0.2)
+        # Its drive list mounted: closed before then, the list's own mount fails.
+        await until(pilot, lambda: isinstance(app.screen, FolderPickerScreen)
+                    and app.screen.query_one("#folder-drive SelectCurrent #label").is_mounted)
         picker = app.screen
-        assert isinstance(picker, FolderPickerScreen) and picker.start == tmp_path  # where the file is now
+        assert picker.start == tmp_path  # where the file is now
         picker.dismiss(str(usb))
         await pilot.pause(0.1)
         assert app.screen is screen and box.value == tilde(usb / "mine.yaml")  # the name you gave it stays

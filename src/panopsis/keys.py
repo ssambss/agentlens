@@ -60,6 +60,8 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
         Action("claude-code", "c", "open it in full Claude Code; quit that to come back. In History, a past one",
                frozenset({APP, "history"})),
         Action("move-to-space", "g", "move it to a space"),
+        Action("autopilot", "p", "autopilot for it, one of panopsis's sessions: off, balanced (it gives the "
+               "go-aheads for you), autonomous (routine questions too)"),
         Action("close", "w,delete", "close it, once you've said so again (stops a background session, hides "
                "one in a terminal or an editor)"),
     ]),
