@@ -2434,7 +2434,8 @@ class PanopsisApp(App):
         else:
             self.notify(output or "Claude Code couldn't take it over.", title="Couldn't detach, so it stays here",
                         severity="error", timeout=15)
-            self.open_driven(cwd, resume=session_id, title=title, mode=mode, force=True)
+            self.open_driven(cwd, resume=session_id, title=title, mode=mode, force=True,
+                             autopilot=driven.autopilot)
         self.action_refresh()
         return ok
 
@@ -2543,7 +2544,8 @@ class PanopsisApp(App):
         await driven.close()  # one client at a time on a session
         self.driven.pop(driven.key, None)
         self.handoff(driven.session_id, driven.cwd, "" if driven.known_as else driven.title)
-        self.open_driven(driven.cwd, resume=driven.session_id, title=driven.title, mode=driven.permission_mode)
+        self.open_driven(driven.cwd, resume=driven.session_id, title=driven.title, mode=driven.permission_mode,
+                         autopilot=driven.autopilot)
 
     def handoff(self, session_id: str | None, cwd: str, unnamed: str = "") -> None:
         """Continue a session in full Claude Code, in this terminal; `unnamed`, the title of one it

@@ -287,6 +287,42 @@ def test_new_sessions_start_with_the_settings_autopilot(projects, tmp_path):
     asyncio.run(go())
 
 
+
+def test_a_session_keeps_its_own_autopilot_through_claude_code_and_a_failed_detach(
+        projects, tmp_path, isolated_home, monkeypatch):
+    import contextlib
+    import subprocess
+
+    from panopsis import tui as tui_mod
+
+    app, folder, _ = app_with_session(projects, tmp_path)
+    app.decide, _ = fake_haiku(Decision("", "done"))
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: None)
+    monkeypatch.setattr(tui_mod.terminal, "set_title", lambda *a, **kw: None)
+    monkeypatch.setattr(tui_mod, "background_resume", lambda *a, **kw: (False, "Workspace not trusted."))
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            monkeypatch.setattr(app, "suspend", contextlib.nullcontext)
+            app.config.cli_path = "claude"
+            app.config.autopilot = "autonomous"
+            driven = await started(app, pilot, folder)
+            driven.set_autopilot("off")  # p on this one, against the setting
+            await app._handoff_driven(driven)  # c, then back from Claude Code
+            await pilot.pause(0.1)
+            [driven] = app.driven.values()
+            assert driven.autopilot == "off"
+            await until(pilot, lambda: driven.remembered)
+            await app._detach(driven, "keep going")  # Claude Code won't take it, so it stays here
+            await pilot.pause(0.1)
+            [driven] = app.driven.values()
+            assert driven.autopilot == "off"
+            await until(pilot, lambda: driven.remembered)
+            saved = config_mod.load(isolated_home / "config.yaml").driven_sessions
+            assert [(d["session_id"], d["autopilot"]) for d in saved] == [("sess-42", "off")]
+
+    asyncio.run(go())
+
 def test_the_setting_is_saved_and_a_wrong_one_is_off(isolated_home):
     path = isolated_home / "config.yaml"
     cfg = config_mod.Config(path=path, autopilot="autonomous")
