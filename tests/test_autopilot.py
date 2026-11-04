@@ -1,4 +1,4 @@
-"""Autopilot: what it asks Haiku, and how a session panopsis runs acts on the answer. No real CLI."""
+"""Autopilot: what it asks Sonnet, and how a session panopsis runs acts on the answer. No real CLI."""
 
 import asyncio
 import json
@@ -24,8 +24,8 @@ def border(app, driven):
     return Text.from_markup(app.query_one(f"#s-{driven.key}", tui_mod.SessionPane).border_subtitle).plain
 
 
-def fake_haiku(*answers):
-    """Autopilot's Haiku call, giving `answers` in turn (the last one again after that), and what it was asked."""
+def fake_check(*answers):
+    """Autopilot's call to Sonnet, giving `answers` in turn (the last one again after that), and what it was asked."""
     asked = []
 
     async def decide(level, title, said, reply):
@@ -42,7 +42,7 @@ def by_autopilot(message):
     return f"{message}\n\n{NOTE}"
 
 
-# What it asks Haiku ------------------------------------------------------------------------
+# What it asks Sonnet -----------------------------------------------------------------------
 
 def test_the_prompt_has_the_levels_rules_your_messages_and_the_end_of_the_reply():
     said = [("fix the null handling", False), ("go ahead", True)]
@@ -55,10 +55,11 @@ def test_the_prompt_has_the_levels_rules_your_messages_and_the_end_of_the_reply(
     assert autopilot.RULES["autonomous"] in autopilot.prompt("autonomous", "", said, reply)
 
 
-def test_it_runs_your_claude_on_haiku_with_no_tools_and_leaves_no_session():
+def test_it_runs_your_claude_on_sonnet_at_medium_effort_with_no_tools_and_leaves_no_session():
     cmd = autopilot.command("claude")
     assert cmd[:2] == ["claude", "-p"] and "--no-session-persistence" in cmd
-    assert cmd[cmd.index("--tools") + 1] == "" and cmd[cmd.index("--model") + 1] == "haiku"
+    assert cmd[cmd.index("--tools") + 1] == "" and cmd[cmd.index("--model") + 1] == "sonnet"
+    assert cmd[cmd.index("--effort") + 1] == "medium"
     assert cmd[cmd.index("-n") + 1] == autopilot.SESSION_NAME
     assert json.loads(cmd[cmd.index("--json-schema") + 1]) == autopilot.SCHEMA
 
@@ -94,7 +95,7 @@ def test_its_own_runs_are_left_off_the_wall(monkeypatch):
 # A session acting on it --------------------------------------------------------------------
 
 def test_balanced_gives_the_go_ahead_then_leaves_the_finished_work_for_you():
-    decide, asked = fake_haiku(Decision("go ahead", "in scope"), Decision("", "done: all three fixed"))
+    decide, asked = fake_check(Decision("go ahead", "in scope"), Decision("", "done: all three fixed"))
     scripts = {"fix the null bugs": [text("Fixed parser.py. Should I go on with cli.py?"), done()],
                by_autopilot("go ahead"): [text("All three fixed."), done()]}
 
@@ -114,7 +115,7 @@ def test_balanced_gives_the_go_ahead_then_leaves_the_finished_work_for_you():
 
 
 def test_off_it_asks_nothing():
-    decide, asked = fake_haiku(Decision("go ahead", ""))
+    decide, asked = fake_check(Decision("go ahead", ""))
 
     async def go():
         d, fakes = make({"hi": [text("Shall I go on?"), done()]}, decide=decide)
@@ -127,7 +128,7 @@ def test_off_it_asks_nothing():
 
 def test_after_a_few_go_aheads_in_a_row_one_is_yours(monkeypatch):
     monkeypatch.setattr(autopilot, "IN_A_ROW", 2)
-    decide, asked = fake_haiku(Decision("yes", "more of the same"))
+    decide, asked = fake_check(Decision("yes", "more of the same"))
     scripts = {"go": [text("Step done. Next?"), done()], by_autopilot("yes"): [text("Step done. Next?"), done()],
                "keep going": [text("Step done. Next?"), done()]}
 
@@ -179,7 +180,7 @@ def test_stopping_the_turn_while_it_reads_leaves_it_to_you():
 
 
 def test_a_turn_you_stopped_is_yours():
-    decide, asked = fake_haiku(Decision("go on", ""))
+    decide, asked = fake_check(Decision("go on", ""))
 
     async def go():
         d, _ = make({"go": [("pause", 0.2), text("Half done."), done()]}, autopilot="balanced", decide=decide)
@@ -192,7 +193,7 @@ def test_a_turn_you_stopped_is_yours():
 
 
 def test_when_it_cant_decide_the_turn_is_yours():
-    decide, _ = fake_haiku(RuntimeError("out of credit"))
+    decide, _ = fake_check(RuntimeError("out of credit"))
 
     async def go():
         d, fakes = make({"go": [text("Next?"), done()]}, autopilot="balanced", decide=decide)
@@ -205,7 +206,7 @@ def test_when_it_cant_decide_the_turn_is_yours():
 
 
 def test_a_slash_command_is_not_a_turn_for_it():
-    decide, asked = fake_haiku(Decision("go on", ""))
+    decide, asked = fake_check(Decision("go on", ""))
 
     async def go():
         d, _ = make({"/context": [text("Context: 12k tokens"), done()]}, autopilot="balanced", decide=decide)
@@ -217,7 +218,7 @@ def test_a_slash_command_is_not_a_turn_for_it():
 
 
 def test_turned_on_while_a_session_waits_it_reads_that_turn():
-    decide, asked = fake_haiku(Decision("go ahead", "in scope"))
+    decide, asked = fake_check(Decision("go ahead", "in scope"))
 
     async def go():
         d, fakes = make({"go": [text("Shall I go on?"), done()]}, decide=decide)
@@ -232,7 +233,7 @@ def test_turned_on_while_a_session_waits_it_reads_that_turn():
 
 def test_a_turn_claude_code_started_itself_is_yours():
     # Another session's message, or a background task finishing: your messages say nothing of it.
-    decide, asked = fake_haiku(Decision("", "done"), Decision("Done. Restart panopsis.", "echoed"))
+    decide, asked = fake_check(Decision("", "done"), Decision("Done. Restart panopsis.", "echoed"))
 
     async def go():
         d, fakes = make({"go": [text("Done with that."), done()], "next": [text("Shall I go on?"), done()]},
@@ -254,7 +255,7 @@ def test_a_turn_claude_code_started_itself_is_yours():
 
 
 def test_your_setting_changing_starts_at_the_next_turn_not_the_one_waiting_on_you():
-    decide, asked = fake_haiku(Decision("go ahead", "in scope"))
+    decide, asked = fake_check(Decision("go ahead", "in scope"))
 
     async def go():
         d, fakes = make({"go": [text("Shall I go on?"), done()]}, decide=decide)
@@ -272,7 +273,7 @@ def test_its_messages_show_as_its_own():
     console = Console(width=80, record=True)
     console.print(conversation(events, Palette()))
     shown = console.export_text()
-    assert "Autopilot" in shown and "for you, from Haiku" in shown and "You" not in shown
+    assert "Autopilot" in shown and "for you, from Sonnet" in shown and "You" not in shown
 
 
 def test_read_back_from_its_transcript_its_messages_are_still_its_own(projects):
@@ -294,7 +295,7 @@ def test_read_back_from_its_transcript_its_messages_are_still_its_own(projects):
 
 def test_p_gives_a_pane_its_own_autopilot_until_it_comes_round_to_your_setting(projects, tmp_path, isolated_home):
     app, folder, _ = app_with_session(projects, tmp_path, {"go": [text("Working."), done()]})
-    app.decide, _ = fake_haiku(Decision("", "done"))
+    app.decide, _ = fake_check(Decision("", "done"))
 
     def saved():
         return [(d["session_id"], d["own_autopilot"])
@@ -324,7 +325,7 @@ def test_p_gives_a_pane_its_own_autopilot_until_it_comes_round_to_your_setting(p
 
 def test_your_setting_is_for_every_session_here_but_those_with_their_own(projects, tmp_path):
     app, folder, _ = app_with_session(projects, tmp_path, {"go": [text("Shall I go on?"), done()]})
-    app.decide, asked = fake_haiku(Decision("go ahead", "in scope"))
+    app.decide, asked = fake_check(Decision("go ahead", "in scope"))
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -350,7 +351,7 @@ def test_a_session_keeps_its_own_autopilot_through_claude_code_and_a_failed_deta
     import subprocess
 
     app, folder, _ = app_with_session(projects, tmp_path)
-    app.decide, _ = fake_haiku(Decision("", "done"))
+    app.decide, _ = fake_check(Decision("", "done"))
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: None)
     monkeypatch.setattr(tui_mod.terminal, "set_title", lambda *a, **kw: None)
     monkeypatch.setattr(tui_mod, "background_resume", lambda *a, **kw: (False, "Workspace not trusted."))

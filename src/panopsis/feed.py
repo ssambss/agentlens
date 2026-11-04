@@ -208,7 +208,7 @@ def _render_block(block: Block, palette: Palette, stamp: str, full: bool, clip: 
         who = "Autopilot" if block.tag == AUTOPILOT else "You"
         label = Text.assemble((who, f"bold {palette.you}"), (stamp, "dim"))
         if block.tag == AUTOPILOT:
-            label.append("  · for you, from Haiku", style="italic dim")
+            label.append("  · for you, from Sonnet", style="italic dim")
         elif block.tag == "queued":
             label.append("  · sent while Claude was working", style="italic dim")
         card = Group(label, with_links(Text(body)))

@@ -1570,7 +1570,7 @@ class PanopsisApp(App):
         # Transcript tails of the sessions panopsis runs, by session id: their subagents and changed files.
         self._driven_tails: dict[str, Session | None] = {}
         self.client_factory = default_client_factory  # tests swap in a fake Claude Code
-        self.decide = None  # what autopilot asks; tests swap in a fake one (None: Haiku, see DrivenSession)
+        self.decide = None  # what autopilot asks; tests swap in a fake one (None: Sonnet, see DrivenSession)
         self._usage_timer = None  # asks /usage every usage_minutes
         self.launch_editor = editor_mod.launch  # tests swap in a recorder
         self._last_key: str | None = None
@@ -3052,9 +3052,9 @@ class PanopsisApp(App):
             self._remember_entry(driven)
             self._save_config()
         what = {"off": "Every turn that ends is yours again.",
-                "balanced": "When a turn ends, Haiku reads the reply and gives the go-aheads for you. "
+                "balanced": "When a turn ends, Sonnet reads the reply and gives the go-aheads for you. "
                             "Anything else it leaves for you, saying what it needs.",
-                "autonomous": "When a turn ends, Haiku reads the reply and gives the go-aheads for you, and "
+                "autonomous": "When a turn ends, Sonnet reads the reply and gives the go-aheads for you, and "
                               "answers the routine questions. Design choices and finished work it leaves for you."}
         if driven.own_autopilot:
             title, which = f"Autopilot for this pane: {level}", f"The others follow your setting, {setting}."

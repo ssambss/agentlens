@@ -255,7 +255,7 @@ panopsis never reads or passes credentials.
 ### Autopilot
 
 If you'd rather let sessions run than steer each turn, autopilot answers what you'd only
-nod along to. When a turn ends, Haiku reads Claude's reply with your last few messages and
+nod along to. When a turn ends, Sonnet reads Claude's reply with your last few messages and
 answers it the way you would, or leaves it for you:
 
 - **Balanced** gives the go-aheads: the "shall I go on with the rest?" in the middle of
@@ -275,7 +275,8 @@ Its messages show as Autopilot's, in the pane and in History, and Claude is told
 type them. The report doesn't count them as yours, nor the seconds before them as Claude
 waiting on you. While it reads a reply, typing your own message goes instead of its answer,
 and `x` stops it. It's off unless you turn it on. Each check is a short `claude -p` on
-Haiku, with no tools, so it counts against your plan.
+Sonnet at medium effort, with no tools, so it counts against your plan: a few seconds,
+once for each turn that ends in a session it's on for.
 
 The setting is for every session panopsis runs. Changed, it reaches the open ones from their
 next turn, not the turn already waiting on you, so they aren't all read at once. `p` gives
@@ -378,7 +379,7 @@ panopsis reads your sessions on your machine. The sessions you start in it are y
   how much of your plan's limits you've used. Nothing from your sessions is sent. Turn it
   off in the settings.
 - **Autopilot**, in a session you've turned it on for, sends Claude's reply when a turn
-  ends, your last four messages to that session and its title, to Haiku. That's
+  ends, your last four messages to that session and its title, to Sonnet. That's
   conversation text, the session's own, which it sent when it ran. Off unless you turn it on.
 
 With findings and advice on, two more. For these `claude` gets two tools, web search and web
@@ -434,7 +435,7 @@ feed.py     how activity reads: conversation blocks, markdown, folded tool calls
 subagent_map.py  the zoom view's map: subagents in waves, nested under who launched them
 tui.py      the app
 driver.py   sessions panopsis runs itself (experimental)
-autopilot.py  Haiku answering a turn that has ended for you, or leaving it to you (experimental)
+autopilot.py  Sonnet answering a turn that has ended for you, or leaving it to you (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu and @ for your other sessions
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
 terminal.py the tab's name, panopsis's icon on its window or tab, and in Windows the keys its consoles don't pass on

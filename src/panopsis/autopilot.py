@@ -1,4 +1,4 @@
-"""Experimental: autopilot, for the sessions panopsis runs. When one finishes a turn, Haiku reads
+"""Experimental: autopilot, for the sessions panopsis runs. When one finishes a turn, Sonnet reads
 Claude's reply with your last few messages and says what you would: go on (balanced), or also the
 routine answer (autonomous). Anything else it leaves for you, with a line on what it needs.
 
@@ -23,7 +23,10 @@ LEVELS = {
     "autonomous": "Autonomous: routine questions too",
 }
 SESSION_NAME = "panopsis autopilot"  # how its runs show in `claude agents`, so the wall leaves them off
-MODEL = "haiku"
+# Sonnet at medium effort: on sample turns it was faster than Haiku (3 seconds a check against 8,
+# the slowest 5 against 39), and steadier in what it said.
+MODEL = "sonnet"
+EFFORT = "medium"
 IN_A_ROW = 5  # go-aheads in a row before one is yours anyway: a session going round in circles
 TIMEOUT = 120
 SAID = 4  # your last messages it reads
@@ -112,8 +115,8 @@ explain why you decided."""
 
 
 def command(claude: str) -> list[str]:
-    return [claude, "-p", "--no-session-persistence", "-n", SESSION_NAME, "--model", MODEL, "--tools", "",
-            "--strict-mcp-config", "--system-prompt", SYSTEM, "--output-format", "json",
+    return [claude, "-p", "--no-session-persistence", "-n", SESSION_NAME, "--model", MODEL, "--effort", EFFORT,
+            "--tools", "", "--strict-mcp-config", "--system-prompt", SYSTEM, "--output-format", "json",
             "--json-schema", json.dumps(SCHEMA)]
 
 
@@ -132,7 +135,7 @@ def parse(output: str) -> Decision:
 
 def decide(level: str, title: str, said: list[tuple[str, bool]], reply: str, cli_path: str | None = None,
            timeout: int = TIMEOUT) -> Decision:
-    """Ask your own `claude` (Haiku, no tools) what you'd say to this reply. Blocking: run it in a thread."""
+    """Ask your own `claude` (Sonnet, no tools) what you'd say to this reply. Blocking: run it in a thread."""
     claude = cli_path or shutil.which("claude")
     if not claude:
         raise RuntimeError("`claude` CLI not found on PATH")

@@ -168,7 +168,7 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             pilot = cfg.autopilot if cfg.autopilot in AUTOPILOT_LEVELS else "off"
             yield row("Autopilot", Select([(label, level) for level, label in AUTOPILOT_LEVELS.items()], value=pilot,
                                           allow_blank=False, compact=True, id="set-autopilot"))
-            yield Static("For every session panopsis runs, from its next turn. When a turn ends, Haiku reads "
+            yield Static("For every session panopsis runs, from its next turn. When a turn ends, Sonnet reads "
                          "Claude's reply with your last few messages and answers it the way you would, or leaves it "
                          "for you, saying what it needs. Questions, permission prompts and plans are always yours. "
                          f"{keys_mod.name('autopilot')} gives the session you're on its own, and its border says so. "

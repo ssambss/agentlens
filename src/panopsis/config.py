@@ -41,7 +41,7 @@ HEADER = """\
 # findings_and_advice: the Report (R), Profile (P), Rules (L) and Advice (A) screens and their
 #   commands. Experimental, so off unless you turn it on.
 # autopilot: for the sessions panopsis runs, off, balanced or autonomous (p gives one its own).
-#   When a turn ends, Haiku reads the reply and answers it for you, or leaves it to you. Experimental.
+#   When a turn ends, Sonnet reads the reply and answers it for you, or leaves it to you. Experimental.
 """
 
 # How far back History goes, as the settings screen offers it: days, and what that is.
