@@ -43,9 +43,9 @@ class Event:
     """One line of a session's activity feed, for the live views."""
 
     at: datetime
-    kind: str  # you | claude | question | answer | tool | error | notice | compact
+    kind: str  # you | claude | question | answer | plan | tool | error | notice | compact
     text: str  # one line, for panes
-    detail: str = ""  # fuller text, for the zoomed view; a question's is markdown
+    detail: str = ""  # fuller text, for the zoomed view; a question's and a plan's are markdown
     tag: str = ""  # e.g. "queued": a message you sent while Claude was working; DECLINED
 
 

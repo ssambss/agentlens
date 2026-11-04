@@ -60,9 +60,10 @@ class FakeClaude:
         for step in steps:
             if isinstance(step, tuple) and step[0] == "pause":  # ("pause", seconds): working on something
                 await asyncio.sleep(step[1])
-            elif isinstance(step, tuple) and step[0] == "ask":
-                _, tool, tool_input = step
-                decision = await self.options.can_use_tool(tool, tool_input, ToolPermissionContext(title=None))
+            elif isinstance(step, tuple) and step[0] == "ask":  # ("ask", tool, input[, the call's id])
+                _, tool, tool_input, *call = step
+                context = ToolPermissionContext(title=None, tool_use_id=call[0] if call else None)
+                decision = await self.options.can_use_tool(tool, tool_input, context)
                 self.decisions.append(decision)
             else:
                 await self.queue.put(step)
@@ -335,6 +336,34 @@ def test_plan_approval_and_feedback():
         await settle(lambda: d.state == WAITING)
         assert isinstance(fakes[0].decisions[1], PermissionResultAllow)
     asyncio.run(go())
+
+
+def test_a_plan_is_in_the_conversation_once():
+    # The call and the request to approve it can each carry the plan, and come in either order.
+    plan = {"plan": "## Plan\n1. Do the thing", "planFilePath": "C:/Users/me/.claude/plans/p.md"}
+
+    def call(call_id, tool_input):
+        return AssistantMessage([ToolUseBlock(call_id, "ExitPlanMode", tool_input)], "claude-opus-5-5")
+
+    async def go():
+        d, fakes = make({
+            "plan": [call("p1", plan), ("pause", 0.05), ("ask", "ExitPlanMode", plan, "p1"), done()],
+            "again": [("ask", "ExitPlanMode", plan, "p2"), call("p2", {}), done()],
+        })
+        await d.start("plan")
+        await settle(lambda: d.state == APPROVAL)
+        d.approve_plan()
+        await settle(lambda: d.state == WAITING)
+        await d.send("again")
+        await settle(lambda: d.state == APPROVAL)
+        d.approve_plan()
+        await settle(lambda: d.state == WAITING)
+        await d.close()
+        return d
+
+    d = asyncio.run(go())
+    assert [(e.kind, e.text, e.detail) for e in d.events if e.kind != "you"] == [
+        ("plan", "Plan", plan["plan"]), ("plan", "Plan", plan["plan"])]
 
 
 def test_start_failure_is_shown_not_raised():
@@ -2012,6 +2041,40 @@ def test_a_second_question_shows_in_the_card_not_the_first_again(projects, tmp_p
             await pilot.pause(0.2)  # laid out without it
             await until(pilot, lambda: "Which part should I explain?" in card(app))
             assert "What would you like to do?" not in card(app) and "Playing a video" in card(app)
+
+    for zoomed in (False, True):  # on the wall and zoomed in
+        asyncio.run(go(zoomed))
+
+
+def test_a_long_plan_reads_in_full_and_shows_how_to_approve_it(projects, tmp_path):
+    # A plan runs longer than the card is tall: it's in the conversation, and the card says how to answer it.
+    plan = "# Plan\n\n" + "\n".join(f"{n}. Step {n}" for n in range(1, 41))
+    script = {"plan it": [("ask", "ExitPlanMode", {"plan": plan}, "p1")]}
+
+    def card_on_screen(app) -> str:
+        shown = app.screen.query_one(".request")
+        return "\n".join(shown.text.splitlines()[:shown.size.height]) if shown.display else ""
+
+    def conversation_text(app) -> str:
+        return app.screen.query_one(".feed-body").text
+
+    async def go(zoomed: bool):
+        app, folder, _ = app_with_session(projects, tmp_path, script)
+        async with app.run_test(size=(160, 44)) as pilot:
+            driven = await started(app, pilot, folder, prompt="plan it")
+            app._focus_key(driven.key)
+            if zoomed:
+                await pilot.press("enter")
+                await until(pilot, lambda: isinstance(app.screen, tui_mod.ZoomScreen))
+            await until(pilot, lambda: "ready for review" in card_on_screen(app))
+            await pilot.pause(0.1)
+            assert "1 approve and start" in card_on_screen(app) and "keep planning" in card_on_screen(app)
+            assert "Step" not in card_on_screen(app)  # once is enough
+            await until(pilot, lambda: "Claude's plan" in conversation_text(app))
+            if zoomed:
+                assert "Step 40" in conversation_text(app)
+            else:  # a pane clips it, as a long reply
+                assert "Step 1" in conversation_text(app) and "Enter to read the rest" in conversation_text(app)
 
     for zoomed in (False, True):  # on the wall and zoomed in
         asyncio.run(go(zoomed))

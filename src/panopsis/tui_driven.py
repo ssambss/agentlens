@@ -38,7 +38,7 @@ from panopsis.driver import (
     WORKING,
     DrivenSession,
 )
-from panopsis.feed import Framed, Palette, markdown
+from panopsis.feed import Framed, Palette
 from panopsis.frames import PacedScreen
 from panopsis.live import LiveSession
 from panopsis.model import Event
@@ -113,11 +113,10 @@ def request_card(d: DrivenSession, palette: Palette) -> RenderableType | None:
         if remaining <= 0:
             return None
         parts = [head, options, keys]
-    else:  # plan
-        plan = str(p.tool_input.get("plan") or "")
-        head = Text("Claude's plan is ready for review", style="bold")
+    else:  # plan: it runs longer than the card is tall, so it's in the conversation, all of it zoomed in
+        head = Text.assemble(("Claude's plan is ready for review", "bold"), (" · it's above, in the conversation", "dim"))
         keys.append("1 approve and start · 3 keep planning (type what to change and Enter)")
-        parts = [head, markdown(plan[:6000], palette.code_theme), keys]
+        parts = [head, keys]
     return Framed(Group(*parts), (0, 1), f"on {palette.card}")
 
 

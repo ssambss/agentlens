@@ -32,9 +32,11 @@ from typing import Any
 
 from panopsis import usage
 from panopsis.adapters.claude_transcripts import (
+    PLAN_TOOL,
     QUESTION_TOOL,
     answer_event,
     image_marks,
+    plan_event,
     question_event,
     questions_of,
     tool_summary,
@@ -202,6 +204,7 @@ class DrivenSession:
         self._streamed: dict[str | None, int] = {}  # characters of each reply still streaming, by subagent
         self.pending: PendingRequest | None = None
         self._asked: dict[str, list[dict]] = {}  # questions Claude asked, by call, until they're answered
+        self._planned: set[str] = set()  # the calls whose plan is in the conversation
         self.cost_usd = 0.0
         self.error: str | None = None
         self.parked = False  # restored from last time: connects to Claude Code when you next type
@@ -457,8 +460,9 @@ class DrivenSession:
     async def _can_use_tool(self, tool_name: str, tool_input: dict, context) -> Any:
         if tool_name == "AskUserQuestion":
             kind, state, detail = "question", QUESTION, "asked you a question"
-        elif tool_name == "ExitPlanMode":
+        elif tool_name == PLAN_TOOL:
             kind, state, detail = "plan", APPROVAL, "plan waiting for your approval"
+            self._show_plan(getattr(context, "tool_use_id", None), tool_input)
         else:
             kind, state, detail = "permission", PERMISSION, f"wants to use {tool_name}"
         summary = getattr(context, "title", None) or tool_summary(tool_input, self.cwd)
@@ -473,6 +477,18 @@ class DrivenSession:
             if self.state in (PERMISSION, QUESTION, APPROVAL):
                 self._set(WORKING, running(tool_name, tool_summary(tool_input, self.cwd)) if kind == "permission"
                           else "thinking")  # over your answer, or the plan you approved
+
+    def _show_plan(self, call: str | None, tool_input: dict) -> None:
+        """Put a plan in the conversation, once: its call and the request to approve it can each
+        carry it, and either can come first."""
+        if call in self._planned:
+            return
+        plan = plan_event(datetime.now(timezone.utc), tool_input)
+        if plan is None:
+            return  # the other one has it
+        if call:
+            self._planned.add(call)
+        self.events.append(plan)
 
     def _resolve(self, result) -> None:
         p = self.pending
@@ -578,6 +594,8 @@ class DrivenSession:
                     if block.name == QUESTION_TOOL:  # what it asked you, not a tool call
                         self._asked[block.id] = questions_of(block.input or {})
                         self.events.append(question_event(now, block.input or {}))
+                    elif block.name == PLAN_TOOL:  # the plan you're to approve, not a tool call
+                        self._show_plan(block.id, block.input or {})
                     else:
                         self.events.append(Event(now, "tool", f"{block.name}: {summary}" if summary else block.name))
                     self.detail = running(block.name, summary)

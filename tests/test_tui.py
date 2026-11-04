@@ -20,7 +20,7 @@ from panopsis import editor as editor_mod
 from panopsis import feed as feed_mod
 from panopsis import keys as keys_mod
 from panopsis import preferences, settings_file
-from panopsis.adapters.claude_transcripts import extract_events, load_tail
+from panopsis.adapters.claude_transcripts import DETAIL_CHARS, extract_events, load_tail
 from panopsis.driver import STARTING
 from panopsis.feed import Palette, _clip_lines, activity_log, collapse_repeats, conversation, tools_summary
 from panopsis.live import BACKGROUND, QUESTION, WAITING, WORKING, LiveSession
@@ -1523,6 +1523,28 @@ def test_a_question_you_declined_says_so_not_that_a_tool_failed(projects):
     out = plain(conversation(events["main"], Palette()))
     assert out.count("You didn't answer") == 2 and "✗" not in out
     assert "didn't answer: The user wants to clarify" in activity_log(events["main"], Palette()).plain
+
+
+LONG_PLAN = "# Fix the parser\n\n" + "\n".join(f"{n}. Step {n}: " + "change things " * 8 for n in range(1, 61))
+
+
+def test_claudes_plan_reads_in_full_in_the_conversation(projects):
+    # It's what you approve, so all of it: longer than a reply is kept, and not as a tool call.
+    path = write_jsonl(projects / "demo" / "s.jsonl", common([
+        human(0, "the parser drops comments"),
+        tool_use(1, "ExitPlanMode", "p1", plan=LONG_PLAN, planFilePath="C:/Users/me/.claude/plans/p.md"),
+        tool_use(2, "ExitPlanMode", "p2"),  # a Claude Code that didn't say what the plan was
+    ], "s"))
+    _, events = load_tail(path, tail_bytes=100_000)
+    plan, bare = events["main"][1:]
+    assert len(LONG_PLAN) > DETAIL_CHARS and (plan.kind, plan.text, plan.detail) == ("plan", "Fix the parser",
+                                                                                      LONG_PLAN.strip())
+    assert (bare.kind, bare.text) == ("tool", "ExitPlanMode")
+    out = plain(conversation(events["main"], Palette(), clip=False))
+    assert "Claude's plan" in out and "Step 60" in out and "ExitPlanMode: " not in out
+    clipped = plain(conversation(events["main"], Palette()))
+    assert "Step 3:" in clipped and "Step 60" not in clipped and "Enter to read the rest" in clipped  # a pane
+    assert "plan: Fix the parser" in activity_log(events["main"], Palette()).plain
 
 
 def test_subagent_feeds_are_extracted():

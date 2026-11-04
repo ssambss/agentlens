@@ -427,8 +427,8 @@ def _span_kind(record: dict, tool_names: dict[str, str], is_main: bool) -> str:
 
 
 def extract_events(records: list[dict], is_main: bool) -> list[Event]:
-    """Turn records into a readable activity feed: prompts, replies, tool calls, errors, and Claude's
-    questions with your answers."""
+    """Turn records into a readable activity feed: prompts, replies, tool calls, errors, Claude's
+    questions with your answers, and its plans."""
     events: list[Event] = []
     asked: dict[str, list[dict]] = {}  # questions Claude asked, by call, until they're answered
     for r in records:
@@ -454,6 +454,9 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
                     if name == QUESTION_TOOL:  # what it asked you, not a tool call
                         asked[block.get("id", "")] = questions_of(tool_input)
                         events.append(question_event(t, tool_input))
+                        continue
+                    if name == PLAN_TOOL and (plan := plan_event(t, tool_input)) is not None:
+                        events.append(plan)
                         continue
                     summary = tool_summary(tool_input, r.get("cwd"))
                     events.append(Event(t, "tool", f"{name}: {summary}" if summary else name))
@@ -552,6 +555,21 @@ def _answers_in(result: str, questions: list[dict]) -> dict[str, str]:
             end = re.search(r'"(?:, "|\.(?:\s|$)|$)', rest)
             found[str(q["question"])] = rest[:end.start()] if end else rest
     return found or dict(re.findall(r'"([^"]+)"="([^"]*)"', result))
+
+
+# Claude's plan (ExitPlanMode) ----------------------------------------------------------------------
+# The plan reads as a reply does, and all of it, however long: it's what you approve. Claude Code
+# puts the plan file's text in the call's input as `plan`.
+
+PLAN_TOOL = "ExitPlanMode"
+
+
+def plan_event(at: datetime, tool_input: dict) -> Event | None:
+    """The plan Claude asks you to approve, by its first line; None if the call doesn't carry it."""
+    plan = tool_input.get("plan")
+    if not (isinstance(plan, str) and plan.strip()):
+        return None
+    return Event(at, "plan", _one_line(plan).lstrip("# "), plan.strip())
 
 
 def tool_summary(tool_input: dict, cwd: str | None = None) -> str:
