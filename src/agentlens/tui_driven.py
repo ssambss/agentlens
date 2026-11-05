@@ -1,4 +1,4 @@
-"""UI for sessions agentlens runs itself (experimental): a pane you can type into, the
+"""UI for sessions agentlens runs itself: a pane you can type into, the
 card that shows a pending approval / question / plan, and the new-session dialog."""
 
 from __future__ import annotations
@@ -636,7 +636,7 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="new-dialog"):
             yield Label(Text("New session", style="bold"))
-            yield Static(Text("Runs your own Claude Code in this folder, typeable right here (experimental).",
+            yield Static(Text("Runs your own Claude Code in this folder, typeable right here.",
                              style="dim"))
             with Horizontal(id="new-folder-row"):
                 yield TextInput(self.folder, placeholder="Folder to work in", id="new-folder")

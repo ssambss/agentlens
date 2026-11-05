@@ -7,7 +7,7 @@ you've used.
 - **A live wall** of every open session on this computer, wherever it runs: a terminal, an
   editor or the background. Grouped into spaces by repository. When one starts needing you
   it rings and lights up, and `j` takes you there.
-- **Sessions you start here** (experimental): type into them, answer their questions and
+- **Sessions you start here**: type into them, answer their questions and
   permission prompts, and hand them to Claude Code's background service and back. With
   [autopilot](#autopilot) on, Claude gives the go-aheads for you, and only what needs you
   rings.
@@ -191,12 +191,13 @@ keys:
 The font and line spacing are your terminal's. A coding font made for screens (Cascadia
 Code, JetBrains Mono) at 11-12 pt, with a line height around 1.2, reads well.
 
-## Sessions you start here (experimental)
+## Sessions you start here
 
 `n` starts a session in a folder you pick; `o` in History continues a past one. They run
 your own installed, unmodified `claude` headless through the Agent SDK, with Claude Code's
 own system prompt, tools and settings, so they behave like your other sessions.
-agentlens never reads or passes credentials.
+agentlens never reads or passes credentials. It's agentlens's own front end on your `claude`,
+not Claude Code's interface, so a few things work differently; they're in the list below.
 
 | Key | Does |
 |---|---|
@@ -457,7 +458,7 @@ read.py     the sessions needing you that you've already read (~/.agentlens/read
 feed.py     how activity reads: conversation blocks, markdown, folded tool calls, questions and answers
 subagent_map.py  the zoom view's map: subagents in waves, nested under who launched them
 tui.py      the app
-driver.py   sessions agentlens runs itself (experimental)
+driver.py   sessions agentlens runs itself
 autopilot.py  Sonnet answering a turn that has ended for you, or leaving it to you (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu and @ for your other sessions
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys

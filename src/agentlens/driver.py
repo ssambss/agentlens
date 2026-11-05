@@ -1,4 +1,4 @@
-"""Experimental: sessions agentlens runs itself, so you can type into them in its panes.
+"""Sessions agentlens runs itself, so you can type into them in its panes.
 
 Each session runs your own installed, unmodified `claude` in headless mode (through the
 Agent SDK, which speaks Claude Code's stream-json protocol), with the Claude Code
