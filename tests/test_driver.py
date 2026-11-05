@@ -627,6 +627,78 @@ def test_new_session_in_a_closed_space_works_where_its_sessions_did(projects, tm
     asyncio.run(go())
 
 
+def test_a_session_started_in_a_repositorys_space_goes_by_its_folder(projects, tmp_path, isolated_home):
+    """Moving a session into a repository's space saves the space in your settings, but it's still
+    the repository's, not one you made: a session you start there in another folder goes in that
+    folder's space, as it would before you moved anything into it."""
+    import re
+
+    from conftest import common, human, write_jsonl
+
+    from agentlens import config as config_mod
+    from agentlens.tui_driven import NewSessionScreen
+
+    repo, acme = tmp_path / "lens", tmp_path / "acme"
+    for folder in (repo / ".git", acme):
+        folder.mkdir(parents=True)
+    write_jsonl(projects / re.sub(r"[^A-Za-z0-9]", "-", str(repo)) / "past-1.jsonl",
+                common([human(0)], "past-1", cwd=str(repo)))  # none of lens's sessions is open
+    config_mod.save(config_mod.Config(path=isolated_home / "config.yaml", last_space="lens",
+                                      spaces=[config_mod.Space("lens", sessions=["moved-1"])]))
+    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app.client_factory = lambda options: FakeClaude(options, {})
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.2)
+            assert app.current_space == "lens"
+            await pilot.press("n")
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, NewSessionScreen)
+            box, space = app.screen.query_one("#new-folder"), lambda: str(app.screen.query_one("#new-space").render())
+            assert box.value == str(repo) and space() == "Opens in the lens space"
+            box.value = str(acme)
+            await pilot.pause(0.1)
+            assert space() == "Opens in the acme space"
+            await pilot.press(*"hi", "enter")
+            await settle(lambda: app.driven and all(d.session_id for d in app.driven.values()))
+            driven = next(iter(app.driven.values()))
+            app.action_refresh()
+            await settle(lambda: driven.key in app.space_of)
+            assert app.space_of[driven.key] == "acme"
+            assert app.config.spaces[0].sessions == ["moved-1"]
+
+    asyncio.run(go())
+
+
+def test_sessions_come_back_in_their_own_space_not_the_one_you_quit_in(projects, tmp_path, isolated_home):
+    """A session you start in a space you made goes in it. One that comes back at launch doesn't:
+    it keeps its own space, whichever space you were in when you quit."""
+    folder = tmp_path / "repo"
+    folder.mkdir()
+    _write(projects / "repo" / "sess-42.jsonl",
+           _common([_human(0, "add a parser"), _text(1, "Parser added.")], "sess-42", cwd=str(folder)))
+    cfg = _config.Config(path=isolated_home / "config.yaml", last_space="AcmeDev", spaces=[_config.Space("AcmeDev")])
+    cfg.remember_driven("sess-42", str(folder), "Parser work", "default")
+    _config.save(cfg)
+    app, _, _ = app_with_session(projects, tmp_path)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.3)
+            assert app.current_space == "AcmeDev"
+            [driven] = app.driven.values()
+            app.action_refresh()
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.3)
+            assert app.space_of.get(driven.key) == "repo"
+            assert _config.load(isolated_home / "config.yaml").spaces[0].sessions == []
+
+    asyncio.run(go())
+
+
 # Ending, detaching, bringing back ------------------------------------------------------------
 
 import subprocess as _subprocess  # noqa: E402

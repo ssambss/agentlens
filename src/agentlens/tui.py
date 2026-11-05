@@ -2070,7 +2070,9 @@ class AgentlensApp(App):
         driven.own_autopilot = own_autopilot in autopilot_mod.LEVELS
         driven.title = title if title != "(untitled)" else ""  # what History calls one it has no title for
         self.driven[driven.key] = driven
-        if space := self._made_space():
+        if not resume and (space := self._made_space()):
+            # One you start goes in the space you're in. One that comes back (at launch, from History)
+            # keeps its own: restored at launch, every session would go in the space you quit in.
             self.driven_space[driven.key] = space
         if resume:
             known, past = self._past(resume)
@@ -2873,10 +2875,19 @@ class AgentlensApp(App):
 
     def _made_space(self) -> str | None:
         """The space you're in, if you made it rather than it being named after a repository:
-        sessions you start there go in it, whatever folder they work in."""
-        if self.current_space != ALL and self.current_space in {s.name for s in self.config.spaces}:
-            return self.current_space
-        return None
+        sessions you start there go in it, whatever folder they work in. Moving a session into a
+        repository's space saves that space in your settings, but it's still the repository's."""
+        name = self.current_space
+        if name == ALL or name not in {s.name for s in self.config.spaces} or self._named_after_a_repository(name):
+            return None
+        return name
+
+    def _named_after_a_repository(self, name: str) -> bool:
+        """Whether a space has a repository's name: one an open session works in, or else one a past
+        session did, from the start of its transcript."""
+        if any(config_mod.repo_name(s.cwd) == name for s in self.sessions.values() if s.cwd):
+            return True
+        return any(config_mod.repo_name(folder) == name for folder in worked_in_named(self.root, name))
 
     def _update_sidebar(self) -> None:
         try:

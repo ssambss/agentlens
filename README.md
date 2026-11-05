@@ -124,6 +124,10 @@ spaces:
     sessions: [e04cd49e-...]                # or picked by hand with g
 ```
 
+A session you start (`n`) in a space of your own goes in it, whatever folder it works in. In
+a repository's space, even one you've moved sessions into, it goes in its own folder's space.
+Sessions that come back at launch stay in their own space.
+
 Everything else is on the settings screen (`,`), saved as you pick:
 
 - **Look**: theme, colours, columns, and whether the sidebar, tool calls and timestamps
