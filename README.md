@@ -16,9 +16,7 @@ you've used.
 It runs locally, on the session files Claude Code keeps on this computer
 ([what leaves your machine](#what-leaves-your-machine)), so sessions on another computer or
 in Claude Code on the web aren't on the wall. For another computer's, run agentlens there,
-over SSH for example. Findings about how you work and advice from Claude are in it too, but
-they're early versions, so they're off until you turn them on
-([findings and advice](#findings-and-advice-experimental)).
+over SSH for example.
 
 ```
 uv tool install .      # from this folder; or `uv run agentlens` without installing
@@ -79,15 +77,9 @@ and which ran at the same time. Top right, on the wall and zoomed in, is your pl
 usage: the 5-hour and weekly limits and when they reset. At launch it shows the last
 reading, dimmed, until Claude Code answers. Left of it, while agentlens is busy in the
 background for more than a moment, a line says with what: reading your sessions or your
-history (with how many of how many), checking your plan usage, getting advice (with what
-Claude is reading). Its bar fills by count, or against how long the same job took last
-time, kept in `~/.agentlens/durations.json`. It never shows a time.
-
-With [findings and advice](#findings-and-advice-experimental) on, your history is read in the
-background too, once the wall is filled in, so the report, profile, advice and rules screens
-open at once. Open one on history read more than a minute
-before and it shows that at once, reads it again quietly, and shows it again if anything
-changed.
+history (with how many of how many), or checking your plan usage. Its bar fills by count,
+or against how long the same job took last time, kept in `~/.agentlens/durations.json`. It
+never shows a time.
 
 | Key | Does |
 |---|---|
@@ -99,7 +91,6 @@ changed.
 | `w` | close a session you're done with (`w` again confirms): a background one stops, one in a terminal or an editor is hidden |
 | `v`, `t` | conversation or one line per event; tool calls on or off |
 | `H` | history |
-| `R` `A` `P` `L` | report, advice, profile, rules, once [turned on](#findings-and-advice-experimental) |
 | `U`, `,` | usage and what's using it; settings |
 | `D` | what [autopilot](#autopilot) answered for you, in every session |
 
@@ -149,15 +140,12 @@ Everything else is on the settings screen (`,`), saved as you pick:
   installed. Under the picker you can see the exact command it will run.
 - **Keys**: a preset, agentlens's own or Vim's (`h` `j` `k` `l` move between panes too,
   and Space goes to a session that needs you), and a way into the keys list.
-- **Experimental**: [autopilot](#autopilot) for the sessions agentlens runs, and
-  [findings and advice](#findings-and-advice-experimental), both off until you turn them
-  on. With findings and advice on, **What you're aiming for** shows too: your goals and a
-  deliberate working style.
+- **Experimental**: [autopilot](#autopilot) for the sessions agentlens runs, off until you
+  turn it on.
 - **Another PC**: Export saves your settings in one file, and Import on the other PC puts
   them in place of its own, straight away. That's the look, keys, how far back History goes
   and how long it keeps sessions, the usage meter, the mode for new sessions, autopilot
-  and your editor, with your goals, style, muted rules and thresholds. If the other PC doesn't have that
-  editor, the settings screen says so. Nothing else about the PC goes in it: not your spaces
+  and your editor. If the other PC doesn't have that editor, the settings screen says so. Nothing else about the PC goes in it: not your spaces
   (they're its folders), its Claude Code, or the sessions agentlens restores or hides, so the
   other PC keeps its own.
 
@@ -281,8 +269,7 @@ the middle of a turn, so it never sees them: those are always yours. After five 
 a row to one session, the next one is yours anyway.
 
 Its messages show as Autopilot's, in the pane and in History, and Claude is told you didn't
-type them. The report doesn't count them as yours, nor the seconds before them as Claude
-waiting on you. While it reads a reply, typing your own message goes instead of its answer,
+type them. While it reads a reply, typing your own message goes instead of its answer,
 and `x` stops it. It's off unless you turn it on. Each check is a short `claude -p` on
 Sonnet at medium effort, with no tools, so it counts against your plan: a few seconds,
 once for each turn that ends in a session it's on for.
@@ -316,82 +303,7 @@ their own copy, signed in as themselves. Anthropic's
 [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance.md) allows
 that, and [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
 covers it on Pro, Max, Team and Enterprise plans. That article also says how this use
-counts against your plan, including the `claude -p` that advice and the usage meter run.
-
-## Findings and advice (experimental)
-
-These are early versions, so they're off until you tick *Findings and advice* in the
-settings (`,`), under Experimental. Then `R`, `P`, `L` and `A` open them, and the
-`report`, `profile`, `rules`, `mute`, `advise` and `curate` commands run.
-
-The report (`R`) splits each session's time by what ended each gap: your prompt (waiting
-on you), a tool result, a foreground subagent's result, a background-task notification,
-or a message to an idle subagent. Gaps over 2 hours waiting on you or on background work
-count as away, and so does the time a session was closed before you resumed it.
-
-The report shows evidence, not advice:
-
-- **Findings grouped by cause.** A rule's findings are grouped by what they have in
-  common: a subagent's type, a session's project, the plugin a pipeline's subagents come
-  from. Twenty runs of one plugin's subagent waiting on a check after every file make one
-  line, with how often, how long in all, and the biggest case. Why a rule matters is on
-  the Rules screen (`L`); what to do about it is advice's job (`A`).
-- **The past 7 days against the 7 before.** Where the time went and how often each rule
-  fired in each, so you can see whether a change helped.
-- **Scripted runs left out.** Sessions with one prompt that start in a burst, ten or more
-  each within 10 minutes of the one before in one folder (or in sibling folders a script
-  made for each run), are a script running `claude -p` over a list. They'd make your
-  sessions look short and your baselines low, so the findings, baselines and profile
-  leave them out, and the report's header says how many there were.
-
-From that:
-
-1. **Your own baseline.** Rule thresholds can be percentiles of your history
-   (`value: p90`), so "unusually long" means unusual for you. A subagent is compared with
-   your other runs of its type: a reviewer and a planner take different times.
-2. **Derived style.** Steering (close/balanced/autonomous), parallelism and delegation,
-   computed from your sessions. If it contradicts what you said you want, the report says so.
-3. **Stated preferences.** Goals rank findings; a deliberate style mutes rules that would
-   nag you about it; per-rule thresholds and mutes.
-4. **Advice that follows up.** `A` has Claude read your profile, findings, plugins and team
-   packs, search the web for how teams work with agents now, and write advice for the kind
-   of work you do. It looks past Claude Code's own features, and each item says where the
-   change goes: your own setup, the repo, your team's plugin, or CI and tools outside
-   Claude Code. Each one is kept in `~/.agentlens/advice/`; the next starts by saying
-   whether those tips were taken up and helped, and suggests what you haven't tried rather
-   than what you already do.
-
-None of this reaches Claude. Rules aren't enforced; findings and advice are for you to act
-on, in your CLAUDE.md, your settings or how you work. Apart from the permission mode for
-sessions you start in the app, and [autopilot](#autopilot) answering them once you turn it
-on, agentlens never changes how Claude works.
-
-**Rule packs.** Practices change faster than tools ship, so rules are YAML. Each records
-its `source` and `reviewed` date, and rules older than the pack's `max_age_days` are
-flagged. Add a team pack with `--rules DIR`, `AGENTLENS_RULES`, or `rule_packs:` in your
-profile. A rule with the same id overrides the built-in one; `disabled: true` removes it.
-
-**What a team has written down.** Much of what a team learns can't be measured from
-sessions, such as where a skill's knowledge belongs or which writes need a person. A pack's
-`context:` entries hold those: a title, who it's `for`, and a practice with its sources.
-Advice gets them all and turns the ones that fit your work into items, saying which pack
-they come from. `agentlens rules` lists them under the rules.
-
-**Practices that moved.** `/insights` tells you how you use Claude Code's features. A
-rule's `practice` says how a way of working has moved: what you do, what it was, what to
-do now, from which Claude Code version, and when the old way still fits. Each claim is
-backed by a source quoted word for word, such as a changelog entry or a docs passage.
-Advice states these and checks them against the versions your sessions ran. It doesn't
-recall them, so it can be no more current than the pack.
-
-**Keeping a pack current.** `agentlens curate` has Claude read the pack's `watch` list and
-every source its rules cite. It reports, rule by rule, whether each still holds, needs an
-update (with the replacement YAML and the passage that says so) or should go. It also
-lists new practices the sources support. Quotes are checked first in code against each
-page as downloaded, because a model's summary of a page can't confirm a quote. Claude then
-explains the ones that no longer match. The report is saved in `~/.agentlens/curator/` for
-a person to review. The pack itself is never changed, so `reviewed` dates mean someone
-checked. `--pack FILE` curates a team pack.
+counts against your plan, including the `claude -p` that autopilot and the usage meter run.
 
 ## What leaves your machine
 
@@ -406,38 +318,14 @@ agentlens reads your sessions on your machine. The sessions you start in it are 
   ends, your last four messages to that session and its title, to Sonnet. That's
   conversation text, the session's own, which it sent when it ran. Off unless you turn it on.
 
-With findings and advice on, two more. For these `claude` gets two tools, web search and web
-fetch, and no others, so it can't read or change your files:
-
-- **Advice** sends:
-  - aggregate metrics
-  - the titles of the sessions, subagents and projects its findings mention (Claude
-    Code's summaries of what you asked)
-  - per project, the languages of files read, recent session titles, and which build and
-    Claude Code setup files exist in the repo and in the folders your sessions ran in (not
-    what's in them)
-  - which Claude Code features you've used, the models your subagents ran on, and the
-    Claude Code versions you run
-  - the plugins you've enabled, the marketplace each came from, on which events and tools
-    its hooks run (not what they run), and the names and descriptions of its skills,
-    subagents and commands (not their instructions)
-  - the practices behind its findings, and your team packs' entries, with their sources
-  - your last advice
-
-  Never code or conversation text. `agentlens advise --dry-run` prints exactly what would
-  be sent.
-- **The curator** sends the rule pack it checks, the names of the metrics rules can use, and
-  which of the pack's quotes it found on their pages. Nothing from your sessions. It checks
-  the quotes in code by downloading each page the pack cites: plain HTTPS requests that send
-  nothing. `agentlens curate --dry-run` prints what it would send.
+Findings and advice, early versions that are hidden and off, send more when they're turned
+on: [what they send](docs/findings-and-advice.md#what-they-send).
 
 ## Command line
 
 For scripting: `agentlens sessions`, `session <id>`, and `watch --once` for a plain table.
 `export [FILE]` and `import FILE` take your settings to another PC ([another PC](#spaces-and-settings)).
-With findings and advice on, also `report [--json]`, `profile`, `rules`, `mute <rule>`,
-`advise [--dry-run]` and `curate [--pack FILE] [--dry-run]`. Most take `--since 7d` and
-`--project NAME`.
+`sessions` takes `--since 7d` and `--project NAME`.
 
 ## How it's built
 
@@ -476,14 +364,19 @@ analysis.py full-history analysis shared by the app's report screens
 store.py    agentlens's own record of past sessions (~/.agentlens/history)
 ```
 
+`rules/`, `profile.py`, `trend.py`, `preferences.py`, `advise.py`, `curate.py`, `work.py`,
+`features.py` and `analysis.py` are findings and advice: early versions, hidden and off in
+the app until Ctrl+D on the settings screen shows their switch.
+[docs/findings-and-advice.md](docs/findings-and-advice.md) says what they do.
+
 ## Caveat
 
 The adapter reads Claude Code's transcript files, whose format is internal and can change
 in any release. The parser skips what it doesn't understand rather than failing. Each
 session it has read is kept in agentlens's own format in `~/.agentlens/history`: times,
 counts, titles and file paths, never the conversation, about 6 KB a session compressed.
-Sessions read before a format change keep reading the same after it, and History and the
-report reach back past Claude Code's 30 days. A hook plugin writing events in that format
+Sessions read before a format change keep reading the same after it, and History reaches
+back past Claude Code's 30 days. A hook plugin writing events in that format
 could add to the adapter later; it can't replace it, since hooks don't carry Claude's
 replies or token counts.
 

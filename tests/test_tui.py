@@ -405,9 +405,14 @@ def test_settings_screen_changes_the_look_as_you_pick(projects, tmp_path, isolat
         assert (saved.columns, saved.sidebar, saved.usage_minutes, saved.history_days, saved.history_keep_days) == \
             (3, False, 0.0, 30, 0)
 
-        # Goals and style are for the experimental screens, so they show once those are on.
-        assert not any(widget.display for widget in screen.query(".aims"))
-        screen.query_one("#set-findings", Checkbox).value = True
+        # Findings and advice are early versions: their switch is hidden until ctrl+d shows it. Goals
+        # and style are for them, so they show once those are on.
+        assert not any(widget.display for widget in screen.query(".findings-switch, .aims"))
+        await pilot.press("ctrl+d")
+        await pilot.pause(0.1)
+        assert all(widget.display for widget in screen.query(".findings-switch"))
+        assert screen.query_one("#set-findings", Checkbox).has_focus
+        await pilot.press("space")
         await pilot.pause(0.2)
         assert all(widget.display for widget in screen.query(".aims"))
         assert config_mod.load(cfg.path).findings_and_advice
@@ -447,10 +452,9 @@ def test_findings_and_advice_are_off_until_the_settings_turn_them_on(projects, t
         assert "history: every past session" in listed and "report: where your time went" not in listed
         assert "advice on how you work" not in listed and "in Rules: mute" not in listed
 
-        await pilot.press("escape", "comma")
+        await pilot.press("escape", "comma", "ctrl+d", "space")  # the hidden switch, shown and ticked
         await pilot.pause(0.2)
-        app.screen.query_one("#set-findings", Checkbox).value = True
-        await pilot.pause(0.1)
+        assert app.screen.query_one("#set-findings", Checkbox).value
         await app.workers.wait_for_complete()
         assert app.analysis is not None  # read now, so the screens open at once
         await pilot.press("escape", "R")

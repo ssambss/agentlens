@@ -22,9 +22,25 @@ def test_bad_since_is_a_usage_error(capsys):
 def test_findings_and_advice_commands_say_how_to_turn_them_on(isolated_home, capsys):
     for command in (["report"], ["profile"], ["rules"], ["mute", "subagent-too-small"], ["advise"], ["curate"]):
         assert cli.main(command) == 1
-        assert "experimental, and off. Turn them on in the app's settings (,), under Experimental" in \
-            " ".join(capsys.readouterr().out.split())  # wrapped
+        assert "early versions, and off. Their switch is hidden: Ctrl+D on the app's settings screen (,) shows it" \
+            in " ".join(capsys.readouterr().out.split())  # wrapped
     assert not (isolated_home / "profile.yaml").exists()  # nothing ran
+
+
+def test_findings_and_advice_commands_are_in_the_help_only_while_they_are_on(isolated_home, capsys):
+    from agentlens import config as config_mod
+
+    def listed() -> set[str]:
+        with pytest.raises(SystemExit):
+            cli.main(["--help"])
+        lines = capsys.readouterr().out.splitlines()
+        return {line.split()[0] for line in lines if line.startswith("    ") and line.split()}
+
+    commands = {"report", "profile", "rules", "mute", "advise", "curate"}
+    off = listed()
+    assert {"watch", "sessions", "export"} <= off and not commands & off
+    config_mod.save(config_mod.Config(path=isolated_home / "config.yaml", findings_and_advice=True))
+    assert commands <= listed()
 
 
 @pytest.mark.usefixtures("findings_and_advice")

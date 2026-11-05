@@ -85,8 +85,7 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
                frozenset({APP}) | HISTORY_SCREENS),
     ]),
     ("Look and settings", [
-        Action("settings", "comma", "settings: theme, colours, columns, keys, your editor, defaults, experimental "
-               "screens"),
+        Action("settings", "comma", "settings: theme, colours, columns, keys, your editor, defaults, autopilot"),
         Action("columns-more", "plus,equals_sign", "more columns"),
         Action("columns-fewer", "minus", "fewer columns"),
         Action("toggle-sidebar", "s", "show or hide the spaces sidebar"),

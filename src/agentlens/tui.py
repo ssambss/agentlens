@@ -3505,7 +3505,7 @@ class AgentlensApp(App):
             ("Only sessions that need you", "Toggle the needs-you filter", self.action_toggle_filter),
             ("Only sessions that are working", "Toggle the working filter: hides the idle and those waiting on you",
              self.action_toggle_working),
-            ("Settings", "Theme, colours, columns, keys, your editor, defaults, experimental screens; the files "
+            ("Settings", "Theme, colours, columns, keys, your editor, defaults, autopilot; the files "
              f"open from there too ({keys_mod.name('settings')})",
              self.action_settings),
             ("Keys", f"Every key, and changing them: Enter on one, then the new key ({keys_mod.name('show-keys')})",

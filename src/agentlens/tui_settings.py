@@ -61,7 +61,10 @@ def tilde(path: Path) -> str:
 class SettingsScreen(PacedScreen, ModalScreen[None]):
     """The look and the defaults. Esc, or the key that opened it, closes it."""
 
-    BINDINGS = [Binding("escape", "close", "Close"), keys_mod.binding("settings", "close", "Close")]
+    # ctrl+d: the switch for findings and advice, early versions nobody is working on, so it's hidden
+    # until you ask for it (and shows while they're on, to turn them off).
+    BINDINGS = [Binding("escape", "close", "Close"), keys_mod.binding("settings", "close", "Close"),
+                Binding("ctrl+d", "show_findings", "Findings and advice", show=False)]
     AUTO_FOCUS = "#set-theme"  # not the app's: there are no session panes here
 
     def __init__(self) -> None:
@@ -159,12 +162,18 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             yield Static(id="set-keys-note", classes="settings-note")
 
             yield Label("Experimental", classes="settings-section")
-            yield row("Screens", Checkbox("Findings and advice", cfg.findings_and_advice, compact=True,
-                                          id="set-findings"))
-            yield Static(f"Report ({keys_mod.name('report')}), Profile ({keys_mod.name('profile')}), Rules "
-                         f"({keys_mod.name('rules')}) and Advice ({keys_mod.name('advise')}): what your history "
-                         "says about how you work, and advice from Claude on it. Early versions.",
-                         classes="settings-note")
+            switch = [
+                row("Screens", Checkbox("Findings and advice", cfg.findings_and_advice, compact=True,
+                                        id="set-findings")),
+                Static(f"Report ({keys_mod.name('report')}), Profile ({keys_mod.name('profile')}), Rules "
+                       f"({keys_mod.name('rules')}) and Advice ({keys_mod.name('advise')}): what your history "
+                       "says about how you work, and advice from Claude on it. Early versions.",
+                       classes="settings-note"),
+            ]
+            for widget in switch:
+                widget.add_class("findings-switch")
+                widget.display = cfg.findings_and_advice
+                yield widget
             pilot = cfg.autopilot if cfg.autopilot in AUTOPILOT_LEVELS else "off"
             yield row("Autopilot", Select([(label, level) for level, label in AUTOPILOT_LEVELS.items()], value=pilot,
                                           allow_blank=False, compact=True, id="set-autopilot"))
@@ -333,6 +342,13 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
     def _keep(self, event: Select.Changed) -> None:
         if event.value != self._app.config.history_keep_days:
             self._set("history_keep_days", int(event.value))
+
+    def action_show_findings(self) -> None:
+        for widget in self.query(".findings-switch"):
+            widget.display = True
+        box = self.query_one("#set-findings", Checkbox)
+        box.focus()
+        box.scroll_visible(animate=False)
 
     @on(Checkbox.Changed)
     def _checked(self, event: Checkbox.Changed) -> None:

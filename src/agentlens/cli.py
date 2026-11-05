@@ -50,9 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     console = Console()
     if args.experimental:
         if not config_mod.load().findings_and_advice:
-            console.print("Report, profile, rules and advice are experimental, and off. Turn them on in the app's "
-                          "settings (,), under Experimental, or with findings_and_advice: true in "
-                          f"{config_mod.config_path()}.", highlight=False)
+            console.print("Report, profile, rules and advice are early versions, and off. Their switch is hidden: "
+                          "Ctrl+D on the app's settings screen (,) shows it, under Experimental. Or put "
+                          f"findings_and_advice: true in {config_mod.config_path()}.", highlight=False)
             return 1
     try:
         return args.func(args, console)
@@ -62,14 +62,16 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
+    # Findings and advice are early versions, hidden until you turn them on: so are their commands in
+    # the help, though one you run still says how to turn them on.
+    findings_and_advice = config_mod.load().findings_and_advice
     parser = argparse.ArgumentParser(prog="agentlens", description=__doc__)
     parser.add_argument("--version", action="version", version=f"agentlens {__version__}")
     sub = parser.add_subparsers(required=False, metavar="command")
 
     def add(name: str, func, help: str, data: bool = True, experimental: bool = False) -> argparse.ArgumentParser:
-        if experimental:  # findings and advice, off until the settings turn them on
-            help = f"{help} (experimental)"
-        p = sub.add_parser(name, help=help, description=help)
+        listed = {"help": help} if findings_and_advice or not experimental else {}  # without help: not listed
+        p = sub.add_parser(name, description=help, **listed)
         p.set_defaults(func=func, experimental=experimental)
         if data:
             p.add_argument("--since", type=_parse_since, help="only sessions active since e.g. 7d, 48h or 2026-10-01")

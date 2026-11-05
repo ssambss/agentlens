@@ -39,7 +39,7 @@ HEADER = """\
 # keys: the keys you changed, by what they do (? lists them; Enter on one changes it), in
 #   Textual's names: r, R, ctrl+w, f5, question_mark. A comma between two gives an action both.
 # findings_and_advice: the Report (R), Profile (P), Rules (L) and Advice (A) screens and their
-#   commands. Experimental, so off unless you turn it on.
+#   commands. Early versions, off unless you turn them on: Ctrl+D on the settings screen shows the switch.
 # autopilot: for the sessions agentlens runs, off, balanced or autonomous (p gives one its own).
 #   When a turn ends, Sonnet reads the reply and answers it for you, or leaves it to you. Experimental.
 """
