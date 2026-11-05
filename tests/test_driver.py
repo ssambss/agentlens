@@ -662,10 +662,11 @@ def test_a_session_started_in_a_repositorys_space_goes_by_its_folder(projects, t
             await pilot.pause(0.1)
             assert space() == "Opens in the acme space"
             await pilot.press(*"hi", "enter")
-            await settle(lambda: app.driven and all(d.session_id for d in app.driven.values()))
+            # Waits long enough for a full test run's load: the session's id comes from Claude Code.
+            await settle(lambda: app.driven and all(d.session_id for d in app.driven.values()), steps=1000)
             driven = next(iter(app.driven.values()))
             app.action_refresh()
-            await settle(lambda: driven.key in app.space_of)
+            await settle(lambda: driven.key in app.space_of, steps=1000)
             assert app.space_of[driven.key] == "acme"
             assert app.config.spaces[0].sessions == ["moved-1"]
 
