@@ -1,0 +1,314 @@
+# Core practice pack shipped with agentlens.
+#
+# Each rule: what it detects (`when`, over the metrics in agentlens/metrics.py),
+# why it matters (`advice`), where that comes from (`source`), and when someone
+# last checked it still holds (`reviewed`). Rules older than max_age_days are
+# reported as possibly stale. Team packs can override a rule by reusing its id,
+# or drop it with `disabled: true`.
+#
+# `value` can be a number or a percentile of the user's own history (p75, p90...).
+# `unless_preference` mutes the rule for people who stated that style on purpose.
+#
+# The report groups a rule's findings by what they have in common, `group_by`: a metric,
+# by default a subagent's `agent_type` or a session's `project` (days make one group).
+# `total` is a line like `message`, over each number summed across the group; the group's
+# findings are ranked by the first metric it names.
+#
+# A rule can carry a `practice`: how the way of working it detects has moved.
+#   status: current | changed | superseded | emerging
+#   was / now / still_fits: the old way, what to do now, when the old way still fits
+#   available_from: the Claude Code version from which `now` works by default
+#   actions: what someone can change in their own setup to work the new way: where (a
+#     CLAUDE.md, a subagent's definition, settings, a hook, how they prompt) and what
+#   sources: each a url, its date, and the passage that says so (`says`), quoted
+# Advice leads with the actions, fitted to the person's setup, and links the sources. It
+# states these instead of recalling them, so a change needs a source here first.
+#
+# `watch` is where the pack's owner looks for changes; `agentlens curate` reads it and
+# proposes edits to this file for a person to review. It never edits the pack itself.
+
+pack: core
+max_age_days: 90
+watch:
+  - url: https://code.claude.com/docs/en/changelog.md
+    for: releases that change a default or a feature a rule or practice names
+  - url: https://code.claude.com/docs/en/sub-agents.md
+    for: subagents, forks, nesting, foreground and background
+  - url: https://code.claude.com/docs/en/best-practices.md
+    for: recommended ways of working
+  - url: https://code.claude.com/docs/en/agents.md
+    for: running agents in parallel
+  - url: https://www.anthropic.com/engineering
+    for: Anthropic's engineering posts on building with agents
+
+rules:
+  - id: subagent-handoff-overlap
+    applies_to: subagent
+    severity: warn
+    goals: [speed, cost]
+    title: Subagent and main thread read the same files
+    when:
+      all:
+        - {metric: shared_reads, op: ">=", value: 5}
+        # A fork starts with the parent's conversation, so overlap there is
+        # verification, not rebuilt context. "fork" as the marker is assumed:
+        # no fork appeared in the transcripts this was written against.
+        - {metric: agent_type, op: "!=", value: fork}
+    message: '"{description}" ({agent_type}) read {shared_reads} files that the main thread also read.'
+    total: '{shared_reads:.0f} files read by both'
+    advice: >
+      That's the handoff tax: either a fresh subagent rebuilt context the main thread
+      already had, or the main thread re-read everything afterwards to check the work.
+      For context-heavy work, fork the conversation instead (the fork inherits it) or
+      do it inline, and ask for a list of what changed so checking it is cheap.
+      Fresh subagents pay off when they can work from a short brief and hand back a summary.
+    source: https://code.claude.com/docs/en/sub-agents.md
+    reviewed: 2026-10-24
+
+  - id: subagent-too-small
+    applies_to: subagent
+    severity: info
+    goals: [speed]
+    title: Subagent for a very small task
+    when:
+      all:
+        - {metric: tool_calls, op: "<=", value: 3}
+        - {metric: active_min, op: "<", value: 1.5}
+    message: '"{description}" made {tool_calls} tool call(s) in {active_min:.1f} min.'
+    advice: >
+      A subagent starts with a fresh context and has to hand its result back. For a
+      task this small, that overhead is usually bigger than the work; doing it in the
+      main thread is faster.
+    source: https://code.claude.com/docs/en/sub-agents.md
+    reviewed: 2026-10-24
+
+  - id: subagent-unusually-long
+    applies_to: subagent
+    severity: info
+    goals: [speed, cost]
+    title: Subagent ran much longer than others of its type
+    when:
+      all:
+        # Against your other runs of the same type (5 or more), not a percentile of all your
+        # subagents: that fires on a tenth of them whatever they did.
+        - {metric: active_vs_type_median, op: ">=", value: 3}
+        - {metric: active_min, op: ">=", value: 10}
+    message: '"{description}" worked {active_min:.0f} active min ({tool_calls} tool calls), {active_vs_type_median:.0f}× the {type_median_min:.0f} min your {agent_type} runs usually take.'
+    total: '{active_min:.0f} min working'
+    advice: >
+      Next to your other runs of this subagent, this one is an outlier. Long runs often
+      mean an open-ended brief: say what "done" looks like and what to return, or split
+      it into independent pieces that can run in parallel.
+    source: https://code.claude.com/docs/en/sub-agents.md
+    reviewed: 2026-10-28
+
+  - id: foreground-pipeline
+    applies_to: session
+    severity: warn
+    goals: [speed]
+    title: Subagents ran one after another while the main thread waited
+    when:
+      all:
+        # Only the main thread's own subagents: ones a subagent launched are nested-foreground-chain's.
+        - {metric: foreground_children, op: ">=", value: 3}
+        - {metric: foreground_waves, op: ">=", value: 3}
+    message: '"{title}": the main thread waited on {foreground_children} subagents in {foreground_waves} rounds ({child_types}), {delegated_min:.0f} min blocked.'
+    group_by: child_sources  # the plugin the subagents come from: one pipeline, whichever project it ran in
+    total: '{delegated_min:.0f} min blocked'
+    advice: >
+      A planner -> implementer -> reviewer chain pays for context at every hop: each
+      step re-reads what the previous one knew, and you wait for all of them. Keep
+      steps that share context in the main thread, and run only independent work as
+      subagents, in parallel or in the background.
+    source: https://code.claude.com/docs/en/sub-agents.md
+    reviewed: 2026-10-26
+    practice:
+      status: changed
+      was: >
+        Claude ran role subagents (planner, implementer, reviewer) from the main
+        conversation one after another, and the main conversation waited for each.
+      now: >
+        In VS Code and the desktop app the main conversation's subagents always run in
+        the background, and fork mode is on everywhere. Keep phases that share context
+        (plan, implement, test) in the main conversation, or hand one to a fork, which
+        inherits the conversation and its prompt cache. Keep fresh subagents for
+        self-contained work that can return a summary.
+      still_fits: >
+        A self-contained step with verbose output or its own tool limits. In claude -p and
+        the Agent SDK, where Claude can still choose to wait, a step whose result the next
+        one needs.
+      available_from: 2.1.302
+      actions:
+        - >
+          In the CLAUDE.md or skill that runs the pipeline, name the steps that stay in the
+          main conversation: the ones that need what was said before, such as planning and
+          implementing one change.
+        - >
+          For a step that needs the whole conversation so far, type `/subtask <the step>`. It
+          forks the conversation, runs in the background and reports back.
+        - >
+          Keep fresh subagents for steps that can work from a short brief and return a
+          summary, such as reviewing a finished diff. Launch independent ones in the same
+          message so they run together.
+      sources:
+        - url: https://code.claude.com/docs/en/changelog.md
+          date: 2026-10-16
+          says: >
+            Changed the desktop app and VS Code to always run the main
+            conversation's subagents in the background, as the terminal does, rather than
+            let Claude choose
+        - url: https://code.claude.com/docs/en/changelog.md
+          date: 2026-10-16
+          says: >
+            Changed fork subagents (`subagent_type: "fork"`) to be on by default in
+            `claude -p`, the Agent SDK, the desktop app and VS Code, as they already are in the terminal
+        - url: https://code.claude.com/docs/en/sub-agents.md#choose-between-subagents-and-main-conversation
+          says: >
+            Use the main conversation when: [...] Multiple phases share significant
+            context, such as planning, implementation, and testing
+        - url: https://code.claude.com/docs/en/sub-agents.md#how-forks-differ-from-other-subagents
+          says: >
+            Because of that reuse, a fork costs less than a fresh subagent for tasks that
+            need the same context.
+
+  - id: nested-foreground-chain
+    applies_to: subagent
+    severity: warn
+    goals: [speed, cost]
+    title: A subagent ran its own subagents one after another and waited for each
+    when:
+      all:
+        - {metric: foreground_children, op: ">=", value: 3}
+        - {metric: foreground_waves, op: ">=", value: 3}
+    message: '"{description}" ({agent_type}) waited on {foreground_children} subagents of its own in {foreground_waves} rounds ({child_types}), {delegated_min:.0f} min blocked.'
+    total: '{delegated_min:.0f} min blocked'
+    advice: >
+      Each nested subagent starts fresh, so a check after every step rebuilds the context
+      each time while the subagent that launched it waits. Launch independent checks
+      together so the waits overlap, and move checks a tool can make (lint, types, tests)
+      into hooks.
+    source: https://code.claude.com/docs/en/sub-agents.md#let-subagents-spawn-their-own-subagents
+    reviewed: 2026-10-26
+    practice:
+      status: changed
+      was: >
+        A delegated subagent ran a review or check subagent after each step, one at a time,
+        and waited for each.
+      now: >
+        A subagent's own subagents run in the foreground by default, so the one that
+        launched them waits for every report. Nesting is meant for work that splits into
+        parallel subtasks, so launch independent checks in one round. Checks a tool can
+        make belong in hooks, which run every time without a model deciding to.
+      still_fits: >
+        A check that needs judgment and the result of the step before it, where the next
+        step depends on the verdict.
+      available_from: 2.1.302
+      actions:
+        - >
+          If the checks don't depend on each other, say so in the brief of the subagent that
+          launches them, for example "launch the checks for all files in one message".
+        - >
+          Move the checks a tool can make (compile, lint, types, secret scan, tests) into a
+          PostToolUse hook on Edit|Write. For a plugin's subagents the hook goes in the
+          plugin's hooks/hooks.json, because plugin subagents ignore `hooks` in their own
+          frontmatter.
+        - >
+          If a hook already runs those checks, take them out of the reviewing subagent's
+          brief, so it only does the part that needs judgment.
+      sources:
+        - url: https://code.claude.com/docs/en/changelog.md
+          date: 2026-10-16
+          says: >
+            a subagent's own Agent calls in `claude -p`, the Agent SDK, the desktop
+            app and VS Code now run in the foreground by default
+        - url: https://code.claude.com/docs/en/sub-agents.md#let-subagents-spawn-their-own-subagents
+          says: >
+            Nested subagents suit a delegated task that itself splits into parallel
+            subtasks, such as a reviewer subagent that dispatches a verifier per finding.
+            By default the spawning subagent waits for each nested subagent's report
+        - url: https://code.claude.com/docs/en/hooks-guide.md
+          says: >
+            Claude Code runs them at specific points in its lifecycle, which gives you
+            deterministic control: certain actions always happen rather than relying on
+            the LLM to choose to run them.
+        - url: https://code.claude.com/docs/en/sub-agents.md#write-subagent-files
+          says: >
+            For security reasons, plugin subagents don't support the `hooks`, `mcpServers`,
+            or `permissionMode` frontmatter fields. These fields are ignored when loading
+            agents from a plugin.
+
+  - id: waiting-on-you-dominates
+    applies_to: session
+    severity: info
+    goals: [speed, focus]
+    title: Session spent more time waiting on you than working
+    when:
+      all:
+        - {metric: waiting_share, op: ">=", value: 0.5}
+        - {metric: human_prompts, op: ">=", value: 5}
+        - {metric: waiting_on_you_min, op: ">=", value: 30}
+    message: '"{title}" ({project}): waiting on you {waiting_on_you_min:.0f} min vs {active_min:.0f} min working.'
+    total: '{waiting_on_you_min:.0f} min waiting on you'
+    advice: >
+      With several sessions open, you are the bottleneck. Keep the ones that need you
+      in one place rather than checking each VS Code tab: agent view (`claude agents`)
+      lists background sessions by whether they need input, but interactive ones appear
+      there only after you background them with `/bg`. Where you can, answer with
+      everything the agent needs for its next long stretch rather than one step at a time.
+    source: https://code.claude.com/docs/en/agent-view.md
+    reviewed: 2026-10-26
+
+  - id: close-steering
+    applies_to: session
+    severity: info
+    goals: [speed]
+    title: Many short turns between your prompts
+    unless_preference: {steering: close}
+    when:
+      all:
+        - {metric: human_prompts, op: ">=", value: 15}
+        - {metric: active_per_prompt_min, op: "<", value: 1.0}
+    message: '"{title}": {human_prompts} prompts, median {active_per_prompt_min:.1f} min of agent work after each.'
+    total: '{human_prompts:.0f} prompts'
+    advice: >
+      For well-understood tasks, a fuller brief up front (goal, constraints, how to
+      verify) lets the agent run longer without you. If you steer closely on purpose,
+      set `style: {steering: close}` in your profile and this rule goes quiet.
+    source: https://code.claude.com/docs/en/best-practices.md
+    reviewed: 2026-10-24
+
+  - id: repeated-compaction
+    applies_to: session
+    severity: warn
+    goals: [quality]
+    title: Context was compacted repeatedly
+    when:
+      all:
+        - {metric: compactions, op: ">=", value: 2}
+    message: '"{title}" was compacted {compactions} times, at a median {compacted_at_ktokens:.0f}K tokens of context.'
+    total: '{compactions:.0f} compactions'
+    advice: >
+      Each compaction summarizes earlier details away, so long sessions quietly lose
+      precision. Start a fresh session per task (/clear between tasks), compact on your
+      own terms with `/compact <what to keep>` before the window fills, and push verbose
+      work (logs, test output, broad searches) into subagents so it never enters the
+      main context.
+    source: https://code.claude.com/docs/en/sub-agents.md
+    reviewed: 2026-10-24
+
+  - id: many-waiting-at-once
+    applies_to: day
+    severity: warn
+    goals: [focus, speed]
+    title: Several sessions waiting on you at the same time
+    when:
+      all:
+        - {metric: peak_waiting_on_you, op: ">=", value: 3}
+    message: 'On {date}, {peak_waiting_on_you} sessions were waiting on you at once ({minutes_2plus_waiting:.0f} min with 2 or more waiting).'
+    total: '{minutes_2plus_waiting:.0f} min with 2 or more waiting'
+    advice: >
+      More parallel sessions than you can attend to just queue work behind you. Run
+      fewer interactive sessions at once, or hand the extra work to background agents
+      that don't need you until they finish.
+    source: https://code.claude.com/docs/en/agents.md
+    reviewed: 2026-10-24

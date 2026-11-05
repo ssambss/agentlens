@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from panopsis import cli, config as config_mod, preferences, settings_file
-from panopsis.config import Config, Space
+from agentlens import cli, config as config_mod, preferences, settings_file
+from agentlens.config import Config, Space
 
 
 def this_pc(home: Path) -> Config:
@@ -31,7 +31,7 @@ def this_pc(home: Path) -> Config:
 
 
 def test_settings_go_to_another_pc_and_nothing_of_this_one_does(isolated_home, tmp_path, monkeypatch):
-    exported = settings_file.export(this_pc(isolated_home), tmp_path / "panopsis-settings.yaml")
+    exported = settings_file.export(this_pc(isolated_home), tmp_path / "agentlens-settings.yaml")
     text = exported.read_text(encoding="utf-8").split(settings_file.HEADER)[1]  # past the comment, which says so
     for local in ("tv-app", "TV", "e04cd49e", "abc-1", "def-2", "Fix the remote", "claude.exe", "team/rules",
                   "last_", "spaces"):
@@ -39,7 +39,7 @@ def test_settings_go_to_another_pc_and_nothing_of_this_one_does(isolated_home, t
 
     # The other PC has its own sessions, spaces and folders, and keeps them; the editor is yours.
     other = tmp_path / "other-pc"
-    monkeypatch.setenv("PANOPSIS_HOME", str(other))
+    monkeypatch.setenv("AGENTLENS_HOME", str(other))
     config_mod.save(Config(path=other / "config.yaml", editor="zed", last_folder="C:/src",
                            spaces=[Space("Mine", paths=["C:/src/mine"])],
                            driven_sessions=[{"session_id": "xyz-9", "cwd": "C:/src", "title": "", "mode": "default"}]))
@@ -87,10 +87,10 @@ def test_export_goes_where_you_say_and_replaces_only_an_export(isolated_home, tm
     notes.write_text("my notes", encoding="utf-8")
     capsys.readouterr()
     assert cli.main(["export", str(notes)]) == 1
-    assert "is already there, and isn't panopsis settings" in " ".join(capsys.readouterr().out.split())
+    assert "is already there, and isn't agentlens settings" in " ".join(capsys.readouterr().out.split())
     assert notes.read_text(encoding="utf-8") == "my notes"
 
-    monkeypatch.setenv("PANOPSIS_HOME", str(tmp_path / "other-pc"))
+    monkeypatch.setenv("AGENTLENS_HOME", str(tmp_path / "other-pc"))
     assert cli.main(["import", str(usb)]) == 0  # on the other PC, the folder is enough
     assert config_mod.load().theme == "nord"
 
@@ -115,9 +115,9 @@ def test_import_takes_only_what_may_come_from_another_pc(isolated_home, tmp_path
 
 @pytest.mark.parametrize("content, error", [
     (None, "No file at"),
-    ("theme: nord\n", "isn't a settings file panopsis exported"),
+    ("theme: nord\n", "isn't a settings file agentlens exported"),
     ("settings: [unclosed\n", "Couldn't read"),
-    ("settings: {refresh_seconds: often}\n", "has a setting panopsis can't read"),
+    ("settings: {refresh_seconds: often}\n", "has a setting agentlens can't read"),
 ])
 def test_import_refuses_a_file_it_cant_take(isolated_home, tmp_path, capsys, content, error):
     path = tmp_path / "settings.yaml"

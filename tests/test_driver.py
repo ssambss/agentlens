@@ -19,9 +19,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from panopsis.adapters.claude_transcripts import KEEP_PLANNING
-from panopsis.driver import APPROVAL, PERMISSION, QUESTION, WAITING, DrivenSession
-from panopsis.tui import PanopsisApp, DrivenPane
+from agentlens.adapters.claude_transcripts import KEEP_PLANNING
+from agentlens.driver import APPROVAL, PERMISSION, QUESTION, WAITING, DrivenSession
+from agentlens.tui import AgentlensApp, DrivenPane
 
 
 class FakeClaude:
@@ -154,7 +154,7 @@ def test_claude_code_titles_a_session_run_here(monkeypatch):
 
 def test_a_resumed_session_with_no_name_takes_its_title_and_one_without_a_title_keeps_claude_codes():
     async def go():
-        d, fakes = make({}, resume="sess-42")  # from before panopsis named its sessions
+        d, fakes = make({}, resume="sess-42")  # from before agentlens named its sessions
         d.title = "Parser performance"
         await d.start()
         await settle(lambda: fakes[0].controls)
@@ -176,7 +176,7 @@ def test_a_resumed_session_with_a_name_keeps_it(monkeypatch):
 
     async def go():
         d, fakes = make({}, resume="sess-42")
-        d.title, d.known_as = "Parser performance", "parser"  # saved in Claude Code: panopsis's, or your /rename
+        d.title, d.known_as = "Parser performance", "parser"  # saved in Claude Code: agentlens's, or your /rename
         await d.start()
         await d.send("and the tokenizer?")
         await settle(lambda: d.titled)
@@ -188,7 +188,7 @@ def test_a_resumed_session_with_a_name_keeps_it(monkeypatch):
 
 def test_a_paused_session_woken_for_another_starts_under_its_name_and_a_message_waits_for_it():
     async def go():
-        d, fakes = make({}, resume="sess-42")  # from before panopsis named its sessions, paused since
+        d, fakes = make({}, resume="sess-42")  # from before agentlens named its sessions, paused since
         d.title = "Parser performance"
         d.park([])
         await d.wake("ready · started so Fix the build can message it")
@@ -250,7 +250,7 @@ def test_too_little_to_title_asks_again_with_the_next_message(monkeypatch):
 def test_a_resumed_session_is_titled_from_the_message_it_is_called_by():
     async def go():
         d, fakes = make({}, resume="sess-42")
-        d.title = "there are still question marks displayed on my screen in panopsis. for"
+        d.title = "there are still question marks displayed on my screen in agentlens. for"
         d.park([])
         await d.send("any luck?")
         await settle(lambda: fakes and len(fakes[0].controls) == 2)
@@ -409,7 +409,7 @@ def test_new_session_typed_in_a_pane(projects, tmp_path):
         fakes.append(FakeClaude(options, scripts))
         return fakes[-1]
 
-    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
     app.client_factory = factory
 
     async def go():
@@ -454,14 +454,14 @@ def test_new_session_typed_in_a_pane(projects, tmp_path):
 def test_new_session_folder_picked_with_the_mouse(projects, tmp_path):
     from pathlib import Path
 
-    from panopsis.tui_driven import FolderPickerScreen, FolderTree, NewSessionScreen
+    from agentlens.tui_driven import FolderPickerScreen, FolderTree, NewSessionScreen
 
     work = tmp_path / "work"
     (work / "repo" / "src").mkdir(parents=True)
     (work / "repo" / ".git").mkdir()
     (work / "other" / "docs").mkdir(parents=True)
     (work / "notes.txt").write_text("x", encoding="utf-8")
-    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -516,8 +516,8 @@ def test_new_session_dialog_says_which_space_it_opens_in(projects, tmp_path, iso
     dialog says which space, and doesn't offer the folder of a session in another space."""
     from pathlib import Path
 
-    from panopsis import config as config_mod
-    from panopsis.tui_driven import NewSessionScreen
+    from agentlens import config as config_mod
+    from agentlens.tui_driven import NewSessionScreen
 
     repo, acme = tmp_path / "repo", tmp_path / "acme"
     repo.mkdir()
@@ -525,7 +525,7 @@ def test_new_session_dialog_says_which_space_it_opens_in(projects, tmp_path, iso
     config_mod.save(config_mod.Config(path=isolated_home / "config.yaml", spaces=[
         config_mod.Space("AcmeDev"), config_mod.Space("Docs", paths=[str(acme)])]))
     entry = {"sessionId": "vs-1", "status": "idle", "name": "vscode-1", "kind": "interactive", "cwd": str(repo)}
-    app = PanopsisApp(provider=lambda: [entry], root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: [entry], root=projects, interval=60)
     app.client_factory = lambda options: FakeClaude(options, {})
 
     async def go():
@@ -582,8 +582,8 @@ def test_new_session_in_a_closed_space_works_where_its_sessions_did(projects, tm
 
     from conftest import common, human, write_jsonl
 
-    from panopsis import config as config_mod
-    from panopsis.tui_driven import NewSessionScreen
+    from agentlens import config as config_mod
+    from agentlens.tui_driven import NewSessionScreen
 
     repo, server, lens, acme = (tmp_path / name for name in ("repo", "server", "lens", "AcmeDev"))
     for folder in (repo, server, lens, acme / ".git", acme / "tools"):
@@ -601,7 +601,7 @@ def test_new_session_in_a_closed_space_works_where_its_sessions_did(projects, tm
     worked("mix-2", server, 4)
     config_mod.save(config_mod.Config(path=isolated_home / "config.yaml", last_folder=str(repo), spaces=[
         config_mod.Space("AcmeDev", sessions=["moved-1", "moved-2"]), config_mod.Space("Mixed", sessions=["mix-1", "mix-2"])]))
-    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
     app.client_factory = lambda options: FakeClaude(options, {})
 
     async def go():
@@ -631,8 +631,8 @@ def test_new_session_in_a_closed_space_works_where_its_sessions_did(projects, tm
 
 import subprocess as _subprocess  # noqa: E402
 
-from panopsis import tui as tui_mod  # noqa: E402
-from panopsis.tui_driven import ChoiceScreen, DetachScreen  # noqa: E402
+from agentlens import tui as tui_mod  # noqa: E402
+from agentlens.tui_driven import ChoiceScreen, DetachScreen  # noqa: E402
 
 
 def app_with_session(projects, tmp_path, scripts=None, info=None):
@@ -645,7 +645,7 @@ def app_with_session(projects, tmp_path, scripts=None, info=None):
         fakes[-1].info = info
         return fakes[-1]
 
-    app = PanopsisApp(provider=lambda: [], root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
     app.client_factory = factory
     return app, folder, fakes
 
@@ -783,7 +783,7 @@ def test_closing_takes_the_pane_off_the_wall_while_claude_code_shuts_down(projec
         fakes[-1].exited = asyncio.Event()
         return fakes[-1]
 
-    app = PanopsisApp(provider=lambda: list(listed), root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: list(listed), root=projects, interval=60)
     app.client_factory = factory
 
     async def refresh(pilot):
@@ -795,7 +795,7 @@ def test_closing_takes_the_pane_off_the_wall_while_claude_code_shuts_down(projec
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
             driven = await started(app, pilot, folder)
-            # Claude Code lists the session it runs for panopsis, as long as it's running.
+            # Claude Code lists the session it runs for agentlens, as long as it's running.
             listed.append({"sessionId": driven.session_id, "status": "idle", "name": "x", "kind": "interactive",
                            "cwd": str(folder)})
             await pilot.press("w", "w")
@@ -984,7 +984,7 @@ def test_bringing_a_background_session_here_says_what_is_happening(projects, tmp
     folder.mkdir()
     listed = [{"sessionId": "sess-42", "id": "sess4200", "status": "idle", "name": "bg-1", "kind": "background",
                "cwd": str(folder)}]
-    app = PanopsisApp(provider=lambda: list(listed), root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: list(listed), root=projects, interval=60)
     app.client_factory = lambda options: FakeClaude(options, {})
     stopped, notes = [], []
 
@@ -1021,7 +1021,7 @@ def test_bringing_a_background_session_here_says_what_is_happening(projects, tmp
 
 
 def test_bringing_a_session_here_from_its_zoom_stays_in_it(projects, tmp_path, monkeypatch):
-    # Its pane is replaced by the one panopsis runs. Focus went to the session beside it, as
+    # Its pane is replaced by the one agentlens runs. Focus went to the session beside it, as
     # when one is closed, so the zoom opened again on that one and its alert was taken as seen.
     folder = tmp_path / "repo"
     folder.mkdir()
@@ -1029,7 +1029,7 @@ def test_bringing_a_session_here_from_its_zoom_stays_in_it(projects, tmp_path, m
                "cwd": str(folder), "startedAt": 1_000},
               {"sessionId": "beside", "status": "idle", "name": "beside-1", "kind": "interactive",
                "cwd": str(folder), "startedAt": 2_000}]
-    app = PanopsisApp(provider=lambda: list(listed), root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: list(listed), root=projects, interval=60)
     app.client_factory = lambda options: FakeClaude(options, {})
 
     def fake_stop(claude, session_id, name="", job_id=""):
@@ -1071,7 +1071,7 @@ def test_a_session_brought_here_mid_turn_carries_on(projects, tmp_path, monkeypa
     folder.mkdir()
     listed = [{"sessionId": "sess-42", "id": "sess4200", "status": status, "name": "bg-1", "kind": "background",
                "cwd": str(folder)}]
-    app = PanopsisApp(provider=lambda: list(listed), root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: list(listed), root=projects, interval=60)
     fakes = []
     app.client_factory = lambda options: fakes.append(FakeClaude(options, {})) or fakes[-1]
     monkeypatch.setattr(tui_mod, "stop_background", lambda *a, **kw: (listed.clear(), (True, ""))[1])
@@ -1130,16 +1130,16 @@ def test_messages_sent_while_working_are_marked_and_state_follows_new_turns():
 
 
 def test_large_messages_from_claude_code_are_read():
-    from panopsis.driver import MAX_MESSAGE_BYTES
+    from agentlens.driver import MAX_MESSAGE_BYTES
 
     d, _ = make({})
     assert d.options().max_buffer_size == MAX_MESSAGE_BYTES > 1024 * 1024  # an image result can pass 1 MiB
 
 
 def test_when_claude_code_stops_the_session_pauses_and_your_next_message_continues_it():
-    from panopsis.driver import MAX_MESSAGE_BYTES, PAUSED
-    from panopsis.feed import Palette
-    from panopsis.tui_driven import placeholder, request_card
+    from agentlens.driver import MAX_MESSAGE_BYTES, PAUSED
+    from agentlens.feed import Palette
+    from agentlens.tui_driven import placeholder, request_card
 
     oversized = Exception(f"JSON message exceeded maximum buffer size of {MAX_MESSAGE_BYTES} bytes")
 
@@ -1151,7 +1151,7 @@ def test_when_claude_code_stops_the_session_pauses_and_your_next_message_continu
         d.allow()
         await settle(lambda: d.state == PAUSED)
         assert fakes[0].closed  # shut down, so only one client writes to the conversation
-        assert d.pending is None and d.resume == "sess-42" and "more than panopsis reads" in d.error
+        assert d.pending is None and d.resume == "sess-42" and "more than agentlens reads" in d.error
         assert d.events[-1].kind == "error"
         card = request_card(d, Palette()).plain
         assert "type to continue it here" in card and "Session closed" not in placeholder(d)
@@ -1164,7 +1164,7 @@ def test_when_claude_code_stops_the_session_pauses_and_your_next_message_continu
 
 
 def test_claude_code_exiting_or_failing_to_start_again_leaves_the_session_continuable():
-    from panopsis.driver import PAUSED
+    from agentlens.driver import PAUSED
 
     async def go():
         d, fakes = make({"bye": [None]})
@@ -1187,7 +1187,7 @@ def test_claude_code_exiting_or_failing_to_start_again_leaves_the_session_contin
 
 
 def test_a_session_that_stops_before_its_conversation_starts_fails():
-    from panopsis.driver import FAILED
+    from agentlens.driver import FAILED
 
     class Crashes(FakeClaude):
         async def connect(self):
@@ -1217,9 +1217,9 @@ def test_the_old_claude_code_ending_late_does_not_stop_the_new_one():
 
 
 def test_claude_codes_stderr_stays_off_the_screen_and_explains_a_failure():
-    """Left on panopsis's terminal, Claude Code's stderr lands on the screen, and the
+    """Left on agentlens's terminal, Claude Code's stderr lands on the screen, and the
     "show the cursor" it sends on exit leaves a stray cursor there."""
-    from panopsis.driver import FAILED
+    from agentlens.driver import FAILED
 
     class Crashing(FakeClaude):
         async def receive_messages(self):
@@ -1272,8 +1272,8 @@ def test_a_paused_session_shows_your_message_before_claude_code_has_started():
 
 from conftest import common as _common, human as _human, text as _text, write_jsonl as _write  # noqa: E402
 
-from panopsis import config as _config  # noqa: E402
-from panopsis.driver import PAUSED  # noqa: E402
+from agentlens import config as _config  # noqa: E402
+from agentlens.driver import PAUSED  # noqa: E402
 
 
 def test_sessions_come_back_paused_with_their_conversation(projects, tmp_path, isolated_home):
@@ -1311,7 +1311,7 @@ def test_sessions_come_back_paused_with_their_conversation(projects, tmp_path, i
     asyncio.run(go())
 
 
-def test_zoom_on_a_session_panopsis_runs_lists_its_subagents_and_context(projects, tmp_path, isolated_home):
+def test_zoom_on_a_session_agentlens_runs_lists_its_subagents_and_context(projects, tmp_path, isolated_home):
     from conftest import tool_result, tool_use
 
     folder = tmp_path / "repo"
@@ -1358,7 +1358,7 @@ def test_sessions_come_back_under_claude_codes_title(projects, tmp_path, isolate
         _human(0, "can we add a parser?"), {"type": "ai-title", "aiTitle": "Repo parser support"},
         {**_text(1, "Added."), "cwd": tree}], "sess-42", cwd=str(folder)))
     cfg = _config.Config(path=isolated_home / "config.yaml")
-    cfg.remember_driven("sess-42", str(folder), "can we add a parser?", "default")  # saved by an older panopsis
+    cfg.remember_driven("sess-42", str(folder), "can we add a parser?", "default")  # saved by an older agentlens
     _config.save(cfg)
     app, _, _ = app_with_session(projects, tmp_path)
 
@@ -1375,7 +1375,7 @@ def test_sessions_come_back_under_claude_codes_title(projects, tmp_path, isolate
     asyncio.run(go())
 
 
-def test_a_session_from_before_panopsis_named_its_sessions_takes_its_title_wherever_it_continues(
+def test_a_session_from_before_agentlens_named_its_sessions_takes_its_title_wherever_it_continues(
         projects, tmp_path, monkeypatch):
     app, folder, fakes = app_with_session(projects, tmp_path)
     _write(projects / "repo" / "s-old.jsonl", _common([
@@ -1418,7 +1418,7 @@ def test_a_session_from_before_panopsis_named_its_sessions_takes_its_title_where
 def test_a_session_run_here_takes_its_title_once_claude_code_gives_it_one(projects, tmp_path, isolated_home):
     app, folder, _ = app_with_session(projects, tmp_path)
     listed = []
-    app.provider = lambda: list(listed)  # Claude Code lists the sessions panopsis runs as open ones too
+    app.provider = lambda: list(listed)  # Claude Code lists the sessions agentlens runs as open ones too
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -1478,7 +1478,7 @@ def test_remembered_session_open_elsewhere_comes_back_once_it_is_not(projects, t
     cfg.remember_driven("sess-42", str(folder), "Parser work", "default")
     _config.save(cfg)
     listed = [{"sessionId": "sess-42", "status": "idle", "name": "vscode-1", "kind": "interactive", "cwd": str(folder)}]
-    app = PanopsisApp(provider=lambda: list(listed), root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: list(listed), root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -1487,7 +1487,7 @@ def test_remembered_session_open_elsewhere_comes_back_once_it_is_not(projects, t
             assert not app.driven  # it's in VS Code now; two clients must not share it
             saved = _config.load(isolated_home / "config.yaml").driven_sessions
             assert [d["session_id"] for d in saved] == ["sess-42"]  # but it isn't forgotten
-            # Closed there, or listed only for a moment after the panopsis that ran it quit.
+            # Closed there, or listed only for a moment after the agentlens that ran it quit.
             listed.clear()
             for _ in range(2):  # back once, not again with each refresh
                 app.action_refresh()
@@ -1550,13 +1550,13 @@ def test_session_actions_work_while_typing_in_its_box(projects, tmp_path):
 import json as _json  # noqa: E402
 from pathlib import Path as _Path  # noqa: E402
 
-from panopsis.driver import folder_trust as _folder_trust  # noqa: E402
+from agentlens.driver import folder_trust as _folder_trust  # noqa: E402
 
 
 def test_closing_a_vscode_pane_hides_it_until_shown_again(projects, isolated_home):
     entry = {"sessionId": "vs-1", "status": "idle", "name": "skyline-84", "kind": "interactive",
              "cwd": r"D:\work\skyline"}
-    app = PanopsisApp(provider=lambda: [entry], root=projects, interval=60)
+    app = AgentlensApp(provider=lambda: [entry], root=projects, interval=60)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -1611,8 +1611,8 @@ def test_folder_trust_reads_claude_code_config(tmp_path):
 
 from claude_agent_sdk import ConversationResetMessage, RateLimitEvent, RateLimitInfo  # noqa: E402
 
-from panopsis.tui import UsageScreen  # noqa: E402
-from panopsis.tui_driven import CommandMenu, Composer, ComposerInput, as_live  # noqa: E402
+from agentlens.tui import UsageScreen  # noqa: E402
+from agentlens.tui_driven import CommandMenu, Composer, ComposerInput, as_live  # noqa: E402
 
 
 def command_output(t):
@@ -1668,7 +1668,7 @@ def test_slash_lists_the_sessions_commands_and_their_arguments(projects, tmp_pat
 
 
 def test_an_at_names_a_session_as_claude_code_does_and_finds_it_by_what_the_wall_calls_it():
-    from panopsis.tui_driven import Mention, mention_at, suggest_mentions
+    from agentlens.tui_driven import Mention, mention_at, suggest_mentions
 
     assert mention_at("ask @sh") == "sh" and mention_at("@") == "" and mention_at("ask\n@sh") == "sh"
     assert mention_at("mail me@work.com") is None  # not after a space
@@ -1701,7 +1701,7 @@ def test_at_lists_your_other_sessions_and_puts_in_the_name_claude_code_knows_the
         async with app.run_test(size=(160, 44)) as pilot:
             driven = await started(app, pilot, folder)
             listed.append({"sessionId": "sess-42", "status": "idle", "name": "repo-4f", "kind": "interactive",
-                           "cwd": str(folder)})  # this one too, as Claude Code lists the sessions panopsis runs
+                           "cwd": str(folder)})  # this one too, as Claude Code lists the sessions agentlens runs
             app.action_refresh()
             await app.workers.wait_for_complete()
             await pilot.pause(0.1)
@@ -1773,7 +1773,7 @@ def test_at_names_a_session_paused_here_and_your_message_starts_it_first(project
 
 
 def test_a_message_names_the_sessions_it_mentions_and_nothing_else():
-    from panopsis.tui_driven import Mention, mention_note, mentions_in
+    from agentlens.tui_driven import Mention, mention_note, mentions_in
 
     shared = Mention("Shared links", "Shared links", "tubeless · shared-links", "idle")
     build = Mention("tubeless-d4", "Fix the Android build", "tubeless", "working")
@@ -1806,7 +1806,7 @@ def test_typing_a_message_leaves_the_line_under_the_box_alone(projects, tmp_path
 def test_zoomed_in_what_streams_onto_the_wall_beneath_waits_until_it_shows(projects, tmp_path, monkeypatch):
     from textual._compositor import Compositor
 
-    from panopsis.tui import ZoomScreen
+    from agentlens.tui import ZoomScreen
 
     scripts = {"go": [partial("Underneath "), partial("the "), text("Underneath the zoom, all along."), done()]}
     app, folder, fakes = app_with_session(projects, tmp_path, scripts)
@@ -1833,7 +1833,7 @@ def test_zoomed_in_what_streams_onto_the_wall_beneath_waits_until_it_shows(proje
     asyncio.run(go())
 
 
-def test_usage_and_exit_are_done_by_panopsis(projects, tmp_path, server_info):
+def test_usage_and_exit_are_done_by_agentlens(projects, tmp_path, server_info):
     app, folder, fakes = app_with_session(projects, tmp_path, info=server_info)
 
     async def go():
@@ -1926,7 +1926,7 @@ def test_sessions_keep_the_usage_meter_current(projects, tmp_path):
 
 # Pasting images into the box ------------------------------------------------------------------
 
-from panopsis.clipboard import PastedImage as _PastedImage  # noqa: E402
+from agentlens.clipboard import PastedImage as _PastedImage  # noqa: E402
 
 
 def _image(width=1200, height=800):
@@ -1990,7 +1990,7 @@ def test_alt_v_pastes_an_image_into_the_box_and_backspace_takes_it_off(projects,
 def test_the_new_session_dialog_takes_images_with_the_first_message(projects, tmp_path, clipboard_images):
     from textual.widgets import Static
 
-    from panopsis.tui_driven import NewSessionScreen
+    from agentlens.tui_driven import NewSessionScreen
 
     app, folder, fakes = app_with_session(projects, tmp_path, {"see this": [text("Seen."), done()]})
     app._new_session_folder = lambda: str(folder)
@@ -2175,8 +2175,8 @@ from datetime import timedelta as _timedelta  # noqa: E402
 from claude_agent_sdk import ToolResultBlock, UserMessage  # noqa: E402
 from rich.cells import cell_len as _cell_len  # noqa: E402
 
-from panopsis.feed import Palette as _Palette  # noqa: E402
-from panopsis.tui_driven import SPINNER, activity_line, elapsed  # noqa: E402
+from agentlens.feed import Palette as _Palette  # noqa: E402
+from agentlens.tui_driven import SPINNER, activity_line, elapsed  # noqa: E402
 
 
 def streamed(event, subagent=None):

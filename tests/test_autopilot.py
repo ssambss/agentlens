@@ -1,4 +1,4 @@
-"""Autopilot: what it asks Sonnet, and how a session panopsis runs acts on the answer. No real CLI."""
+"""Autopilot: what it asks Sonnet, and how a session agentlens runs acts on the answer. No real CLI."""
 
 import asyncio
 import json
@@ -10,13 +10,13 @@ from rich.text import Text
 from conftest import at, common, human, text as said, write_jsonl
 from test_driver import app_with_session, done, make, settle, started, text, until
 
-from panopsis import autopilot, config as config_mod, tui as tui_mod
-from panopsis.adapters.claude_transcripts import load_tail
-from panopsis.autopilot import NOTE, Decision
-from panopsis.driver import WAITING, WORKING
-from panopsis.feed import Palette, conversation
-from panopsis.model import AUTOPILOT, MODEL, WAITING_ON_YOU, Event
-from panopsis.tui_driven import placeholder
+from agentlens import autopilot, config as config_mod, tui as tui_mod
+from agentlens.adapters.claude_transcripts import load_tail
+from agentlens.autopilot import NOTE, Decision
+from agentlens.driver import WAITING, WORKING
+from agentlens.feed import Palette, conversation
+from agentlens.model import AUTOPILOT, MODEL, WAITING_ON_YOU, Event
+from agentlens.tui_driven import placeholder
 
 
 def border(app, driven):
@@ -80,7 +80,7 @@ def test_its_answer_is_a_message_to_send_or_a_line_for_you():
 
 
 def test_its_own_runs_are_left_off_the_wall(monkeypatch):
-    from panopsis import live
+    from agentlens import live
 
     listed = [{"sessionId": "a", "name": autopilot.SESSION_NAME}, {"sessionId": "b", "name": "Parser work"}]
 
@@ -114,7 +114,7 @@ def test_what_it_decided_is_kept_and_read_back(isolated_home, monkeypatch):
 # A session acting on it --------------------------------------------------------------------
 
 def test_where_it_answered_reads_as_the_pane_does():
-    from panopsis.driver import DrivenSession
+    from agentlens.driver import DrivenSession
 
     d = DrivenSession("D:/work/Tubeless/.claude/worktrees/linux-build")
     d.worktree = "linux-build"
@@ -279,7 +279,7 @@ def test_turned_on_while_a_session_waits_it_reads_that_turn():
 
 def test_a_turn_claude_code_started_itself_is_yours():
     # Another session's message, or a background task finishing: your messages say nothing of it.
-    decide, asked = fake_check(Decision("", "done"), Decision("Done. Restart panopsis.", "echoed"))
+    decide, asked = fake_check(Decision("", "done"), Decision("Done. Restart agentlens.", "echoed"))
 
     async def go():
         d, fakes = make({"go": [text("Done with that."), done()], "next": [text("Shall I go on?"), done()]},
@@ -335,6 +335,12 @@ def test_read_back_from_its_transcript_its_messages_are_still_its_own(projects):
     waits = [(s.kind, round(s.minutes)) for s in session.main.spans]
     assert waits[:3] == [(MODEL, 1), (MODEL, 1), (MODEL, 1)]  # the minute before its message wasn't you
     assert (WAITING_ON_YOU, 7) in waits
+
+
+def test_what_it_sent_while_it_was_called_panopsis_is_still_its_own():
+    sent_then = "go ahead\n\n" + NOTE.replace("agentlens's", "panopsis's")
+    assert autopilot.said_by_it(sent_then) == "go ahead"
+    assert autopilot.said_by_it("go ahead") is None
 
 
 # In the app --------------------------------------------------------------------------------

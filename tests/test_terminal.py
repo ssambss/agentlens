@@ -1,4 +1,4 @@
-"""The tab says panopsis, and the `claude` processes it starts leave that alone. In Windows' own
+"""The tab says agentlens, and the `claude` processes it starts leave that alone. In Windows' own
 console window, the cursor stays hidden and everything is drawn with glyphs its font has."""
 
 import asyncio
@@ -13,13 +13,13 @@ from textual import _border
 from textual.app import App
 from textual.scrollbar import ScrollBarRender
 
-from panopsis import advise, live, terminal, tui, usage
-from panopsis.driver import DrivenSession
-from panopsis.usage import run_probe  # the real one; tests get a stand-in by default
+from agentlens import advise, live, terminal, tui, usage
+from agentlens.driver import DrivenSession
+from agentlens.usage import run_probe  # the real one; tests get a stand-in by default
 
 
-def test_every_claude_panopsis_starts_leaves_the_tab_alone(monkeypatch):
-    # Each shares panopsis's terminal and would rename the tab "claude".
+def test_every_claude_agentlens_starts_leaves_the_tab_alone(monkeypatch):
+    # Each shares agentlens's terminal and would rename the tab "claude".
     envs = []
 
     def run(cmd, **kw):
@@ -56,10 +56,10 @@ def test_on_windows_the_tab_gets_its_old_name_back(monkeypatch):
     monkeypatch.setattr(terminal, "WINDOWS", True)
     monkeypatch.setattr(terminal, "_kernel32", Kernel32)
     with terminal.titled():
-        assert titles[-1] == "🟪 panopsis"
+        assert titles[-1] == "🟪 agentlens"
         titles.append("Fix the build")  # Claude Code you attached to named it after its conversation
         terminal.set_title()
-        assert titles[-1] == "🟪 panopsis"
+        assert titles[-1] == "🟪 agentlens"
     assert titles[-1] == "Windows PowerShell"
 
 
@@ -72,7 +72,7 @@ def test_elsewhere_the_terminal_keeps_the_old_name_and_puts_it_back(monkeypatch)
     monkeypatch.setattr(terminal.sys, "__stdout__", out := Tty())
     with terminal.titled():
         pass
-    assert out.getvalue() == "\x1b[22;0t\x1b]0;🟪 panopsis\x07\x1b[23;0t"
+    assert out.getvalue() == "\x1b[22;0t\x1b]0;🟪 agentlens\x07\x1b[23;0t"
 
     monkeypatch.setattr(terminal.sys, "__stdout__", piped := io.StringIO())  # not a terminal: nothing written
     with terminal.titled():
@@ -91,7 +91,7 @@ def test_in_windows_own_console_window_glyphs_its_font_lacks_are_drawn_with_ones
 
     def drawn(classic: bool, text: str) -> str:
         monkeypatch.setattr(terminal, "classic_console", lambda: classic)
-        tui.PanopsisApp(provider=lambda: [], root=projects, interval=60).driver_class().write(text)
+        tui.AgentlensApp(provider=lambda: [], root=projects, interval=60).driver_class().write(text)
         return written.pop()
 
     monkeypatch.setattr(App, "get_driver_class", lambda self: Driver)
@@ -113,7 +113,7 @@ def test_in_windows_own_console_window_the_cursor_is_hidden_again_after_a_resize
         written: list[str] = []
 
         async def go():
-            app = tui.PanopsisApp(provider=lambda: [], root=projects, interval=60)
+            app = tui.AgentlensApp(provider=lambda: [], root=projects, interval=60)
             async with app.run_test(size=(120, 30)) as pilot:
                 monkeypatch.setattr(app._driver, "write", written.append)
                 await pilot.resize_terminal(140, 40)
@@ -157,7 +157,7 @@ def test_the_icon_is_four_panes_on_violet_at_every_size():
 
     from PIL import Image
 
-    from panopsis import icon
+    from agentlens import icon
 
     for size in (16, 20, 24, 32, 48, 256):
         image = icon.draw(size)
@@ -170,7 +170,7 @@ def test_the_icon_is_four_panes_on_violet_at_every_size():
     assert Image.open(BytesIO(icon.png(32))).size == (32, 32)
 
 
-def test_the_window_gets_its_own_icon_back_once_however_panopsis_ends(monkeypatch):
+def test_the_window_gets_its_own_icon_back_once_however_agentlens_ends(monkeypatch):
     done: list[str] = []
     handlers: list = []
     monkeypatch.setattr(terminal, "WINDOWS", True)
@@ -204,7 +204,7 @@ def test_konsole_takes_the_icon_from_a_file_that_holds_it_drawn_for_each_size():
 
     from PIL import Image
 
-    from panopsis import icon
+    from agentlens import icon
 
     held = Image.open(BytesIO(icon.ico())).ico
     assert held.sizes() == {(size, size) for size in icon.TAB_SIZES}
@@ -212,8 +212,8 @@ def test_konsole_takes_the_icon_from_a_file_that_holds_it_drawn_for_each_size():
         assert held.getimage((size, size)).tobytes() == icon.draw(size).tobytes()  # not one shrunk
 
 
-def test_elsewhere_konsole_and_iterm2_mark_the_tab_while_panopsis_runs(monkeypatch, isolated_home):
-    from panopsis import icon
+def test_elsewhere_konsole_and_iterm2_mark_the_tab_while_agentlens_runs(monkeypatch, isolated_home):
+    from agentlens import icon
 
     class Tty(io.StringIO):
         def isatty(self):

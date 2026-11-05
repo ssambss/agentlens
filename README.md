@@ -1,8 +1,7 @@
-# panopsis
+# agentlens
 
 Every Claude Code session you have open, on one screen in your terminal: which ones need
 you, what each is doing and has changed, and how much of your plan's limits you've used.
-The name is Greek for seeing everything at once.
 
 - **A live wall** of every open session, wherever it runs: a terminal, an editor or the
   background. Grouped into spaces by repository. When one starts needing you it rings and
@@ -19,15 +18,16 @@ advice from Claude are in it too, but they're early versions, so they're off unt
 them on ([findings and advice](#findings-and-advice-experimental)).
 
 ```
-uv tool install .      # from this folder; or `uv run panopsis` without installing
-panopsis               # the app
+uv tool install .      # from this folder; or `uv run agentlens` without installing
+agentlens              # the app
 ```
 
-It used to be called agentlens. The first run copies what agentlens kept in `~/.agentlens`
-(settings, spaces, keys, history) to `~/.panopsis`, and leaves the old folder as it was.
+For a week it was called panopsis. The first run copies what panopsis kept in `~/.panopsis`
+(settings, spaces, keys, history) to `~/.agentlens`, and leaves `~/.panopsis` as it was. An
+`~/.agentlens` from before then is older, so it's kept beside, in `~/.agentlens.before-panopsis`.
 
 In the app, `?` lists every key and Ctrl+P searches every command by name. The keys below
-are panopsis's own; you can change them ([keys](#keys)).
+are agentlens's own; you can change them ([keys](#keys)).
 
 ## The wall
 
@@ -41,15 +41,15 @@ it, or said to keep planning and what to change. Panes keep their place, and the
 border colour is the state: yellow needs you (heavier for a question or a plan to
 approve), green working, blue waiting on its own subagents.
 
-In Windows, the window panopsis is in has panopsis's icon, four panes on violet, and a
+In Windows, the window agentlens is in has agentlens's icon, four panes on violet, and a
 taskbar button of its own, so you can find it among your other terminals. That's
 Windows' own console window or Windows Terminal's; a Windows Terminal window with other
-tabs keeps the icon while panopsis is one of them. When panopsis quits, or you close its
+tabs keeps the icon while agentlens is one of them. When agentlens quits, or you close its
 tab, the window gets its own icon back.
 
-Among your terminal's tabs, panopsis's is named `🟪 panopsis`, the violet square for its
+Among your terminal's tabs, agentlens's is named `🟪 agentlens`, the violet square for its
 icon. In Konsole the tab has the icon itself, and in iTerm2 the tab is violet, until
-panopsis quits. Other terminals, and macOS and Linux, don't let a program change its tab
+agentlens quits. Other terminals, and macOS and Linux, don't let a program change its tab
 or window beyond its name, so there it has no icon or taskbar button of its own.
 
 Beside the state, at the bottom of the border, is how full the session's context window
@@ -68,17 +68,17 @@ Once you've opened one, it's read: it stops counting as needing you and its bord
 until it next does (its next turn ends, or it asks something). So the count, `j`, `f` and
 the spaces list cover only what you haven't seen yet, even if you leave a session for
 later. Being on its pane on the wall doesn't read it; opening it does. Which ones you've
-read is kept in `~/.panopsis/read.json`, so a restart doesn't bring them back.
+read is kept in `~/.agentlens/read.json`, so a restart doesn't bring them back.
 
 Enter zooms in: the whole conversation, the files the session changed (Enter opens one
 in your editor at the line), and a map of its subagents: which ran, which launched which,
 and which ran at the same time. Top right, on the wall and zoomed in, is your plan's
 usage: the 5-hour and weekly limits and when they reset. At launch it shows the last
-reading, dimmed, until Claude Code answers. Left of it, while panopsis is busy in the
+reading, dimmed, until Claude Code answers. Left of it, while agentlens is busy in the
 background for more than a moment, a line says with what: reading your sessions or your
 history (with how many of how many), checking your plan usage, getting advice (with what
 Claude is reading). Its bar fills by count, or against how long the same job took last
-time, kept in `~/.panopsis/durations.json`. It never shows a time.
+time, kept in `~/.agentlens/durations.json`. It never shows a time.
 
 With [findings and advice](#findings-and-advice-experimental) on, your history is read in the
 background too, once the wall is filled in, so the report, profile, advice and rules screens
@@ -111,7 +111,7 @@ what it did. For a long session, both cover only its recent part: the wall reads
 ### Spaces and settings
 
 Each repository is a space, its worktrees folded in. Press `g` to put a session in a
-space of your own, or define them in `~/.panopsis/config.yaml`:
+space of your own, or define them in `~/.agentlens/config.yaml`:
 
 ```yaml
 spaces:
@@ -124,25 +124,25 @@ spaces:
 Everything else is on the settings screen (`,`), saved as you pick:
 
 - **Look**: theme, colours, columns, and whether the sidebar, tool calls and timestamps
-  show. Seven looks are panopsis's own (Violet, Oxblood, Plum night, Ember, Deep sea,
+  show. Seven looks are agentlens's own (Violet, Oxblood, Plum night, Ember, Deep sea,
   Aurora, Forest); there are calm, colour-blind safe and vivid presets too.
 - **Sessions**: the permission mode for new sessions, your editor, which Claude Code to
   run, how often the usage meter checks, and how far back History (`H`) goes: the past
   week unless you pick otherwise. History lists sessions as it reads them, and `m` there
   reaches further back. It also lists sessions whose transcripts Claude Code has deleted
-  (it does 30 days after a session was last active): panopsis keeps what it found in
+  (it does 30 days after a session was last active): agentlens keeps what it found in
   each session, for a year unless you pick otherwise.
 - **Editor**: where changed files, file links, `E` and the settings files open. Pick
   VS Code, Cursor, Windsurf, VSCodium, Zed, Sublime Text, a JetBrains IDE, Notepad++,
-  Xcode or Visual Studio, which open beside panopsis, or Neovim, Vim, Emacs, Helix,
+  Xcode or Visual Studio, which open beside agentlens, or Neovim, Vim, Emacs, Helix,
   micro or nano, which take over the terminal until you quit them. Each opens a file at
   the changed line in its own way. For anything else, choose *Your own command* and put
   `{file}` and `{line}` where they go, like `kate --line {line} {file}`. Left on
   *Automatic*, it's `$VISUAL` or `$EDITOR`, otherwise the first windowed editor that's
   installed. Under the picker you can see the exact command it will run.
-- **Keys**: a preset, panopsis's own or Vim's (`h` `j` `k` `l` move between panes too,
+- **Keys**: a preset, agentlens's own or Vim's (`h` `j` `k` `l` move between panes too,
   and Space goes to a session that needs you), and a way into the keys list.
-- **Experimental**: [autopilot](#autopilot) for the sessions panopsis runs, and
+- **Experimental**: [autopilot](#autopilot) for the sessions agentlens runs, and
   [findings and advice](#findings-and-advice-experimental), both off until you turn them
   on. With findings and advice on, **What you're aiming for** shows too: your goals and a
   deliberate working style.
@@ -151,27 +151,27 @@ Everything else is on the settings screen (`,`), saved as you pick:
   and how long it keeps sessions, the usage meter, the mode for new sessions, autopilot
   and your editor, with your goals, style, muted rules and thresholds. If the other PC doesn't have that
   editor, the settings screen says so. Nothing else about the PC goes in it: not your spaces
-  (they're its folders), its Claude Code, or the sessions panopsis restores or hides, so the
+  (they're its folders), its Claude Code, or the sessions agentlens restores or hides, so the
   other PC keeps its own.
 
-  The file is `~/panopsis-settings.yaml` unless you type another path, or Browse… to the
+  The file is `~/agentlens-settings.yaml` unless you type another path, or Browse… to the
   folder it goes in, like a USB drive's or a synced one's. A file that's there already and
-  isn't an export is replaced only if you press Export again. `panopsis export [FILE]` and
-  `panopsis import FILE` do the same from the command line, where FILE can be a folder too,
-  with panopsis closed: one that's open saves its own settings over them.
+  isn't an export is replaced only if you press Export again. `agentlens export [FILE]` and
+  `agentlens import FILE` do the same from the command line, where FILE can be a folder too,
+  with agentlens closed: one that's open saves its own settings over them.
 
 ### Keys
 
 Any key in the keys list (`?`) changes: Enter on it, then press the new key. It's saved
 straight away, and the footer, the keys list and the hints in the app name the key you
-picked. If another action already has that key, panopsis says which; pressing it again
+picked. If another action already has that key, agentlens says which; pressing it again
 takes it, and that action keeps its other key or gets the one you replaced, so nothing is
-left without one. Backspace puts panopsis's own back.
+left without one. Backspace puts agentlens's own back.
 Esc, Tab, the numbers 1-9 (they answer Claude), Ctrl+C, Ctrl+Q and Ctrl+P stay as they are.
 Keys of one screen, like `m` in History, can be the same as a wall key; there the screen's
 wins, as `r` re-reads History rather than refreshing the wall.
 
-They're kept under `keys` in `~/.panopsis/config.yaml`, only the ones you changed, by
+They're kept under `keys` in `~/.agentlens/config.yaml`, only the ones you changed, by
 what they do. A comma gives an action two keys:
 
 ```yaml
@@ -189,7 +189,7 @@ Code, JetBrains Mono) at 11-12 pt, with a line height around 1.2, reads well.
 `n` starts a session in a folder you pick; `o` in History continues a past one. They run
 your own installed, unmodified `claude` headless through the Agent SDK, with Claude Code's
 own system prompt, tools and settings, so they behave like your other sessions.
-panopsis never reads or passes credentials.
+agentlens never reads or passes credentials.
 
 | Key | Does |
 |---|---|
@@ -212,8 +212,8 @@ panopsis never reads or passes credentials.
 - The box is edited as a Windows text box is: Ctrl+Backspace and Ctrl+Delete delete a
   word, Shift with the arrows, Home and End selects (with Ctrl, a word at a time), and
   Ctrl+C, Ctrl+X and Ctrl+Z copy, cut and undo. It grows to ten lines with your message.
-  Ctrl+Backspace deletes a word in panopsis's other boxes too. Not every terminal tells
-  Shift+Enter from Enter: Windows' do, through panopsis, and so do those with the kitty
+  Ctrl+Backspace deletes a word in agentlens's other boxes too. Not every terminal tells
+  Shift+Enter from Enter: Windows' do, through agentlens, and so do those with the kitty
   keyboard protocol (kitty, WezTerm, Ghostty, foot). In the others, Ctrl+J starts a line.
 - In the box, `/usage` opens the usage view, `/exit` closes the session, and `/clear`
   starts a new conversation in the same pane.
@@ -222,30 +222,30 @@ panopsis never reads or passes credentials.
   (`tubeless-d4`), alike for every session in a repo and its worktrees, so neither you nor
   Claude could tell which is which. Sessions you start here take their title as their name
   once Claude Code gives them one, and Claude Code keeps it for them, so "ask the shared
-  links session what it decided" reaches the right one. One from before panopsis named its
-  sessions takes its title the next time it runs: here, in Claude Code from panopsis, or in
+  links session what it decided" reaches the right one. One from before agentlens named its
+  sessions takes its title the next time it runs: here, in Claude Code from agentlens, or in
   the background. A name you gave a session with `/rename` stays. Detached, a session
   keeps its name too: Claude Code's background service would otherwise give it one of its
   own, like "resume plan review", which nothing knows it by. `@` in the box lists
   your other open sessions by what the wall calls them and puts in the name Claude Code
   knows them by, such as `@"Shared links"`, or `@tubeless-d4` for one in a terminal or an
   editor, which keeps its own name. A session paused here, as they all are when you reopen
-  panopsis, isn't running, so Claude Code doesn't list it and nothing can message it. `@`
+  agentlens, isn't running, so Claude Code doesn't list it and nothing can message it. `@`
   lists those too, and a message that names one starts it first, under its name. Claude
   Code's own box tells Claude a mention is a session; a message sent through the SDK
-  doesn't, so panopsis adds a line saying so to what Claude reads. The pane shows your
+  doesn't, so agentlens adds a line saying so to what Claude reads. The pane shows your
   message as you typed it.
 - Alt+V in the box pastes a screenshot or image from the clipboard (Ctrl+V too, where the
   terminal passes it through). It shows above the box as `[Image #1]`, Backspace in an
   empty box removes it, and it goes with your next message, shrunk to 2000 px on the long
   edge. The first message in the `n` dialog takes images the same way. Not over SSH; on
   Linux it needs `wl-paste` or `xclip`.
-- They come back, paused, when you reopen panopsis, until you close (`w`) or detach them;
+- They come back, paused, when you reopen agentlens, until you close (`w`) or detach them;
   a closed one's conversation stays in History. One that's open in a terminal or an editor
   by then comes back once it's closed there. Quitting while some are working asks whether
   to detach them or stop them for now. One waiting on your answer isn't working: it can't
   go on without you, so it closes, and comes back with what it asked in its conversation.
-- If Claude Code stops under a session (it exits, or sends something panopsis can't
+- If Claude Code stops under a session (it exits, or sends something agentlens can't
   read), the pane says why and pauses; your next message continues the conversation.
 - Detaching needs a folder terminal Claude Code trusts, which your home folder never is.
   For a project folder, Ctrl+T in the detach dialog opens Claude Code there so you can
@@ -279,7 +279,7 @@ and `x` stops it. It's off unless you turn it on. Each check is a short `claude 
 Sonnet at medium effort, with no tools, so it counts against your plan: a few seconds,
 once for each turn that ends in a session it's on for.
 
-The setting is for every session panopsis runs. Changed, it reaches the open ones from their
+The setting is for every session agentlens runs. Changed, it reaches the open ones from their
 next turn, not the turn already waiting on you, so they aren't all read at once. `p` gives
 the session you're on a level of its own, until it comes round to your setting's again.
 Each pane's bottom border says when autopilot is on: `autopilot autonomous` as your setting
@@ -290,7 +290,7 @@ too, when your setting is on).
 every session, newest first, each with what Claude asked and what it said for you:
 
 ```
-● 14:32  Config loader split  panopsis · config-split
+● 14:32  Config loader split  agentlens · config-split
     Claude asked whether to update the remaining three callers
     → Yes, carry on with tui_driven.py, feed.py and report.py.
 ```
@@ -299,10 +299,10 @@ Enter opens that session. The turns it left you are only counted, at the top ("t
 answered 7 and left 3 for you"), since their replies say what they need. `●` marks the
 answers since you last looked, and until you do, the line at the top of the wall says how
 many (`autopilot answered 4`; clicking it opens the list). They're kept in
-`~/.panopsis/autopilot.jsonl`, the newest 500, so a restart or a closed pane doesn't lose them.
+`~/.agentlens/autopilot.jsonl`, the newest 500, so a restart or a closed pane doesn't lose them.
 
 **Your Claude login:** these sessions use your own `claude` sign-in, made through
-Anthropic's own flow. panopsis never signs you in, and never reads, stores or passes on a
+Anthropic's own flow. agentlens never signs you in, and never reads, stores or passes on a
 login: it starts unmodified Claude Code and shows you what it does. Colleagues each run
 their own copy, signed in as themselves. Anthropic's
 [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance.md) allows
@@ -349,25 +349,25 @@ From that:
    packs, search the web for how teams work with agents now, and write advice for the kind
    of work you do. It looks past Claude Code's own features, and each item says where the
    change goes: your own setup, the repo, your team's plugin, or CI and tools outside
-   Claude Code. Each one is kept in `~/.panopsis/advice/`; the next starts by saying
+   Claude Code. Each one is kept in `~/.agentlens/advice/`; the next starts by saying
    whether those tips were taken up and helped, and suggests what you haven't tried rather
    than what you already do.
 
 None of this reaches Claude. Rules aren't enforced; findings and advice are for you to act
 on, in your CLAUDE.md, your settings or how you work. Apart from the permission mode for
 sessions you start in the app, and [autopilot](#autopilot) answering them once you turn it
-on, panopsis never changes how Claude works.
+on, agentlens never changes how Claude works.
 
 **Rule packs.** Practices change faster than tools ship, so rules are YAML. Each records
 its `source` and `reviewed` date, and rules older than the pack's `max_age_days` are
-flagged. Add a team pack with `--rules DIR`, `PANOPSIS_RULES`, or `rule_packs:` in your
+flagged. Add a team pack with `--rules DIR`, `AGENTLENS_RULES`, or `rule_packs:` in your
 profile. A rule with the same id overrides the built-in one; `disabled: true` removes it.
 
 **What a team has written down.** Much of what a team learns can't be measured from
 sessions, such as where a skill's knowledge belongs or which writes need a person. A pack's
 `context:` entries hold those: a title, who it's `for`, and a practice with its sources.
 Advice gets them all and turns the ones that fit your work into items, saying which pack
-they come from. `panopsis rules` lists them under the rules.
+they come from. `agentlens rules` lists them under the rules.
 
 **Practices that moved.** `/insights` tells you how you use Claude Code's features. A
 rule's `practice` says how a way of working has moved: what you do, what it was, what to
@@ -376,18 +376,18 @@ backed by a source quoted word for word, such as a changelog entry or a docs pas
 Advice states these and checks them against the versions your sessions ran. It doesn't
 recall them, so it can be no more current than the pack.
 
-**Keeping a pack current.** `panopsis curate` has Claude read the pack's `watch` list and
+**Keeping a pack current.** `agentlens curate` has Claude read the pack's `watch` list and
 every source its rules cite. It reports, rule by rule, whether each still holds, needs an
 update (with the replacement YAML and the passage that says so) or should go. It also
 lists new practices the sources support. Quotes are checked first in code against each
 page as downloaded, because a model's summary of a page can't confirm a quote. Claude then
-explains the ones that no longer match. The report is saved in `~/.panopsis/curator/` for
+explains the ones that no longer match. The report is saved in `~/.agentlens/curator/` for
 a person to review. The pack itself is never changed, so `reviewed` dates mean someone
 checked. `--pack FILE` curates a team pack.
 
 ## What leaves your machine
 
-panopsis reads your sessions on your machine. The sessions you start in it are your own
+agentlens reads your sessions on your machine. The sessions you start in it are your own
 `claude`, sending what any Claude Code session sends. Besides those, through your own
 `claude` CLI:
 
@@ -416,16 +416,16 @@ fetch, and no others, so it can't read or change your files:
   - the practices behind its findings, and your team packs' entries, with their sources
   - your last advice
 
-  Never code or conversation text. `panopsis advise --dry-run` prints exactly what would
+  Never code or conversation text. `agentlens advise --dry-run` prints exactly what would
   be sent.
 - **The curator** sends the rule pack it checks, the names of the metrics rules can use, and
   which of the pack's quotes it found on their pages. Nothing from your sessions. It checks
   the quotes in code by downloading each page the pack cites: plain HTTPS requests that send
-  nothing. `panopsis curate --dry-run` prints what it would send.
+  nothing. `agentlens curate --dry-run` prints what it would send.
 
 ## Command line
 
-For scripting: `panopsis sessions`, `session <id>`, and `watch --once` for a plain table.
+For scripting: `agentlens sessions`, `session <id>`, and `watch --once` for a plain table.
 `export [FILE]` and `import FILE` take your settings to another PC ([another PC](#spaces-and-settings)).
 With findings and advice on, also `report [--json]`, `profile`, `rules`, `mute <rule>`,
 `advise [--dry-run]` and `curate [--pack FILE] [--dry-run]`. Most take `--since 7d` and
@@ -440,39 +440,39 @@ metrics.py  flat metrics per session, subagent and day   (add a metric -> every 
 rules/      best practices as YAML, with source + review date, and how practices moved, quoted
 profile.py  your working style, derived from your data
 trend.py    the past 7 days against the 7 before, for the report
-preferences.py  your goals and deliberate style (~/.panopsis/profile.yaml)
+preferences.py  your goals and deliberate style (~/.agentlens/profile.yaml)
 advise.py   Claude reads the profile + findings + practices + team entries + current practice and writes advice, following up the last
 curate.py   Claude checks a pack against its sources and watch list and proposes edits for a person to review
 work.py     what you work on: languages, build and Claude Code setup per repo
 features.py which Claude Code features your sessions use, so advice can suggest new ones
 live.py     open sessions + transcript tails, as live state
-read.py     the sessions needing you that you've already read (~/.panopsis/read.json)
+read.py     the sessions needing you that you've already read (~/.agentlens/read.json)
 feed.py     how activity reads: conversation blocks, markdown, folded tool calls, questions and answers
 subagent_map.py  the zoom view's map: subagents in waves, nested under who launched them
 tui.py      the app
-driver.py   sessions panopsis runs itself (experimental)
+driver.py   sessions agentlens runs itself (experimental)
 autopilot.py  Sonnet answering a turn that has ended for you, or leaving it to you (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu and @ for your other sessions
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
-terminal.py the tab's name, panopsis's icon on its window or tab, and in Windows the keys its consoles don't pass on
+terminal.py the tab's name, agentlens's icon on its window or tab, and in Windows the keys its consoles don't pass on
 icon.py     the icon, drawn for each size it's shown at
 tui_settings.py  the settings screen (,)
 keys.py     the keys you can change, their presets, and which key each has now
 tui_keys.py the keys list (?), where Enter on a key changes it
 commands.py Claude Code's slash commands for that menu, from the session's own list
 usage.py    your plan's limits, from Claude Code's /usage and sessions' rate-limit events
-config.py   app settings and spaces (~/.panopsis/config.yaml)
-settings_file.py  your settings in one file, to set up panopsis on another PC, and nothing of this one
-editor.py   the editors panopsis knows, and opening a file at its line or a folder in yours
+config.py   app settings and spaces (~/.agentlens/config.yaml)
+settings_file.py  your settings in one file, to set up agentlens on another PC, and nothing of this one
+editor.py   the editors agentlens knows, and opening a file at its line or a folder in yours
 analysis.py full-history analysis shared by the app's report screens
-store.py    panopsis's own record of past sessions (~/.panopsis/history)
+store.py    agentlens's own record of past sessions (~/.agentlens/history)
 ```
 
 ## Caveat
 
 The adapter reads Claude Code's transcript files, whose format is internal and can change
 in any release. The parser skips what it doesn't understand rather than failing. Each
-session it has read is kept in panopsis's own format in `~/.panopsis/history`: times,
+session it has read is kept in agentlens's own format in `~/.agentlens/history`: times,
 counts, titles and file paths, never the conversation, about 6 KB a session compressed.
 Sessions read before a format change keep reading the same after it, and History and the
 report reach back past Claude Code's 30 days. A hook plugin writing events in that format
