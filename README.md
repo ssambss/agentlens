@@ -1,21 +1,24 @@
 # agentlens
 
-Every Claude Code session you have open, on one screen in your terminal: which ones need
-you, what each is doing and has changed, and how much of your plan's limits you've used.
+Every Claude Code session you have open on this computer, on one screen in your terminal:
+which ones need you, what each is doing and has changed, and how much of your plan's limits
+you've used.
 
-- **A live wall** of every open session, wherever it runs: a terminal, an editor or the
-  background. Grouped into spaces by repository. When one starts needing you it rings and
-  lights up, and `j` takes you there.
+- **A live wall** of every open session on this computer, wherever it runs: a terminal, an
+  editor or the background. Grouped into spaces by repository. When one starts needing you
+  it rings and lights up, and `j` takes you there.
 - **Sessions you start here** (experimental): type into them, answer their questions and
   permission prompts, and hand them to Claude Code's background service and back. With
   [autopilot](#autopilot) on, Claude gives the go-aheads for you, and only what needs you
   rings.
 - **History** of every past session, to read again or continue.
 
-It runs locally, on Claude Code's own session files
-([what leaves your machine](#what-leaves-your-machine)). Findings about how you work and
-advice from Claude are in it too, but they're early versions, so they're off until you turn
-them on ([findings and advice](#findings-and-advice-experimental)).
+It runs locally, on the session files Claude Code keeps on this computer
+([what leaves your machine](#what-leaves-your-machine)), so sessions on another computer or
+in Claude Code on the web aren't on the wall. For another computer's, run agentlens there,
+over SSH for example. Findings about how you work and advice from Claude are in it too, but
+they're early versions, so they're off until you turn them on
+([findings and advice](#findings-and-advice-experimental)).
 
 ```
 uv tool install .      # from this folder; or `uv run agentlens` without installing

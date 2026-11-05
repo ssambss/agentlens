@@ -1,7 +1,7 @@
 [project]
 name = "agentlens"
 version = "0.1.0"
-description = "Every Claude Code session you have open, on one screen in your terminal"
+description = "Every Claude Code session you have open on this computer, on one screen in your terminal"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
