@@ -80,13 +80,35 @@ def test_a_plan_runs_as_sessions_and_each_turn_goes_to_the_lead(tmp_path):
     key, sent, note, by = panes.sent[-1]
     assert (key, note, by) == ("lead", BOARD_NOTE, BOARD)
     assert "Parser (task 1) ended a turn" in sent and "Shall I add tests?" in sent and "autonomous" in sent
-    # The lead's own turn, started by that, waits quietly too.
-    assert c.turn_ended("lead", False, "") == (True, "coordinating: 1 running, 0 of 2 done")
-
+    # The lead's own turn, started by that, answers it: then it waits quietly too, while that works.
     assert said(c.message_task(goal, 1, "Yes, add tests.")) == "Sent to task 1."
     assert panes.sent[-1] == ("k1", "Yes, add tests.", NOTE, COORDINATOR)
+    assert c.turn_ended("lead", False, "Told it to add tests.") == (True, "coordinating: 1 running, 0 of 2 done")
     assert "Ready to start: 2. CLI" in said(c.finish_task(goal, 1, "split, with tests"))
     assert goal.task(1).status == DONE and "Done: split, with tests" in c.board(goal)
+
+
+def test_a_leads_turn_with_none_of_its_sessions_at_work_is_for_you(tmp_path):
+    """Its sessions report and wait on it. If it ends its turn without answering them, starting one or
+    asking you, nothing brings it back: what it said is for you, even without ask_you."""
+    panes = Panes()
+    c, goal = panes.coordinator(tmp_path)
+    c.add_tasks(goal, tasks("DJ rework", "Docs"))
+    for n in (1, 2):
+        c.start_task(goal, n)
+        c.link(f"k{n}", goal, goal.task(n))
+    c.turn_ended("k1", False, "Built and tested. Nothing pushed.")
+    # One still at work brings it back: quiet.
+    assert c.turn_ended("lead", False, "Waiting on the docs.") == (True, "coordinating: 2 running, 0 of 2 done")
+    c.turn_ended("k2", False, "Docs updated.")
+    reply = "**The DJ rework is finished** and tested on the PC. It's two commits, and nothing is pushed.\n\nMore."
+    assert c.turn_ended("lead", False, reply) == (False, "The DJ rework is finished and tested on the PC.")
+    assert goal.task(1).waiting_on_lead and goal.task(2).waiting_on_lead
+    # Answered, a session is at work again; one you wrote to is yours, not the lead's.
+    c.message_task(goal, 1, "Deliver it.")
+    assert not goal.task(1).waiting_on_lead
+    c.turn_ended("k2", True, "Done, as you said.")
+    assert not goal.task(2).waiting_on_lead
 
 
 def test_a_session_closes_once_it_has_served_its_purpose(tmp_path):
@@ -121,10 +143,11 @@ def test_a_goals_panes_are_named_after_it(tmp_path):
     c.link("k1", goal, goal.task(1))
     assert c.name("k1") == "Split the parser" and c.name("someone else's") == ""
     c.got_title("k1", "Parser")  # a task's title doesn't name the goal
-    c.got_title("lead", "(untitled)")
-    assert goal.title == "Split the parser"
-    c.got_title("lead", "Parser split into modules")  # its lead's title, once Claude Code gives it one
-    assert c.name("k1") == "Parser split into modules"
+    # Nor does its lead's, once it has a name: Claude Code titles a lead from what agentlens tells it.
+    c.got_title("lead", "No question presented")
+    assert goal.title == "Split the parser" and c.name("k1") == "Split the parser"
+    goal.title = ""  # one from before goals had names
+    c.got_title("lead", "Parser split into modules")
     assert coordinator.load(tmp_path / "goals.json")[goal.id].title == "Parser split into modules"
     assert coordinator.short("Split the parser into a module per format, with a test for each\nmore") == \
         "Split the parser into a module per…"
@@ -135,7 +158,8 @@ def test_what_the_lead_asks_you_or_finishing_the_goal_calls_you(tmp_path):
     c, goal = Panes().coordinator(tmp_path)
     c.ask_you(goal, "Should the parser keep the old API?")
     assert c.turn_ended("lead", False, "") == (False, "Should the parser keep the old API?")
-    assert c.turn_ended("lead", False, "") == (True, "coordinating: planning")  # asked once
+    # Asked once. With nothing of its goal at work, its next turn is for you too, whatever it said.
+    assert c.turn_ended("lead", False, "") == (False, "the coordinator is waiting on you")
     assert c.turn_ended("lead", True, "") is None  # it answered you: as any session would
     c.goal_done(goal, "Parser split and merged")
     assert goal.done and c.turn_ended("lead", False, "") == (False, "Goal done: Parser split and merged")
@@ -301,6 +325,11 @@ def test_g_starts_a_goal_whose_sessions_report_to_its_lead(projects, tmp_path):
             lead = app.start_goal(str(folder), "Split the parser", "acceptEdits", "")
             await until(pilot, lambda: lead.state == WAITING and lead.events[-1].kind == "claude")
             assert lead.detail == "turn finished"  # its first turn answers you
+            # Claude Code titles a lead from what agentlens tells it: it keeps its goal's name.
+            from agentlens.live import LiveSession
+            app._adopt_names([LiveSession("lead", lead.session_id, "repo", "No question presented", "interactive",
+                                          WAITING, None, "")])
+            assert lead.title == "Split the parser"
             options = fakes[0].options
             assert options.tools == ["Read", "Grep", "Glob"] and coordinator.SERVER in options.mcp_servers
             assert options.permission_mode == "default"  # it changes nothing; its sessions get your mode
@@ -315,14 +344,16 @@ def test_g_starts_a_goal_whose_sessions_report_to_its_lead(projects, tmp_path):
             assert fakes[1].options.tools == {"type": "preset", "preset": "claude_code"}  # a full session
             assert worker.detail == "the coordinator is reading this"
 
-            # Its reply went to the lead, whose turn on it ends quietly: nothing calls you.
-            await until(pilot, lambda: len(fakes[0].sent) == 2 and lead.state == BACKGROUND)
+            # Its reply went to the lead. The lead's turn on it answered nothing (this fake calls no tools),
+            # and nothing else of the goal is at work, so none would bring it back: it calls you, with what
+            # it said, while its session waits on it quietly.
+            await until(pilot, lambda: len(fakes[0].sent) == 2 and lead.state == WAITING)
             assert "Shall I add tests?" in fakes[0].sent[1] and lead.events[-2].tag == BOARD
-            assert lead.detail == "coordinating: 1 running, 0 of 1 done"
+            assert lead.detail == "Telling it to add tests."
             assert app.coordinator.label(lead.key) == "coordinator · 1 running · 0/1 done"
             assert app.coordinator.label(worker.key) == "task 1 of 1 · coordinator"
-            await until(pilot, lambda: app.sessions[lead.key].state == BACKGROUND == app.sessions[worker.key].state)
-            assert not app.needs_you(app.sessions[lead.key]) and not app.needs_you(app.sessions[worker.key])
+            await until(pilot, lambda: app.sessions[worker.key].state == BACKGROUND)
+            assert app.needs_you(app.sessions[lead.key]) and not app.needs_you(app.sessions[worker.key])
 
             # A goal's panes stand out: double lines, and the goal's name first, on the lead and its sessions.
             for d in (lead, worker):

@@ -18,6 +18,7 @@ autopilot's are. The goals are kept in ~/.agentlens/goals.json.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -85,6 +86,7 @@ class Task:
     session_id: str = ""  # its session's, once Claude Code gives it one
     report: str = ""  # what the lead said of it when it was done
     in_a_row: int = 0  # the lead's messages to it since yours
+    waiting_on_lead: bool = False  # its turn ended and went to the lead, which hasn't answered it yet
 
 
 @dataclass
@@ -149,6 +151,13 @@ def short(text: str, chars: int = 40) -> str:
     return cut.rstrip(" ,.;:") + "…"
 
 
+def _first_sentence(text: str, chars: int = 160) -> str:
+    """Where a reply starts, for the line under a pane's title: its first sentence, without markdown."""
+    line = " ".join(next((line for line in str(text or "").splitlines() if line.strip()), "").split())
+    sentence = re.split(r"(?<=[.!?])\s", line.replace("**", "").lstrip("#>*- "), maxsplit=1)[0]
+    return short(sentence, chars)
+
+
 def handover(goal: str, plan: str, by: str) -> str:
     """A lead's first message, for a goal another session hands over: the goal, then the plan made there."""
     return f"{goal}\n\nThe plan, as the user made it with Claude in the session \"{by}\":\n\n{plan}"
@@ -203,6 +212,8 @@ session, so finish one only when you need nothing more from it.
 does it, and the next only once that one has, updated with what came before. Where changes need \
 someone's review (a pull request, a Gerrit change), sent for review counts as delivered: approving and \
 submitting are the reviewers' job, never yours or a session's.
+- Use ask_you whenever you need the user: to decide, to look at the work, or before it's delivered. \
+A turn you end without it waits quietly while your sessions work.
 - ask_you brings a question to the user: one at a time, short, written to them as "you", with your \
 recommendation. Then end your turn; their answer comes as their next message.
 - When every task is done, call goal_done with a short summary for the user.
@@ -291,15 +302,15 @@ class Coordinator:
             self.save()
 
     def got_title(self, key: str, title: str) -> None:
-        """The session at `key` has this title now: a lead's names its goal, on every one of its panes."""
+        """The session at `key` has this title now: a lead's names its goal, if it has no name yet. A goal
+        keeps the name it started with: Claude Code titles a lead from what agentlens tells it, which
+        can make one like "No question presented"."""
         found = self.role(key)
         title = " ".join(str(title or "").split())[:60]
-        if found is None or found[1] is not None or not title or title == "(untitled)":
+        if found is None or found[1] is not None or not title or title == "(untitled)" or found[0].title:
             return
-        goal = found[0]
-        if goal.title != title:
-            goal.title = title
-            self.save()
+        found[0].title = title
+        self.save()
 
     def name(self, key: str) -> str:
         """The name of the goal the session at `key` is part of, for its pane; empty if it's none's."""
@@ -345,10 +356,15 @@ class Coordinator:
         if found is None:
             return None
         goal, task = found
-        return self._lead_turn_ended(goal, yours) if task is None else self._task_turn_ended(
+        return self._lead_turn_ended(goal, yours, reply) if task is None else self._task_turn_ended(
             goal, task, yours, reply, failed)
 
-    def _lead_turn_ended(self, goal: Goal, yours: bool) -> tuple[bool, str] | None:
+    def under_way(self, goal: Goal) -> list[Task]:
+        """Its sessions at work: running, and not waiting on the lead to answer what they last said. Only
+        these bring the lead back by themselves."""
+        return [t for t in self.running(goal) if not t.waiting_on_lead]
+
+    def _lead_turn_ended(self, goal: Goal, yours: bool, reply: str = "") -> tuple[bool, str] | None:
         if goal.finished:
             finished, goal.finished = goal.finished, ""
             self.save()
@@ -359,11 +375,16 @@ class Coordinator:
             return False, asking
         if yours:
             return None  # it answered you
+        if not self.under_way(goal):
+            # None of its sessions is at work, so none will bring it back: what it said is for you, even
+            # without ask_you.
+            return False, _first_sentence(reply) or "the coordinator is waiting on you"
         return True, f"coordinating: {self.summary(goal)}"
 
     def _task_turn_ended(self, goal: Goal, task: Task, yours: bool, reply: str, failed: str) -> tuple[bool, str] | None:
         if yours:
             task.in_a_row = 0  # you spoke to it: its reply is for you, and the lead counts again from here
+            task.waiting_on_lead = False
             self.save()
             return None
         if goal.done or task.status == DONE:
@@ -378,6 +399,8 @@ class Coordinator:
                 f"{reply[-REPLY_CHARS:] or '(no text)'}\n---")
         if not self.send(lead, text, BOARD_NOTE, BOARD):
             return None  # its lead is gone: this one's yours
+        task.waiting_on_lead = True  # until the lead answers it
+        self.save()
         return True, "the coordinator is reading this"
 
     # The lead's tools -------------------------------------------------------------------------
@@ -460,6 +483,7 @@ class Coordinator:
         if not self.send(self.key_of(goal, task), message, NOTE, COORDINATOR):
             return _text(f"Task {task.id}'s session is closed.", error=True)
         task.in_a_row += 1
+        task.waiting_on_lead = False
         self.save()
         return _text(f"Sent to task {task.id}.")
 

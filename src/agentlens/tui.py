@@ -2149,8 +2149,11 @@ class AgentlensApp(App):
             if seen is None:
                 continue
             driven.worktree = seen.worktree
-            if seen.title and seen.title != driven.title:
-                driven.title = seen.title
+            # A goal's lead goes by its goal's name: Claude Code titles it from what agentlens tells it.
+            found = self.coordinator.role(driven.key)
+            title = found[0].title if found and found[1] is None and found[0].title else seen.title
+            if title and title != driven.title:
+                driven.title = title
                 if driven.remembered:
                     self._remember_entry(driven)
                     self._save_config()
@@ -2664,7 +2667,7 @@ class AgentlensApp(App):
         if not the text's first words. `note`, `by`: as send's, for a first message you didn't type."""
         goal = self.coordinator.new_goal(cwd, space, mode, title or text)
         return self.open_driven(cwd, prompt=text, mode="default", in_space=space, first_note=note, first_by=by,
-                                focus=focus, prepare=lambda driven: self._coordinate(driven, goal))
+                                focus=focus, title=goal.title, prepare=lambda driven: self._coordinate(driven, goal))
 
     def _hand_over(self, driven: DrivenSession, goal: str, plan: str) -> tuple[bool, str]:
         """A session agentlens runs hands the work planned in it to the coordinator, as you asked it to:

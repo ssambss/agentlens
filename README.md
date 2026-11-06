@@ -365,15 +365,20 @@ the coordinator on get the tool the next time agentlens starts.
 
 The lead doesn't work on the code itself. It has Read, Grep and Glob, and agentlens's own
 tools for the board: add tasks, start one, message one, finish one, ask you, finish the goal.
-Its pane rings only when it asks you something, answers you, or the goal is done. Otherwise
-it shows what's under way ("coordinating: 2 running, 1 of 3 done").
+Its pane rings when it asks you something, answers you, or the goal is done. It also rings
+when it ends a turn while none of its sessions is at work: those waiting on its answer
+don't count, since nothing would bring it back, so what it said is for you. The line under
+its title is then the start of its reply. Otherwise it shows what's under way
+("coordinating: 2 running, 1 of 3 done").
 
 A goal's panes stay in the space you started it in, among your other sessions, but stand
 out. Their borders are double lines, still in the state's colour, so yellow is still a
 session that needs you. Each top border starts with the goal's name
-(`◆ Split the parser · agentlens`), in the colour autopilot's level has at the bottom: your
-goal's first words, then the lead's title once Claude Code gives it one. The lead's bottom border says `coordinator · 2 running · 1/3 done`,
-and each of its sessions' says `task 2 of 3 · coordinator`.
+(`◆ Split the parser · agentlens`), in the colour autopilot's level has at the bottom. That
+name is your goal's first words, or the goal a session handed over, and the lead's pane
+goes by it too. Claude Code's own title for the lead doesn't replace it, since Claude Code
+titles the lead from what agentlens tells it. The lead's bottom border says
+`coordinator · 2 running · 1/3 done`, and each of its sessions' says `task 2 of 3 · coordinator`.
 
 How much it decides follows your autopilot level:
 
