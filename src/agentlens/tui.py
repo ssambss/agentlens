@@ -104,6 +104,7 @@ from agentlens.live import (
     TranscriptTails,
     ago,
     derive,
+    run_by_program,
     file_changes,
     open_sessions,
     pane_place,
@@ -399,7 +400,8 @@ class SessionPane(Vertical, can_focus=True):
         state_class = STATE_CLASS[data.state if data.state not in NEEDS_YOU or app.needs_you(data) else OTHER]
         for cls in set(STATE_CLASS.values()):
             self.set_class(cls == state_class, cls)
-        suffix = {"background": " · bg", "agentlens": " · here"}.get(data.kind, "")
+        suffix = " · run by a program" if data.by_program else {"background": " · bg", "agentlens": " · here"}.get(
+            data.kind, "")
         driven = app.driven.get(self.session_id)
         title: str | Text = pane_place(data, self.space) + suffix
         # A goal's lead and its sessions: double lines in the state's colour, and the goal's name first.
@@ -1991,7 +1993,9 @@ class AgentlensApp(App):
         # One it's closing does too, until its Claude Code has exited and a fresh listing is in.
         driven_ids = {d.session_id for d in self.driven.values() if d.session_id}
         hidden = {*self.config.hidden_sessions, *self._closing_sessions}
-        sessions = [s for s in monitored if s.session_id not in driven_ids and s.session_id not in hidden]
+        # Of the others, one a program drives through the Agent SDK is that program's, not yours.
+        sessions = [run_by_program(s) for s in monitored
+                    if s.session_id not in driven_ids and s.session_id not in hidden]
         sessions += [self._driven_live(d, now) for d in self.driven.values()]
         # Stable order: by when the session started, so panes don't jump around.
         sessions.sort(key=lambda s: (s.started or now, s.name))
@@ -2884,8 +2888,10 @@ class AgentlensApp(App):
     def _notify_if_needed(self, s: LiveSession) -> None:
         before = self._seen_states.get(s.session_id)
         self._seen_states[s.session_id] = s.state
-        if s.state not in NEEDS_YOU:
-            self._drop_alert(s.session_id)  # answered, here or wherever it's open
+        if s.state not in NEEDS_YOU or s.by_program:
+            self._drop_alert(s.session_id)  # answered, here or wherever it's open; or its program answers it
+            if s.by_program:
+                return
         focused = self._focused_session()
         if focused is not None and focused.session_id == s.session_id:
             # You're already looking at it: no alert. Zoomed in, it's read too. On the wall, the pane with
@@ -2908,8 +2914,9 @@ class AgentlensApp(App):
             self.bell()
 
     def needs_you(self, s: LiveSession) -> bool:
-        """Whether it waits on you, and you haven't read it since it started to."""
-        return s.state in NEEDS_YOU and not self.read.has_read(s.session_id, s.since)
+        """Whether it waits on you, and you haven't read it since it started to. One a program runs
+        waits on that program, even for a question or a permission."""
+        return s.state in NEEDS_YOU and not s.by_program and not self.read.has_read(s.session_id, s.since)
 
     def mark_read(self, s: LiveSession) -> None:
         """You've had this session in front of you while it needs you: it stops counting as needing

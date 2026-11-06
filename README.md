@@ -41,6 +41,13 @@ it, or said to keep planning and what to change. Panes keep their place, and the
 border colour is the state: yellow needs you (heavier for a question or a plan to
 approve), green working, blue waiting on its own subagents.
 
+A session a program runs through the Agent SDK, like one another Claude's test script
+started, isn't waiting on you. Claude Code records that program's messages as if you had
+typed them, but agentlens can tell them apart. While the newest message came through the SDK
+and agentlens doesn't run the session itself, the pane's border says `run by a program`. The
+program's messages show as *A program*, not *You*, and when the session waits, it waits on
+that program: blue, with no ring. Once you type into it yourself, it's yours again.
+
 In Windows, the window agentlens is in has agentlens's icon, four panes on violet, and a
 taskbar button of its own, so you can find it among your other terminals. That's
 Windows' own console window or Windows Terminal's; a Windows Terminal window with other

@@ -21,6 +21,7 @@ from agentlens.live import (
     pane_place,
     pane_title,
     render,
+    run_by_program,
     sort_sessions,
     token_count,
 )
@@ -44,6 +45,36 @@ def test_idle_after_turn_is_waiting_on_you(projects):
     live = derive(entry("idle"), s, now=minutes(30))
     assert live.state == WAITING and live.since == minutes(4)
     assert live.project == "demo"
+
+
+def test_a_session_a_program_runs_through_the_sdk_waits_on_it_not_you(projects):
+    """Another Claude's test script, say, starts a session through the Agent SDK and sends it messages.
+    Claude Code records them as prompts like yours, with the SDK as their entrypoint."""
+    from agentlens.model import PROGRAM
+
+    def sdk(record):
+        return {**record, "entrypoint": "sdk-py"}
+
+    events: dict = {}
+    path = write_jsonl(projects / "demo" / "sess-1.jsonl", common(
+        [human(0, "check the parser"), text(1), sdk(human(2, "merge and push")), sdk(text(3))]))
+    live = derive(entry("idle"), load_session(path, events=events), events, now=minutes(5))
+    # agentlens's own sessions come through the SDK too: only the app, which knows those, says it's another's.
+    assert live.via_sdk == {minutes(2)} and not live.by_program and live.state == WAITING
+    assert run_by_program(live) is live and run_by_program(live) is live  # twice: the same
+    assert live.by_program and live.state == BACKGROUND and live.detail == "waiting on the program that runs it"
+    assert [(e.text, e.tag) for e in live.feed if e.kind == "you"] == [("check the parser", ""),  # yours, typed
+                                                                        ("merge and push", PROGRAM)]
+
+    # Its newest message yours again (typed in a terminal): it's yours, and so are its waits.
+    path = write_jsonl(projects / "demo" / "sess-2.jsonl", common(
+        [sdk(human(0, "merge and push")), sdk(text(1)), human(2, "thanks"), text(3)], "sess-2"))
+    mine = run_by_program(derive(entry("idle", "sess-2"), load_session(path), now=minutes(5)))
+    assert not mine.by_program and mine.state == WAITING
+    # One Claude Code's background service runs isn't one a program drives.
+    path = write_jsonl(projects / "demo" / "sess-3.jsonl", common([sdk(human(0, "go on")), sdk(text(1))], "sess-3"))
+    background = derive({**entry("idle", "sess-3"), "kind": "background"}, load_session(path), now=minutes(5))
+    assert not run_by_program(background).by_program
 
 
 def test_panes_say_what_a_session_is_about_and_where_it_works(projects):

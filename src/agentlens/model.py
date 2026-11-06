@@ -28,6 +28,9 @@ APPROVED = "approved"  # an answer event's tag: you approved Claude's plan
 SENT_BACK = "sent back"  # an answer event's tag: you sent Claude's plan back, to keep planning
 DECLINED = "declined"  # an answer event's tag: you didn't answer Claude's question
 AUTOPILOT = "autopilot"  # a message event's tag: autopilot sent it for you
+# A message event's tag: a program sent it through the Agent SDK, in a session that program runs (another
+# Claude's test script, say), not you. Claude Code records it as a prompt like yours.
+PROGRAM = "program"
 
 
 @dataclass
@@ -101,6 +104,9 @@ class Session:
     main: AgentRun
     subagents: list[AgentRun] = field(default_factory=list)
     human_prompts: list[datetime] = field(default_factory=list)
+    # Of those, the ones that came through the Agent SDK (entrypoint sdk-py, sdk-ts...): from agentlens,
+    # or from another program running the session, which only the live wall can tell apart.
+    sdk_prompts: list[datetime] = field(default_factory=list)
     skills: Counter = field(default_factory=Counter)
     compactions: int = 0
     cwd: str = ""

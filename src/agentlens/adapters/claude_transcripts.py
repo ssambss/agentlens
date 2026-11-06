@@ -180,6 +180,8 @@ def load_session(
     for r in records:
         if _is_human_prompt(r):
             session.human_prompts.append(r["_ts"])
+            if str(r.get("entrypoint") or "").startswith("sdk-"):
+                session.sdk_prompts.append(r["_ts"])
             if r.get("permissionMode"):
                 session.permission_modes[str(r["permissionMode"])] += 1
         if command := _slash_command(r):

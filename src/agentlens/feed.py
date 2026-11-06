@@ -33,7 +33,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from agentlens.coordinator import BOARD, COORDINATOR
-from agentlens.model import APPROVED, AUTOPILOT, DECLINED, SENT_BACK, Event
+from agentlens.model import APPROVED, AUTOPILOT, DECLINED, PROGRAM, SENT_BACK, Event
 
 PANE_BLOCKS = 14  # conversation blocks kept in a pane; it scrolls to the newest
 PANE_MESSAGE_LINES = 12  # a long reply is clipped in a pane; zoom shows all of it
@@ -201,7 +201,8 @@ _GAP = Text("")
 
 # Who sent a message you didn't type, by its tag, and a word on it.
 SENDERS = {AUTOPILOT: ("Autopilot", "for you, from Sonnet"), COORDINATOR: ("Coordinator", "for you, as part of a goal"),
-           BOARD: ("agentlens", "what one of the goal's sessions said")}
+           BOARD: ("agentlens", "what one of the goal's sessions said"),
+           PROGRAM: ("A program", "the one that runs this session, through the Agent SDK: not you")}
 
 # What an answer card says you did, by its tag; otherwise, you answered.
 ANSWERED = {DECLINED: "You didn't answer", APPROVED: "You approved the plan", SENT_BACK: "You said to keep planning"}
@@ -269,7 +270,7 @@ def activity_log(events: list[Event], palette: Palette, *, show_times: bool = Tr
         if show_times:
             text.append(f"{event.at.astimezone():%H:%M} ", style="dim")
         label, style = labels.get(event.kind, ("    ", ""))
-        text.append({AUTOPILOT: "auto", COORDINATOR: "lead", BOARD: "lens"}.get(event.tag, label)
+        text.append({AUTOPILOT: "auto", COORDINATOR: "lead", BOARD: "lens", PROGRAM: "prog"}.get(event.tag, label)
                     if event.kind == "you" else label, style=style)
         if event.kind in ("question", "answer", "plan"):
             said = {"question": "asked: ", "answer": "answered: ", "plan": "plan: "}[event.kind]

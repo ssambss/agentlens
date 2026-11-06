@@ -850,6 +850,42 @@ def test_a_session_that_just_connected_is_ready_not_waiting_on_you(projects):
     run_app(app, steps)
 
 
+def test_a_session_a_program_runs_doesnt_wait_on_you(projects):
+    """Another Claude's test script runs a session through the Agent SDK: the wall doesn't ring for it,
+    or count it as needing you, and says a program runs it and sent its messages."""
+    import io
+
+    from rich.console import Console
+
+    from agentlens.feed import conversation
+
+    make_projects(projects)
+    write_jsonl(projects / "demo" / "scripted.jsonl", common(
+        [{**human(0, "add sub() with a test"), "entrypoint": "sdk-py"}, {**text(1, "Added."), "entrypoint": "sdk-py"}],
+        "scripted"))
+    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0), entry("scripted", "idle", 1)], root=projects,
+                       interval=60)
+
+    async def steps(app, pilot):
+        app.bell = lambda: None
+        scripted, waiting = app.sessions["scripted"], app.sessions["waiting"]
+        assert scripted.by_program and not app.needs_you(scripted) and app.needs_you(waiting)
+        assert app.query_one("#s-scripted", SessionPane).border_title.endswith("· run by a program")
+        assert str(app.query_one("#summary").content.plain).startswith("1 need you")
+        shown = io.StringIO()
+        Console(file=shown, width=100).print(conversation(scripted.feed, app.palette))
+        assert "A program" in shown.getvalue() and "You" not in shown.getvalue()
+        # Even a question it asks is its program's.
+        app._notifications.clear()
+        for state in (WORKING, QUESTION):
+            scripted.state = state
+            app._notify_if_needed(scripted)
+        await pilot.pause()
+        assert not app._notifications
+
+    run_app(app, steps)
+
+
 def test_spaces_group_by_repo_and_can_be_assigned(projects, isolated_home):
     make_projects(projects)
     entries = [entry("busy", "busy", 0), entry("waiting", "idle", 1), entry("other", "idle", 2, "D:\\work\\other")]

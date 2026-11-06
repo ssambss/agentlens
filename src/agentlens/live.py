@@ -33,7 +33,7 @@ from agentlens.adapters.claude_transcripts import (
 from agentlens.advise import SESSION_NAME as ADVISE_SESSION_NAME
 from agentlens.autopilot import SESSION_NAME as AUTOPILOT_SESSION_NAME
 from agentlens.curate import SESSION_NAME as CURATE_SESSION_NAME
-from agentlens.model import ACTIVE_KINDS, AgentRun, Event, FileChange, Session, Span
+from agentlens.model import ACTIVE_KINDS, PROGRAM, AgentRun, Event, FileChange, Session, Span
 from agentlens.terminal import claude_env
 from agentlens.usage import SESSION_NAME as USAGE_SESSION_NAME
 
@@ -104,6 +104,10 @@ class LiveSession:
     changes: list[FileChange] = field(default_factory=list)  # files it changed, most recent first
     context_tokens: int | None = None  # how full its context window is, when a model call has said
     context_window: int = 0  # how many tokens that window holds
+    # When its newest message came through the Agent SDK, the times of those that did: a program runs it,
+    # agentlens or another. by_program: another one, like a Claude's test script (see run_by_program).
+    via_sdk: frozenset[datetime] = frozenset()
+    by_program: bool = False
 
     @property
     def label(self) -> str:
@@ -269,6 +273,23 @@ def derive(
             live.detail = f"{len(live.subagents)} subagent{'s' if len(live.subagents) != 1 else ''} still working"
         else:
             live.state, live.detail = WAITING, "turn finished"
+    if live.kind == "interactive" and session.human_prompts and max(session.human_prompts) in set(session.sdk_prompts):
+        live.via_sdk = frozenset(session.sdk_prompts)  # a program runs it: agentlens, or another (run_by_program)
+    return live
+
+
+def run_by_program(live: LiveSession) -> LiveSession:
+    """An open session whose newest message came through the Agent SDK, that this agentlens doesn't
+    run (only the app can tell its own apart): another program runs it, like a test script another
+    Claude wrote. Its messages from that program show as the program's, not yours, and when its turn
+    ends it waits on the program, not on you. The same session again changes nothing."""
+    if not live.via_sdk:
+        return live
+    live.by_program = True
+    live.feed = [replace(e, tag=PROGRAM) if e.kind == "you" and not e.tag and e.at in live.via_sdk else e
+                 for e in live.feed]
+    if live.state == WAITING:
+        live.state, live.detail = BACKGROUND, "waiting on the program that runs it"
     return live
 
 
