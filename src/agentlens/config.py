@@ -154,7 +154,7 @@ def color_preset(colors: dict[str, str]) -> str | None:
 # Not this PC's spaces (its folders), its Claude Code, or its sessions.
 PORTABLE = ("theme", "colors", "columns", "sidebar", "show_tools", "show_times", "refresh_seconds", "usage_minutes",
             "history_days", "history_keep_days", "default_mode", "editor", "editor_terminal", "keys",
-            "findings_and_advice", "autopilot")
+            "findings_and_advice", "autopilot", "coordinator")
 
 
 @dataclass
@@ -201,6 +201,7 @@ class Config:
     keys: dict[str, str] = field(default_factory=dict)  # the keys you changed, by keys.ACTIONS id
     findings_and_advice: bool = False  # experimental: Report, Profile, Rules and Advice
     autopilot: str = "off"  # experimental: one of autopilot.LEVELS, for sessions without their own
+    coordinator: bool = False  # experimental: G starts a goal that a lead Claude runs across sessions
     spaces: list[Space] = field(default_factory=list)
     # Sessions agentlens runs, restored (paused) on the next launch until you end or detach them.
     driven_sessions: list[dict] = field(default_factory=list)
@@ -302,6 +303,7 @@ def parse(data: dict, path: Path | None = None) -> Config:
         keys=keys_mod.changed({}, {str(k): keys_mod.normalize(str(v)) for k, v in keys.items() if v}),
         findings_and_advice=bool(data.get("findings_and_advice", defaults.findings_and_advice)),
         autopilot=data["autopilot"] if data.get("autopilot") in AUTOPILOT_LEVELS else defaults.autopilot,
+        coordinator=bool(data.get("coordinator", defaults.coordinator)),
         spaces=spaces,
         driven_sessions=[
             # Not "autopilot": saved before the setting was for every session, that was the setting's.

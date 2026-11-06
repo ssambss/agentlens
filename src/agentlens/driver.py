@@ -118,6 +118,24 @@ def _started_by_its_own_work(result) -> bool:
     return isinstance(origin, dict) and origin.get("kind") == "task-notification" and not origin.get("subkind")
 
 
+def _from_another_session(message) -> tuple[str, str] | None:
+    """A message another of your sessions sent this one, as Claude Code passes it on: who sent it and
+    what it said. A background subagent reporting back is the session's own, not another's."""
+    origin = getattr(message, "origin", None)
+    if not isinstance(origin, dict):
+        return None
+    peer = origin.get("kind") == "peer" and not origin.get("senderTaskId")
+    relayed = origin.get("kind") == "task-notification" and origin.get("subkind") == "peer-send-message"
+    if not (peer or relayed):
+        return None
+    body = origin.get("body")
+    if not isinstance(body, str):
+        content = getattr(message, "content", None)
+        body = content if isinstance(content, str) else "\n".join(
+            getattr(b, "text", "") for b in content or [] if getattr(b, "text", None))
+    return str(origin.get("name") or "another session"), body.strip()
+
+
 def find_claude() -> str | None:
     """The user's own installed Claude Code. None lets the SDK use its bundled copy."""
     return shutil.which("claude")
@@ -249,6 +267,15 @@ class DrivenSession:
         # such as a test run it left going, carries on the work and counts as ours.
         self._sent = False
         self._turn_ours = False
+        self._yours_sent = False  # a message of yours, not autopilot's or the coordinator's, since the last turn ended
+        self.last_yours: datetime | None = None  # when you last sent it one
+        # The coordinator's, for its lead and the sessions it runs: what the session runs with on top of
+        # Claude Code's own (the lead's instructions and tools), and what a turn ending does instead of
+        # autopilot. That's given whether you sent a message in the turn, Claude's reply, and its error if
+        # it failed, and says whether the session waits quietly and the line under its title, or None for
+        # what it would do without it.
+        self.options_extra: dict = {}
+        self.on_turn_end: Callable[[DrivenSession, bool, str, str], tuple[bool, str] | None] | None = None
 
     # Lifecycle --------------------------------------------------------------------------
 
@@ -266,31 +293,34 @@ class DrivenSession:
     def options(self):
         from claude_agent_sdk import ClaudeAgentOptions
 
-        return ClaudeAgentOptions(
-            cwd=self.cwd,
-            resume=self.resume,
-            permission_mode=self.permission_mode,
-            model=self.model,
-            include_partial_messages=True,
-            can_use_tool=self._can_use_tool,
+        return ClaudeAgentOptions(**{
+            "cwd": self.cwd,
+            "resume": self.resume,
+            "permission_mode": self.permission_mode,
+            "model": self.model,
+            "include_partial_messages": True,
+            "can_use_tool": self._can_use_tool,
             # Behave like Claude Code: its system prompt and tools, and the same settings,
             # CLAUDE.md, skills and permission rules your other sessions load.
-            system_prompt={"type": "preset", "preset": "claude_code"},
-            tools={"type": "preset", "preset": "claude_code"},
-            setting_sources=["user", "project", "local"],
-            cli_path=self.cli_path,
-            max_buffer_size=MAX_MESSAGE_BYTES,
+            "system_prompt": {"type": "preset", "preset": "claude_code"},
+            "tools": {"type": "preset", "preset": "claude_code"},
+            "setting_sources": ["user", "project", "local"],
+            "cli_path": self.cli_path,
+            "max_buffer_size": MAX_MESSAGE_BYTES,
             # Piped, not shared with agentlens's terminal: written there, it lands on the screen,
             # and the "show the cursor" Claude Code sends on exit leaves a stray cursor showing.
-            stderr=self._on_stderr,
-            env=dict(CLAUDE_ENV),
-        )
+            "stderr": self._on_stderr,
+            "env": dict(CLAUDE_ENV),
+            **self.options_extra,
+        })
 
     def _on_stderr(self, line: str) -> None:
         if line := TERMINAL_CODES.sub("", line).strip():
             self._stderr.append(line)
 
-    async def start(self, first_prompt: str | None = None, images: list[PastedImage] | None = None) -> None:
+    async def start(self, first_prompt: str | None = None, images: list[PastedImage] | None = None,
+                    note: str = "", by: str = "") -> None:
+        """`note` and `by`: as send's, for the first message."""
         try:
             self._client = self.client_factory(self.options())
             await self._client.connect()
@@ -312,7 +342,7 @@ class DrivenSession:
             self._renaming = asyncio.ensure_future(self._give_name(self._client))
         if first_prompt or images:
             self.images = [*(images or []), *self.images]  # the first message's, then any pasted since
-            await self.send(first_prompt or "")
+            await self.send(first_prompt or "", note, by=by)
 
     def park(self, events: list[Event]) -> None:
         """Show a resumed session's past conversation without starting Claude Code yet."""
@@ -338,10 +368,12 @@ class DrivenSession:
         if self._client is not None and (self.state, self.detail) == (WAITING, "ready"):
             self._set(WAITING, why)
 
-    async def send(self, text: str, note: str = "", first: Awaitable | None = None, by_autopilot: bool = False) -> None:
+    async def send(self, text: str, note: str = "", first: Awaitable | None = None, by_autopilot: bool = False,
+                   by: str = "") -> None:
         """Your message, and a note for Claude with it that the pane doesn't show as yours: what the
         sessions it names are. `first`: what Claude reading it waits for, those sessions starting.
-        `by_autopilot`: autopilot's message, which the pane shows as its own."""
+        `by_autopilot`: autopilot's message, which the pane shows as its own. `by`: another sender's
+        tag, the coordinator's (coordinator.COORDINATOR, coordinator.BOARD), shown as theirs."""
         text = text.strip()
         starting = self._connecting is not None and not self._connecting.done()
         images = [] if text.startswith("/") else self.images  # a command leaves them for the next message
@@ -349,17 +381,19 @@ class DrivenSession:
             return
         if images:
             self.images = []
-        if not by_autopilot:
+        by = AUTOPILOT if by_autopilot else by
+        now = datetime.now(timezone.utc)
+        if not by:
             self.piloted = 0
+            self._yours_sent, self.last_yours = True, now
             if self._cancel_pilot() and self.state == WORKING:
                 self.state, self.turn_started = WAITING, None  # yours is the next turn, not one it was reading
-        now = datetime.now(timezone.utc)
-        busy = self.state == WORKING and not by_autopilot
+        busy = self.state == WORKING and not by
         shown = f"{image_marks(len(images))} {text}".strip()
-        tag = AUTOPILOT if by_autopilot else "queued" if busy else ""
+        tag = by or ("queued" if busy else "")
         self.events.append(Event(now, "you", shown.splitlines()[0][:240], shown, tag=tag))
         self._sent = True
-        if not self.title and text and not text.startswith("/") and not by_autopilot:
+        if not self.title and text and not text.startswith("/") and not by:
             self.title = text.splitlines()[0][:80]
         if self._client is None or starting:
             # Show the message right away: starting Claude Code takes a few seconds.
@@ -390,7 +424,7 @@ class DrivenSession:
         except Exception as e:  # noqa: BLE001
             await self._stopped(client, f"Couldn't send that to Claude Code ({e}), so agentlens stopped it.")
             return
-        if not self.titled and self._naming is None and text and not text.startswith("/") and not by_autopilot:
+        if not self.titled and self._naming is None and text and not text.startswith("/") and not by:
             # What it's about: your first message, which it's called by until now, and this one.
             about = text if text.startswith(self.title) else f"{self.title}\n{text}"
             self._naming = asyncio.ensure_future(self._name(client, about))
@@ -497,6 +531,12 @@ class DrivenSession:
             self._resolve(self._allow({**p.tool_input, "answers": dict(p.answers)}, None))
         else:
             self.on_change(self)
+
+    def say_quietly(self, detail: str) -> None:
+        """Change the line under its title while it waits quietly (the coordinator's session, done),
+        without calling you."""
+        if self.state == BACKGROUND:
+            self._set(BACKGROUND, detail[:200])
 
     # Autopilot --------------------------------------------------------------------------
 
@@ -743,6 +783,10 @@ class DrivenSession:
             self.on_change(self)
             return
         if kind == "UserMessage":
+            if (said := _from_another_session(message)) is not None:
+                name, body = said
+                first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
+                self.events.append(Event(now, "notice", f"From {name}: {first}"[:240], body[:4000]))
             for block in getattr(message, "content", None) or []:
                 if type(block).__name__ != "ToolResultBlock":
                     continue
@@ -800,12 +844,24 @@ class DrivenSession:
                     event.tag = ""  # whatever was queued has been read by now
             self.session_id = getattr(message, "session_id", None) or self.session_id
             self.cost_usd += getattr(message, "total_cost_usd", None) or 0.0
+            failed = ""
             if getattr(message, "is_error", False):
                 errors = getattr(message, "errors", None) or [getattr(message, "result", "") or "the turn failed"]
-                self.events.append(Event(now, "error", str(errors[0])[:240], "\n".join(map(str, errors))))
+                failed = str(errors[0])[:240]
+                self.events.append(Event(now, "error", failed, "\n".join(map(str, errors))))
             self._cancel_pilot()  # another turn ended meanwhile (another session's message started it)
             self._turn_ours, self._sent = self._sent or _started_by_its_own_work(message), False
-            if self._pilot_due(message):
+            yours, self._yours_sent = self._yours_sent, False
+            instead = None
+            if self.on_turn_end is not None and not self._interrupted:
+                try:
+                    instead = self.on_turn_end(self, yours, self._reply(), failed)
+                except Exception as e:  # noqa: BLE001 - it's yours, as it would be without the coordinator
+                    self.events.append(Event(now, "error", f"The coordinator couldn't take this turn: {e}"[:240]))
+            if instead is not None:
+                quiet, detail = instead
+                self._set(BACKGROUND if quiet else WAITING, detail[:200])
+            elif self.on_turn_end is None and self._pilot_due(message):
                 self._set(WORKING, "autopilot is reading the reply")
                 self._piloting = asyncio.ensure_future(self._pilot())
             else:

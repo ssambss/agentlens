@@ -72,6 +72,8 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
     ]),
     ("The wall", [
         Action("new-session", "n", "start a new session"),
+        Action("new-goal", "G", "start a goal: a lead Claude runs it across sessions (experimental, the "
+               "coordinator in settings)"),
         Action("move-left", "left", "the session to the left; from the first column, the spaces list, where "
                "↑ ↓ switch space"),
         Action("move-right", "right", "the session to the right"),

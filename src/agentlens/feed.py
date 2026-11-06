@@ -32,6 +32,7 @@ from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
+from agentlens.coordinator import BOARD, COORDINATOR
 from agentlens.model import APPROVED, AUTOPILOT, DECLINED, SENT_BACK, Event
 
 PANE_BLOCKS = 14  # conversation blocks kept in a pane; it scrolls to the newest
@@ -198,6 +199,10 @@ def conversation(
 
 _GAP = Text("")
 
+# Who sent a message you didn't type, by its tag, and a word on it.
+SENDERS = {AUTOPILOT: ("Autopilot", "for you, from Sonnet"), COORDINATOR: ("Coordinator", "for you, as part of a goal"),
+           BOARD: ("agentlens", "what one of the goal's sessions said")}
+
 # What an answer card says you did, by its tag; otherwise, you answered.
 ANSWERED = {DECLINED: "You didn't answer", APPROVED: "You approved the plan", SENT_BACK: "You said to keep planning"}
 
@@ -205,10 +210,10 @@ ANSWERED = {DECLINED: "You didn't answer", APPROVED: "You approved the plan", SE
 def _render_block(block: Block, palette: Palette, stamp: str, full: bool, clip: bool) -> RenderableType:
     if block.kind == "you":
         body = _clip_lines(block.text, PANE_PROMPT_LINES) if clip else block.text
-        who = "Autopilot" if block.tag == AUTOPILOT else "You"
-        label = Text.assemble((who, f"bold {palette.you}"), (stamp, "dim"))
-        if block.tag == AUTOPILOT:
-            label.append("  · for you, from Sonnet", style="italic dim")
+        who = SENDERS.get(block.tag, ("You", ""))
+        label = Text.assemble((who[0], f"bold {palette.you}"), (stamp, "dim"))
+        if who[1]:
+            label.append(f"  · {who[1]}", style="italic dim")
         elif block.tag == "queued":
             label.append("  · sent while Claude was working", style="italic dim")
         card = Group(label, with_links(Text(body)))
@@ -264,7 +269,8 @@ def activity_log(events: list[Event], palette: Palette, *, show_times: bool = Tr
         if show_times:
             text.append(f"{event.at.astimezone():%H:%M} ", style="dim")
         label, style = labels.get(event.kind, ("    ", ""))
-        text.append("auto" if event.tag == AUTOPILOT else label, style=style)
+        text.append({AUTOPILOT: "auto", COORDINATOR: "lead", BOARD: "lens"}.get(event.tag, label)
+                    if event.kind == "you" else label, style=style)
         if event.kind in ("question", "answer", "plan"):
             said = {"question": "asked: ", "answer": "answered: ", "plan": "plan: "}[event.kind]
             if event.tag == DECLINED:

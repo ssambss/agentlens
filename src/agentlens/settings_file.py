@@ -31,7 +31,8 @@ NAMES = {
     "usage_minutes": "usage meter", "history_days": "how far back History goes",
     "history_keep_days": "how long sessions are kept", "default_mode": "mode for new sessions", "editor": "editor",
     "editor_terminal": "whether your editor runs in the terminal", "keys": "keys",
-    "findings_and_advice": "findings and advice", "autopilot": "autopilot", "goals": "goals",
+    "findings_and_advice": "findings and advice", "autopilot": "autopilot", "coordinator": "the coordinator",
+    "goals": "goals",
     "style": "style", "mute": "muted rules",
     "thresholds": "rule thresholds",
 }

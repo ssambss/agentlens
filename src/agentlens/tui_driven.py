@@ -627,17 +627,25 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, folder: str, mode: str, space: Callable[[str, str], str] | None = None) -> None:
+    def __init__(self, folder: str, mode: str, space: Callable[[str, str], str] | None = None,
+                 goal: bool = False) -> None:
         super().__init__()
         self.folder, self.mode = folder, mode if mode in PERMISSION_MODES else "default"
         self.space = space  # the space a session started in this folder, with this first message, goes in
         self.images: list = []  # pasted into the first message's box, to go with it
+        self.goal = goal  # a goal for the coordinator: its first message is the goal, and the mode its sessions'
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-dialog"):
-            yield Label(Text("New session", style="bold"))
-            yield Static(Text("Runs your own Claude Code in this folder, typeable right here.",
-                             style="dim"))
+            if self.goal:
+                yield Label(Text("New goal", style="bold"))
+                yield Static(Text("A lead Claude plans it in this folder, starts a session for each part and keeps "
+                                  "them going. It reads the repository but changes nothing itself. Experimental.",
+                                  style="dim"))
+            else:
+                yield Label(Text("New session", style="bold"))
+                yield Static(Text("Runs your own Claude Code in this folder, typeable right here.",
+                                 style="dim"))
             with Horizontal(id="new-folder-row"):
                 yield TextInput(self.folder, placeholder="Folder to work in", id="new-folder")
                 yield Button("Browse…", id="new-browse")
@@ -645,9 +653,11 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
             yield Static(self._space_line(self.folder, ""), id="new-space")
             yield Select([(label, mode) for mode, label in MODE_LABELS.items()], value=self.mode,
                          allow_blank=False, id="new-mode")
-            yield Static(folder_note(self.folder), id="new-note")
-            yield FirstMessageInput(placeholder="First message (optional, Alt+V pastes an image), Enter to start, "
-                                                "Shift+Enter for a new line", id="new-prompt")
+            yield Static(folder_note(self.folder) if not self.goal else
+                         Text("The mode is for the sessions it starts.", style="dim"), id="new-note")
+            yield FirstMessageInput(placeholder="What should get done? Enter to start, Shift+Enter for a new line"
+                                    if self.goal else "First message (optional, Alt+V pastes an image), Enter to "
+                                                      "start, Shift+Enter for a new line", id="new-prompt")
             yield Static(id="new-images")
             yield Static(id="new-error")
 
@@ -672,7 +682,8 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
 
     @on(TextInput.Changed, "#new-folder")
     def _folder_changed(self, event: TextInput.Changed) -> None:
-        self.query_one("#new-note", Static).update(folder_note(event.value.strip().strip('"')))
+        if not self.goal:
+            self.query_one("#new-note", Static).update(folder_note(event.value.strip().strip('"')))
         self._show_space()
 
     @on(TextArea.Changed, "#new-prompt")
@@ -704,6 +715,9 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
         if not folder or not Path(folder).is_dir():
             self.query_one("#new-error", Static).update(Text(f"No such folder: {folder}", style="red"))
             self.query_one("#new-folder", TextInput).focus()
+            return
+        if self.goal and not self.query_one("#new-prompt", MessageBox).value.strip():
+            self.query_one("#new-error", Static).update(Text("Say what the goal is.", style="red"))
             return
         self.dismiss({
             "cwd": str(Path(folder)),

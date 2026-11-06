@@ -92,6 +92,7 @@ never shows a time.
 | `H` | history |
 | `U`, `,` | usage and what's using it; settings |
 | `D` | what [autopilot](#autopilot) answered for you, in every session |
+| `G` | start a goal that a lead Claude runs across sessions: the [coordinator](#coordinator), experimental |
 
 Drag to select text and Ctrl+C copies it, over SSH too. Links open on click: web pages in
 your browser, file links like `[app.py:42](src/app.py#L42)` in your editor at that line.
@@ -139,8 +140,8 @@ Everything else is on the settings screen (`,`), saved as you pick:
   installed. Under the picker you can see the exact command it will run.
 - **Keys**: a preset, agentlens's own or Vim's (`h` `j` `k` `l` move between panes too,
   and Space goes to a session that needs you), and a way into the keys list.
-- **Experimental**: [autopilot](#autopilot) for the sessions agentlens runs, off until you
-  turn it on.
+- **Experimental**: [autopilot](#autopilot) for the sessions agentlens runs, and the
+  [coordinator](#coordinator) for a goal that takes several, off until you turn them on.
 - **Another PC**: Export saves your settings in one file, and Import on the other PC puts
   them in place of its own, straight away. That's the look, keys, how far back History goes
   and how long it keeps sessions, the usage meter, the mode for new sessions, autopilot
@@ -321,6 +322,50 @@ that, and [Use the Claude Agent SDK with your Claude plan](https://support.claud
 covers it on Pro, Max, Team and Enterprise plans. That article also says how this use
 counts against your plan, including the `claude -p` that autopilot and the usage meter run.
 
+### Coordinator
+
+Autopilot answers one session. The coordinator runs a goal across several. Turn it on in the
+settings, under Experimental. Then `G` asks for a folder and the goal, like `n` does, and
+starts a lead Claude in a pane of its own, in the space you're in:
+
+1. The lead reads the repository and breaks the goal into tasks. Each task has a brief that a
+   fresh session can act on, and says which tasks it waits for.
+2. It starts a session for each task beside itself, in the mode you picked. Each one works in
+   a git worktree of its own.
+3. When one of those sessions ends a turn, agentlens sends its reply to the lead, and the
+   session waits without ringing ("the coordinator is reading this"). The lead answers it,
+   marks it done, or brings it to you.
+4. When the tasks are done and checked, it has them merge one at a time, the way the repo
+   does it.
+5. It tells you when the goal is done.
+
+The lead doesn't work on the code itself. It has Read, Grep and Glob, and agentlens's own
+tools for the board: add tasks, start one, message one, finish one, ask you, finish the goal.
+Its pane rings only when it asks you something, answers you, or the goal is done. Otherwise
+it shows what's under way ("coordinating: 2 running, 1 of 3 done"). Its border says
+`coordinator · 2 running · 1/3 done`, and each of its sessions' borders says
+`task 2 of 3 · coordinator`.
+
+How much it decides follows your autopilot level:
+
+- **Off**: it brings you every reply that needs an answer, with its suggestion.
+- **Balanced**: it gives the go-aheads.
+- **Autonomous**: it answers as autopilot's autonomous does.
+
+On off and balanced it shows you the plan and starts nothing until you've answered. It does
+that again whenever the plan changes.
+
+The limits are agentlens's, not the lead's to choose:
+
+- 3 sessions at once and 6 per goal
+- none started once 80% of your five-hour window is used
+- the same number of answers in a row to one session as autopilot gives
+
+You can still type into any of its sessions. That reply comes to you, not the lead. Releases,
+deploys, publishing, force-pushes and deletes you can't get back are always yours. Goals are
+kept in `~/.agentlens/goals.json`, so a restart brings the lead and its sessions back as they
+were.
+
 ## What leaves your machine
 
 agentlens reads your sessions on your machine. The sessions you start in it are your own
@@ -333,6 +378,8 @@ agentlens reads your sessions on your machine. The sessions you start in it are 
 - **Autopilot**, in a session you've turned it on for, sends Claude's reply when a turn
   ends, your last four messages to that session and its title, to Sonnet. That's
   conversation text, the session's own, which it sent when it ran. Off unless you turn it on.
+- **The coordinator**'s lead and its sessions are sessions like the others. What agentlens
+  passes between them is the sessions' own replies. Off unless you turn it on.
 
 Findings and advice, early versions that are hidden and off, send more when they're turned
 on: [what they send](docs/findings-and-advice.md#what-they-send).
@@ -364,6 +411,7 @@ subagent_map.py  the zoom view's map: subagents in waves, nested under who launc
 tui.py      the app
 driver.py   sessions agentlens runs itself
 autopilot.py  Sonnet answering a turn that has ended for you, or leaving it to you (experimental)
+coordinator.py  a goal's board, its lead's tools and limits, and its sessions' turns going to the lead (experimental)
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu and @ for your other sessions
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
 terminal.py the tab's name, agentlens's icon on its window or tab, and in Windows the keys its consoles don't pass on

@@ -23,6 +23,7 @@ from textual.widgets import Button, Checkbox, Input, Label, Select, Static
 from agentlens import config as config_mod, editor as editor_mod, keys as keys_mod, preferences, settings_file
 from agentlens.frames import PacedScreen
 from agentlens.textbox import TextInput
+from agentlens import coordinator as coordinator_mod
 from agentlens.autopilot import LEVELS as AUTOPILOT_LEVELS
 from agentlens.tui_driven import MODE_LABELS, FolderPickerScreen
 from agentlens.tui_keys import KeysScreen
@@ -35,7 +36,8 @@ JUDGE = ""  # the style option that leaves it to agentlens, from your sessions
 USAGE_CHOICES = [("Off", 0.0), ("Every minute", 1.0), ("Every 2 minutes", 2.0), ("Every 5 minutes", 5.0),
                  ("Every 10 minutes", 10.0), ("Every 15 minutes", 15.0), ("Every 30 minutes", 30.0)]
 CHECKBOXES = {"set-sidebar": "sidebar", "set-tools": "show_tools", "set-times": "show_times",
-              "set-editor-terminal": "editor_terminal", "set-findings": "findings_and_advice"}
+              "set-editor-terminal": "editor_terminal", "set-findings": "findings_and_advice",
+              "set-coordinator": "coordinator"}
 INPUTS = {"set-editor": "editor", "set-cli": "cli_path"}
 # A sample of the colours, as the panes and the conversation use them.
 BORDER_SAMPLE = [("selected", "selected"), ("question", "needs you"), ("working", "working"),
@@ -183,6 +185,13 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
                          f"{keys_mod.name('autopilot')} gives the session you're on its own, and its border says so. "
                          "Each check sends that reply and those messages to Claude, through your own claude.",
                          classes="settings-note")
+            yield row("Goals", Checkbox("Coordinator", cfg.coordinator, compact=True, id="set-coordinator"))
+            yield Static(f"{keys_mod.name('new-goal')} starts a goal: a lead Claude plans it, starts a session for "
+                         f"each part, and keeps them going, in the space you're in. It reads the repository but changes "
+                         f"nothing itself. How much it decides follows your autopilot level: on autonomous it starts "
+                         f"the sessions itself, else it shows you the plan first. At most {coordinator_mod.AT_ONCE} "
+                         f"run at once and {coordinator_mod.PER_GOAL} per goal, and none start past "
+                         f"{coordinator_mod.USAGE_STOP:.0%} of your five-hour window.", classes="settings-note")
 
             # Only the experimental screens use these, so they show while those are on.
             aims = [

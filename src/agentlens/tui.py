@@ -43,7 +43,7 @@ from textual.widgets.tree import TreeNode
 from textual.worker import get_current_worker
 
 from agentlens import activity as activity_mod, advise, analysis as analysis_mod, clipboard, commands as commands_mod
-from agentlens import autopilot as autopilot_mod
+from agentlens import autopilot as autopilot_mod, coordinator as coordinator_mod
 from agentlens import config as config_mod
 from agentlens import editor as editor_mod, keys as keys_mod, preferences, settings_file, terminal, timings
 from agentlens import usage as usage_mod
@@ -399,7 +399,7 @@ class SessionPane(Vertical, can_focus=True):
             self.border_title = title
         subtitle = Text(f"{data.state} {ago(now - data.since)}" if data.since else data.state)
         driven = app.driven.get(self.session_id)
-        if driven is not None and (pilot := pilot_label(driven)):
+        if driven is not None and (pilot := app.coordinator.label(self.session_id) or pilot_label(driven)):
             subtitle.append(" · ")
             subtitle.append(pilot, style=app.palette.notice)
         fill = data.context_fill
@@ -1557,6 +1557,7 @@ class AgentlensApp(App):
         bind("move-to-space", "move_to_space", "Move to space"),
         bind("jump", "jump", "Needs you"),
         bind("new-session", "new_session", "New"),
+        bind("new-goal", "new_goal", "Goal", show=False),
         bind("settings", "settings", "Settings"),
         bind("show-keys", "show_keys", "All keys"),
         bind("quit", "quit", "Quit"),
@@ -1655,6 +1656,11 @@ class AgentlensApp(App):
                       else usage_mod.Usage())
         self.usage_checking = False
         self._usage_timed = False  # the first check's time is in the startup timings
+        # Experimental: goals a lead Claude runs across sessions (G), and which panes are theirs.
+        self.coordinator = coordinator_mod.Coordinator(
+            open_task=self._open_task, send=self._send_from, alive=lambda key: key in self.driven,
+            yours_since=self._yours_since, level=lambda: self.config.autopilot, usage=self._five_hour_used,
+            finished=lambda key, line: self.driven[key].say_quietly(line) if key in self.driven else None)
         self.meter_colors = ("#0178D4", "#FEA62B", "#B93C5B")  # normal, nearly full, full; set from the theme
         self.catalog = commands_mod.load_cached()  # slash commands for boxes whose session hasn't started
         self._summary_text: Text | None = None
@@ -1724,14 +1730,14 @@ class AgentlensApp(App):
             self._driver.write(terminal.HIDE_CURSOR)
 
     WALL_ONLY = {"zoom", "toggle_filter", "toggle_working", "space", "columns", "toggle_sidebar", "move"}
-    WALL_OR_ZOOM = {"move_to_space", "new_session", "handoff_focused", "open_folder", "copy_reply"}
+    WALL_OR_ZOOM = {"move_to_space", "new_session", "new_goal", "handoff_focused", "open_folder", "copy_reply"}
     DRIVEN_ONLY = {"compose", "interrupt", "choose", "detach"}
     FINDINGS_AND_ADVICE = {"report", "advise", "profile", "rules"}  # experimental: the settings turn them on
     TYPED_KEY_ACTIONS = {
         "quit", "zoom", "new_session", "compose", "interrupt", "handoff_focused", "detach", "end_session",
         "bring_here", "choose", "move_to_space", "toggle_filter", "toggle_view", "report", "advise", "history",
         "profile", "rules", "toggle_sidebar", "toggle_tools", "space", "columns", "attach", "refresh", "move",
-        "show_keys", "open_folder", "copy_reply", "usage", "jump", "settings", "toggle_working",
+        "show_keys", "open_folder", "copy_reply", "usage", "jump", "settings", "toggle_working", "new_goal",
     }
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
@@ -2052,8 +2058,13 @@ class AgentlensApp(App):
 
     def open_driven(self, cwd: str, *, prompt: str = "", images: list | None = None, mode: str | None = None,
                     resume: str | None = None, title: str = "", force: bool = False, start: bool = True,
-                    apply: bool = True, focus: bool = True, own_autopilot: str | None = None) -> DrivenSession | None:
-        """`own_autopilot`: the session's own level, set with p; None, it follows your setting."""
+                    apply: bool = True, focus: bool = True, own_autopilot: str | None = None,
+                    prepare: Callable[[DrivenSession], None] | None = None, first_note: str = "",
+                    first_by: str = "", in_space: str | None = None) -> DrivenSession | None:
+        """`own_autopilot`: the session's own level, set with p; None, it follows your setting.
+        `prepare`: what to do with the session before Claude Code starts. `first_note`, `first_by`:
+        the first message's note and sender, as send's. `in_space`: the space it goes in, instead of
+        the one you're in."""
         if resume and not force and resume in {s.session_id for s in self._monitored}:
             self.notify("That session is open somewhere else (a terminal or an editor). Close it there first, "
                         "so two clients don't write to it at once.", title="Already open", severity="warning")
@@ -2070,7 +2081,11 @@ class AgentlensApp(App):
         driven.own_autopilot = own_autopilot in autopilot_mod.LEVELS
         driven.title = title if title != "(untitled)" else ""  # what History calls one it has no title for
         self.driven[driven.key] = driven
-        if not resume and (space := self._made_space()):
+        if resume and self.coordinator.adopt(driven.key, resume):
+            self._coordinate(driven)  # a goal's lead or one of its sessions, back from last time
+        if prepare is not None:
+            prepare(driven)
+        if not resume and (space := self._made_space() if in_space is None else in_space):
             # One you start goes in the space you're in. One that comes back (at launch, from History)
             # keeps its own: restored at launch, every session would go in the space you quit in.
             self.driven_space[driven.key] = space
@@ -2088,7 +2103,8 @@ class AgentlensApp(App):
         self.config.last_folder = cwd
         self._save_config()
         if start:
-            self.run_worker(driven.start(prompt or None, images), group="driven", exclusive=False)
+            self.run_worker(driven.start(prompt or None, images, note=first_note, by=first_by), group="driven",
+                            exclusive=False)
         if apply:
             self._apply(self._monitored, datetime.now(timezone.utc))
         if focus:
@@ -2224,6 +2240,7 @@ class AgentlensApp(App):
                 continue
             live = self._driven_live(driven, now)
             self._remember(driven)
+            self.coordinator.got_id(key, driven.session_id or "")
             if driven.catalog is not None and driven.catalog is not self.catalog:
                 self.catalog = driven.catalog  # the freshest list, for boxes whose session hasn't started
                 commands_mod.save_cached(driven.catalog)
@@ -2602,6 +2619,72 @@ class AgentlensApp(App):
                 self.open_driven(result["cwd"], prompt=result["prompt"], images=result["images"], mode=result["mode"])
 
         self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode, space), chosen)
+
+    # The coordinator (experimental) ----------------------------------------------------------
+
+    def action_new_goal(self) -> None:
+        if not self.config.coordinator:
+            self.notify(f"Turn it on in settings ({keys_mod.name('settings')}), under Experimental.",
+                        title="The coordinator is off")
+            return
+        made = self._made_space()
+
+        def chosen(result: dict | None) -> None:
+            if result:
+                self.config.default_mode = result["mode"]
+                self.start_goal(result["cwd"], result["prompt"], result["mode"], made)
+
+        self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode,
+                                          (lambda folder, prompt: made) if made else None, goal=True), chosen)
+
+    def start_goal(self, cwd: str, text: str, mode: str, space: str) -> DrivenSession | None:
+        """Start a goal's lead in a pane of its own, with your goal as its first message. `mode`: the
+        permission mode its sessions start in; it changes nothing itself."""
+        goal = self.coordinator.new_goal(cwd, space, mode)
+        return self.open_driven(cwd, prompt=text, mode="default", in_space=space,
+                                prepare=lambda driven: self._coordinate(driven, goal))
+
+    def _coordinate(self, driven: DrivenSession, goal: coordinator_mod.Goal | None = None,
+                    task: coordinator_mod.Task | None = None) -> None:
+        """Make a session the coordinator's: `goal`'s lead, or its session for `task` (none given: as
+        linked already). The lead runs with its instructions and tools. For either, a turn ending goes to
+        the coordinator instead of autopilot."""
+        if goal is not None:
+            self.coordinator.link(driven.key, goal, task)
+        found = self.coordinator.role(driven.key)
+        if found is None:
+            return
+        goal, task = found
+        if task is None:
+            driven.options_extra = self.coordinator.lead_options(goal)
+        driven.on_turn_end = lambda d, yours, reply, failed: self.coordinator.turn_ended(d.key, yours, reply, failed)
+
+    def _open_task(self, goal: coordinator_mod.Goal, task: coordinator_mod.Task, first: str) -> str | None:
+        """A session for one of a goal's tasks, beside its lead, with `first` as the lead's first message to it."""
+        driven = self.open_driven(goal.cwd, prompt=first, mode=goal.mode, title=task.title, focus=False,
+                                  in_space=goal.space, first_note=coordinator_mod.NOTE,
+                                  first_by=coordinator_mod.COORDINATOR,
+                                  prepare=lambda d: self._coordinate(d, goal, task))
+        return driven.key if driven is not None else None
+
+    def _send_from(self, key: str, text: str, note: str, by: str) -> bool:
+        """The coordinator's message to the session at `key`, or agentlens's to a lead. Whether it's open."""
+        driven = self.driven.get(key)
+        if driven is None:
+            return False
+        self.run_worker(driven.send(text, note, by=by), group="driven", exclusive=False)
+        return True
+
+    def _yours_since(self, key: str, when: str) -> bool:
+        """Whether you've sent the session at `key` a message since `when` (an ISO time; empty: ever)."""
+        driven = self.driven.get(key)
+        if driven is None or driven.last_yours is None:
+            return False
+        return not when or driven.last_yours > datetime.fromisoformat(when)
+
+    def _five_hour_used(self) -> float | None:
+        window = self.usage.windows.get("five_hour")
+        return window.used if window is not None else None
 
     def _new_session_folder(self) -> str:
         """Where a new session works unless you change it: the folder of the session you're on, if
@@ -3480,6 +3563,8 @@ class AgentlensApp(App):
             ("Go to a session that needs you", f"The newest alert first, then each in turn ({keys_mod.name('jump')})",
              self.action_jump),
             ("New session", "Start a session agentlens runs, in a folder you pick", self.action_new_session),
+            ("New goal", "A lead Claude plans it and runs it across sessions (experimental, "
+             f"{keys_mod.name('new-goal')})", self.action_new_goal),
             ("Detach this session", "Hand it to Claude Code's background service so it keeps working",
              self.action_detach),
             ("Close this session", "Done with it, like closing a chat in your editor; it stays in History",
@@ -3513,6 +3598,7 @@ class AgentlensApp(App):
              self.action_show_keys),
         ]
         hidden = () if self.config.findings_and_advice else ("Report", "Advise", "Profile", "Rules")
+        hidden += () if self.config.coordinator else ("New goal",)
         for title, help_text, callback in commands:
             if title not in hidden:
                 yield SystemCommand(title, help_text, callback)
