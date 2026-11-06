@@ -36,6 +36,7 @@ REPLY_CHARS = 6000  # of a session's reply that it reads, from the end
 SERVER = "agentlens"  # its tools are mcp__agentlens__<name>
 TOOLS = ("board", "add_tasks", "start_task", "message_task", "finish_task", "ask_you", "goal_done")
 TOOL_NAMES = [f"mcp__{SERVER}__{name}" for name in TOOLS]
+ASK_YOU_TOOL = f"mcp__{SERVER}__ask_you"  # its question shows in the lead's conversation, as Claude's own do
 LEAD_TOOLS = ["Read", "Grep", "Glob"]  # Claude Code's own: it reads the repository, and changes nothing
 
 # Tags of message events, as autopilot's are (model.AUTOPILOT): who sent it, when you didn't.

@@ -38,6 +38,7 @@ from agentlens.adapters.claude_transcripts import (
     PLAN_TOOL,
     QUESTION_TOOL,
     answer_event,
+    ask_you_event,
     image_marks,
     plan_answer_event,
     plan_event,
@@ -46,6 +47,7 @@ from agentlens.adapters.claude_transcripts import (
     tool_summary,
 )
 from agentlens.clipboard import PastedImage
+from agentlens.coordinator import ASK_YOU_TOOL
 from agentlens.commands import Catalog
 from agentlens.config import repo_name
 from agentlens.model import AUTOPILOT, Event
@@ -773,6 +775,8 @@ class DrivenSession:
                     if block.name == QUESTION_TOOL:  # what it asked you, not a tool call
                         self._asked[block.id] = questions_of(block.input or {})
                         self.events.append(question_event(now, block.input or {}))
+                    elif block.name == ASK_YOU_TOOL and (lead_asked := ask_you_event(now, block.input or {})):
+                        self.events.append(lead_asked)  # a coordinator's lead asking you: also not a tool call
                     elif block.name == PLAN_TOOL:  # the plan you're to approve, not a tool call
                         self._show_plan(block.id, block.input or {})
                     else:

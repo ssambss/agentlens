@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from agentlens.autopilot import said_by_it as said_by_autopilot
-from agentlens.coordinator import said_by_it as said_by_coordinator
+from agentlens.coordinator import ASK_YOU_TOOL, said_by_it as said_by_coordinator
 from agentlens.model import (
     APPROVED,
     AUTOPILOT,
@@ -467,6 +467,9 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
                         asked[block.get("id", "")] = questions_of(tool_input)
                         events.append(question_event(t, tool_input))
                         continue
+                    if name == ASK_YOU_TOOL and (lead_asked := ask_you_event(t, tool_input)) is not None:
+                        events.append(lead_asked)  # a coordinator's lead asking you: also not a tool call
+                        continue
                     if name == PLAN_TOOL:
                         planned.add(block.get("id", ""))
                         if (plan := plan_event(t, tool_input)) is not None:
@@ -520,6 +523,13 @@ def questions_of(tool_input: dict) -> list[dict]:
     """The questions an AskUserQuestion call asked, each with its text, header and options."""
     questions = tool_input.get("questions")
     return [q for q in questions if isinstance(q, dict) and q.get("question")] if isinstance(questions, list) else []
+
+
+def ask_you_event(at: datetime, tool_input: dict) -> Event | None:
+    """What a coordinator's lead asked you with its ask_you tool, read as Claude's own questions are. You
+    answer it by writing to the lead, so no answer card follows. None if it asked nothing."""
+    question = str(tool_input.get("question") or "").strip()
+    return Event(at, "question", _one_line(question), question[:DETAIL_CHARS]) if question else None
 
 
 def question_event(at: datetime, tool_input: dict) -> Event:

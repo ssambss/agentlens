@@ -251,6 +251,31 @@ def test_goals_are_kept_and_their_sessions_known_again_after_a_restart(tmp_path)
     assert found is not None and found[1].title == "A" and again.label("new-task-key") == "task 1 of 1 · coordinator"
 
 
+def test_what_the_lead_asks_you_shows_in_its_conversation(projects):
+    """Its ask_you question, options and all, reads in its pane as Claude's own questions do, live and from
+    its transcript: the line under its title only has room for the start of it."""
+    from claude_agent_sdk import AssistantMessage, ToolUseBlock
+    from conftest import common, human, tool_use, write_jsonl
+    from test_driver import make
+
+    from agentlens.adapters.claude_transcripts import load_session
+
+    question = ("For the DJ rework: how often should the DJ talk? (1) At the start, then when the music changes "
+                "direction. (2) Before every set, as now. I recommend (1).")
+    d, _ = make({})
+    d.handle(AssistantMessage([ToolUseBlock("a1", "mcp__agentlens__ask_you", {"question": question})],
+                              "claude-opus-5-5"))
+    asked = d.events[-1]
+    assert (asked.kind, asked.detail) == ("question", question)
+    assert asked.text.startswith("For the DJ rework: how often should the DJ talk?")
+
+    events: dict = {}
+    path = write_jsonl(projects / "demo" / "lead.jsonl", common(
+        [human(0, "Split the parser"), tool_use(1, "mcp__agentlens__ask_you", "a1", question=question)], "lead"))
+    load_session(path, events=events)
+    assert [(e.kind, e.detail) for e in events["main"] if e.kind != "you"] == [("question", question)]
+
+
 def test_its_messages_are_told_from_yours_in_a_transcript():
     assert coordinator.said_by_it(f"Add tests.\n\n{NOTE}") == (COORDINATOR, "Add tests.")
     assert coordinator.said_by_it(f"Parser ended a turn.\n\n{BOARD_NOTE}") == (BOARD, "Parser ended a turn.")
