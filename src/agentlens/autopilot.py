@@ -77,8 +77,7 @@ RULES = {
         "Then it should say what's left that only the developer can judge. Ask this only once: if you've "
         "already asked, it's theirs.\n"
         "When code changes they asked for are done and checked but not merged or pushed, and their messages "
-        "don't say otherwise, tell it to merge and push them the way this repo does it. Where changes go "
-        "through pull requests or review, that means pushing the branch and opening one, never merging past "
+        "don't say otherwise, tell it to merge and push them the way this repo does it, never merging past "
         "a review."),
 }
 

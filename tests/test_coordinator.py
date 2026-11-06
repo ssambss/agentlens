@@ -65,7 +65,10 @@ def test_a_plan_runs_as_sessions_and_each_turn_goes_to_the_lead(tmp_path):
     assert "waits for 1" in said(c.start_task(goal, 2))  # its task before it isn't done
     assert "Started task 1" in said(c.start_task(goal, 1))
     c.link("k1", goal, goal.task(1))
-    assert panes.opened[0][0] == 1 and panes.opened[0][1].startswith("Do Parser.") and "worktree" in panes.opened[0][1]
+    brief = panes.opened[0][1]
+    assert panes.opened[0][0] == 1 and brief.startswith("Do Parser.") and "keep your changes apart" in brief
+    # How it keeps them apart, merges or cleans up is the repository's and the user's skills', not agentlens's.
+    assert "worktree" not in brief and "pull request" not in coordinator.INSTRUCTIONS
     assert goal.task(1).status == RUNNING and goal.started == 1
 
     # Its turn ending goes to the lead, quietly, with what it said.

@@ -143,7 +143,7 @@ INSTRUCTIONS = """You are agentlens's coordinator for one goal the user gives yo
 
 You don't do the work yourself: you have no Bash, Edit or Write. You read the repository (Read, Grep, \
 Glob) to plan, and run the work through sessions agentlens starts for you, one per task. Each is a full \
-Claude Code session in this repository, in its own git worktree, and knows only what you tell it.
+Claude Code session in this repository, working beside the others, and knows only what you tell it.
 
 - add_tasks: break the goal into tasks. Each has a title, a brief that a fresh session can act on \
 without this conversation (what to do and where, how to check it, what's out of scope), and the tasks \
@@ -155,8 +155,7 @@ agentlens. Answer it with message_task, mark it done with finish_task, or bring 
 ask_you. When its work is merged or it has nothing left to do, finish it. Finishing closes its \
 session, so finish one only when you need nothing more from it.
 - Merge one at a time: when tasks are done and checked, tell one to merge and push the way this \
-repository does it (where changes go through pull requests or review, push the branch and open one), \
-and the next only once that one has, updated with what's merged.
+repository does it, and the next only once that one has, updated with what's merged.
 - ask_you brings a question to the user: one at a time, short, written to them as "you", with your \
 recommendation. Then end your turn; their answer comes as their next message.
 - When every task is done, call goal_done with a short summary for the user.
@@ -390,8 +389,8 @@ class Coordinator:
             return _text(f"The user has used {used:.0%} of their five-hour window: start no more sessions now, "
                          "and tell them with ask_you.", error=True)
         first = (f"{task.brief}\n\nThis is one task of a goal that agentlens's coordinator runs for the user, "
-                 f"with other sessions working on the rest. Work in a git worktree of your own. When you're done, "
-                 f"say what you did and how you checked it.")
+                 f"with other sessions working on the rest at the same time: keep your changes apart from theirs, "
+                 f"the way this repository does it. When you're done, say what you did and how you checked it.")
         key = self.open_task(goal, task, first)
         if not key:
             return _text(f"agentlens couldn't start a session for task {task.id}.", error=True)

@@ -264,8 +264,8 @@ answers it the way you would, or leaves it for you:
   what you asked for. It takes small follow-ups Claude offers, and cleans up what the work
   left behind. When Claude asks you to try something, it first has Claude check what it can
   itself. When the work is done and checked, it has Claude merge and push it the way the
-  repo does: where changes go through pull requests, that means a pull request, not a
-  merge. What it leaves for you:
+  repo does it, never merging past a review. The steps are the repo's and your own skills',
+  not agentlens's. What it leaves for you:
   - design decisions with lasting consequences, and scope beyond what you asked for
   - releases, deploys, publishing, force-pushes, and deletes you can't easily get back
   - what only you can do or judge, like a purchase, restarting an app, or how something
@@ -330,8 +330,9 @@ starts a lead Claude in a pane of its own, in the space you're in:
 
 1. The lead reads the repository and breaks the goal into tasks. Each task has a brief that a
    fresh session can act on, and says which tasks it waits for.
-2. It starts a session for each task beside itself, in the mode you picked. Each one works in
-   a git worktree of its own.
+2. It starts a session for each task beside itself, in the mode you picked. Each is told to
+   keep its changes apart from the others' the way the repo does it. How, in a worktree or
+   on a branch, is up to the repo and your own skills.
 3. When one of those sessions ends a turn, agentlens sends its reply to the lead, and the
    session waits without ringing ("the coordinator is reading this"). The lead answers it,
    marks it done, or brings it to you.
