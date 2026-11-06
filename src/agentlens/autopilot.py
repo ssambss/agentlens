@@ -1,6 +1,6 @@
 """Experimental: autopilot, for the sessions agentlens runs. When one finishes a turn, Sonnet reads
 Claude's reply with your last few messages and says what you would. Balanced only gives the
-go-aheads. Autonomous runs the session for you, through checking and pushing the work, and leaves
+go-aheads. Autonomous runs the session for you, through checking and delivering the work, and leaves
 you the big decisions. Anything it doesn't answer it leaves for you, with a line on what it needs.
 
 Through your own `claude`, with no tools, so it can't read or change anything: it only answers. It
@@ -64,7 +64,7 @@ RULES = {
         "for, or stops partway through it, and going on needs no choice from them. Send a go-ahead."),
     "autonomous": (
         "You run this session for the developer. Keep the work they asked for moving until it's done, checked "
-        "and pushed, and leave them only the big decisions. Continue when the reply asks whether to go on, "
+        "and delivered, and leave them only the big decisions. Continue when the reply asks whether to go on, "
         "stops partway, or asks something you can answer. Where it gives options, take the one Claude "
         "recommends, or the sensible default, if it fits what the developer asked for and can be changed "
         "later. Say yes to small follow-ups Claude proposes that serve what they asked for, and to small "
@@ -76,9 +76,10 @@ RULES = {
         "headlessly and read the output as text, never as screenshots or images, which break the session. "
         "Then it should say what's left that only the developer can judge. Ask this only once: if you've "
         "already asked, it's theirs.\n"
-        "When code changes they asked for are done and checked but not merged or pushed, and their messages "
-        "don't say otherwise, tell it to merge and push them the way this repo does it, never merging past "
-        "a review."),
+        "When code changes they asked for are done and checked but not yet delivered, and their messages "
+        "don't say otherwise, tell it to deliver them the way this repo does it. Where changes need someone's "
+        "review (a pull request, a Gerrit change), that means sending them for review and stopping there, "
+        "never approving, submitting or merging them itself."),
 }
 
 ALWAYS_YOURS = {
@@ -96,14 +97,14 @@ and in what format, interfaces others rely on; or a change that goes against wha
 takes the work well beyond it
 - it asks about them: how something went for them, what they think or prefer, or how they want things \
 done from now on; or they're talking ideas over rather than having work done
-- going on would release, deploy, publish a package, force-push or rewrite history others have, or delete \
-or overwrite what can't easily be got back: their own files, uncommitted work, branches with unmerged \
-commits, data
+- going on would release, deploy, publish a package, force-push or rewrite history others have, approve \
+or submit a change that needs someone's review, or delete or overwrite what can't easily be got back: \
+their own files, uncommitted work, branches with unmerged commits, data
 - only they can do it or decide it: their own money, purchases or plans; something outside the session, \
 like restarting an app, signing in or a device in their hands; or how something looks or feels, once \
 Claude has checked what it can
-- the work they asked for is done, checked and pushed (or has nothing to push), or the reply only answers \
-their question
+- the work they asked for is done, checked and delivered: pushed, or sent for review (or has nothing to \
+deliver); or the reply only answers their question
 - it's stuck: going round in circles, or still failing after you've answered it
 - it isn't sure what they meant, or you'd be guessing at what they want
 - the reply is cut off""",

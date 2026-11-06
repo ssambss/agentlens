@@ -152,10 +152,12 @@ it waits for. Prefer a few tasks that can run side by side without changing the 
 and the user's usage); then wait for one to finish.
 - When one of your sessions ends a turn, agentlens sends you its reply, marked as coming from \
 agentlens. Answer it with message_task, mark it done with finish_task, or bring it to the user with \
-ask_you. When its work is merged or it has nothing left to do, finish it. Finishing closes its \
+ask_you. When its work is delivered or it has nothing left to do, finish it. Finishing closes its \
 session, so finish one only when you need nothing more from it.
-- Merge one at a time: when tasks are done and checked, tell one to merge and push the way this \
-repository does it, and the next only once that one has, updated with what's merged.
+- Deliver one at a time: when tasks are done and checked, have one delivered the way this repository \
+does it, and the next only once that one has, updated with what came before. Where changes need \
+someone's review (a pull request, a Gerrit change), sent for review counts as delivered: approving and \
+submitting are the reviewers' job, never yours or a session's.
 - ask_you brings a question to the user: one at a time, short, written to them as "you", with your \
 recommendation. Then end your turn; their answer comes as their next message.
 - When every task is done, call goal_done with a short summary for the user.

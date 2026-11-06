@@ -270,14 +270,17 @@ answers it the way you would, or leaves it for you:
   Claude's questions with the option Claude recommends, or a sensible default, when that fits
   what you asked for. It takes small follow-ups Claude offers, and cleans up what the work
   left behind. When Claude asks you to try something, it first has Claude check what it can
-  itself. When the work is done and checked, it has Claude merge and push it the way the
-  repo does it, never merging past a review. The steps are the repo's and your own skills',
-  not agentlens's. What it leaves for you:
+  itself. When the work is done and checked, it has Claude deliver it the way the repo does
+  it. Where changes need someone's review (a pull request, a Gerrit change), that means
+  sending them for review and stopping there: approving, submitting and merging are the
+  reviewers'. The steps are the repo's and your own skills', not agentlens's. What it leaves
+  for you:
   - design decisions with lasting consequences, and scope beyond what you asked for
-  - releases, deploys, publishing, force-pushes, and deletes you can't easily get back
+  - releases, deploys, publishing, force-pushes, approving or submitting a change that needs
+    review, and deletes you can't easily get back
   - what only you can do or judge, like a purchase, restarting an app, or how something
     looks once Claude has checked it
-  - finished work that's checked and pushed
+  - finished work that's checked and delivered: pushed, or sent for review
   - a session that's stuck or isn't sure what you meant
 
 When Claude only says it's waiting on something it started, like a test run, autopilot
@@ -344,8 +347,9 @@ starts a lead Claude in a pane of its own, in the space you're in:
 3. When one of those sessions ends a turn, agentlens sends its reply to the lead, and the
    session waits without ringing ("the coordinator is reading this"). The lead answers it,
    marks it done, or brings it to you.
-4. When the tasks are done and checked, it has them merge one at a time, the way the repo
-   does it.
+4. When the tasks are done and checked, it has them delivered one at a time, the way the
+   repo does it. Where changes need review, sent for review counts as done: approving and
+   submitting are the reviewers', never the lead's or a session's.
 5. A task's session closes once the lead marks it done, as `w` would close it, and its
    conversation stays in History. One still working closes when its turn ends.
 6. It tells you when the goal is done, and closes any of its sessions still open.
@@ -379,7 +383,8 @@ The limits are agentlens's, not the lead's to choose:
 
 You can still type into any of its sessions. That reply comes to you, not the lead, and a
 session you've written to is yours: it isn't closed when its task is done. Releases,
-deploys, publishing, force-pushes and deletes you can't get back are always yours. Goals are
+deploys, publishing, force-pushes, approving or submitting a change that needs review, and
+deletes you can't get back are always yours. Goals are
 kept in `~/.agentlens/goals.json`, so a restart brings the lead and its sessions back as they
 were.
 
