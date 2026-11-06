@@ -217,6 +217,26 @@ def test_your_message_while_it_reads_goes_instead_of_its_own():
     asyncio.run(go())
 
 
+def test_a_turn_you_wrote_to_while_claude_worked_is_yours():
+    """You typed while Claude worked, and your message went in as the turn ended: you've answered that
+    turn yourself, so autopilot doesn't read it too and send an answer that would only follow yours."""
+    decide, asked = fake_check(Decision("go ahead", ""))
+    scripts = {"write the prompt": [("pause", 0.3), text("Here's the prompt for finish-work."), done()],
+               "add start-work too": [text("Here it is with both."), done()]}
+
+    async def go():
+        d, fakes = make(scripts, autopilot="autonomous", decide=decide)
+        await d.start("write the prompt")
+        await settle(lambda: d.state == WORKING)
+        await d.send("add start-work too")
+        assert d.events[-1].tag == "queued"
+        await settle(lambda: d.state == WAITING and d.events[-1].text == "Here it is with both.", steps=1000)
+        assert asked == [] and fakes[0].sent == ["write the prompt", "add start-work too"]
+        assert d.detail == "turn finished"
+        await d.close()
+    asyncio.run(go())
+
+
 def test_stopping_the_turn_while_it_reads_leaves_it_to_you():
     async def go():
         d, fakes = make({"go": [text("Next?"), done()]}, autopilot="balanced", decide=never())

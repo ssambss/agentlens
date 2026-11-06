@@ -839,9 +839,12 @@ class DrivenSession:
         if kind == "ResultMessage":
             self.partial = ""
             self.turn_started = None
+            # A message of yours sent while Claude worked: you answered this turn yourself. It went in at a
+            # step of the turn, or goes in now as the next one, and autopilot's answer would only follow it.
+            queued = False
             for event in self.events:
                 if event.tag == "queued":
-                    event.tag = ""  # whatever was queued has been read by now
+                    event.tag, queued = "", True  # whatever was queued has been read by now
             self.session_id = getattr(message, "session_id", None) or self.session_id
             self.cost_usd += getattr(message, "total_cost_usd", None) or 0.0
             failed = ""
@@ -861,7 +864,7 @@ class DrivenSession:
             if instead is not None:
                 quiet, detail = instead
                 self._set(BACKGROUND if quiet else WAITING, detail[:200])
-            elif self.on_turn_end is None and self._pilot_due(message):
+            elif self.on_turn_end is None and not queued and self._pilot_due(message):
                 self._set(WORKING, "autopilot is reading the reply")
                 self._piloting = asyncio.ensure_future(self._pilot())
             else:

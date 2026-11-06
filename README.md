@@ -293,7 +293,8 @@ yours anyway.
 
 Its messages show as Autopilot's, in the pane and in History, and Claude is told you didn't
 type them. While it reads a reply, typing your own message goes instead of its answer,
-and `x` stops it. It's off unless you turn it on. Each check is a short `claude -p` on
+and `x` stops it. A turn you wrote to while Claude worked is yours, so it doesn't read that
+one at all. It's off unless you turn it on. Each check is a short `claude -p` on
 Sonnet at medium effort, with no tools, in an empty folder of its own, so no project's
 CLAUDE.md or memory comes into it. It counts against your plan: a few seconds,
 once for each turn that ends in a session it's on for.
