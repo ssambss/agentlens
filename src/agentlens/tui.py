@@ -154,6 +154,12 @@ def _state_css() -> str:
     # from the state colours around it. The title keeps the state colour.
     rules.append("SessionPane:focus-within { border: heavy $al-selected; background: $al-selected 7%; "
                  "border-title-style: bold; }")
+    # The coordinator's panes, a goal's lead and its sessions: double lines, the colour still the
+    # state's. One that needs you, and the one you're on, keep their heavy lines.
+    for cls, color in STATE_COLOR.items():
+        if cls != "st-question":
+            rules.append(f"SessionPane.coordinated.{cls} {{ border: double {color}; }}")
+    rules.append("SessionPane.coordinated:focus-within { border: heavy $al-selected; }")
     return "\n".join(rules)
 
 
@@ -394,11 +400,16 @@ class SessionPane(Vertical, can_focus=True):
         for cls in set(STATE_CLASS.values()):
             self.set_class(cls == state_class, cls)
         suffix = {"background": " · bg", "agentlens": " · here"}.get(data.kind, "")
-        title = pane_place(data, self.space) + suffix
+        driven = app.driven.get(self.session_id)
+        title: str | Text = pane_place(data, self.space) + suffix
+        # A goal's lead and its sessions: double lines in the state's colour, and the goal's name first.
+        goal = app.coordinator.name(self.session_id) if driven is not None else ""
+        self.set_class(bool(goal), "coordinated")
+        if goal:
+            title = Text.assemble((f"◆ {goal}", app.palette.notice), " · ", title)
         if self._changed("title", title):
             self.border_title = title
         subtitle = Text(f"{data.state} {ago(now - data.since)}" if data.since else data.state)
-        driven = app.driven.get(self.session_id)
         if driven is not None and (pilot := app.coordinator.label(self.session_id) or pilot_label(driven)):
             subtitle.append(" · ")
             subtitle.append(pilot, style=app.palette.notice)
@@ -1660,7 +1671,7 @@ class AgentlensApp(App):
         self.coordinator = coordinator_mod.Coordinator(
             open_task=self._open_task, send=self._send_from, alive=lambda key: key in self.driven,
             yours_since=self._yours_since, level=lambda: self.config.autopilot, usage=self._five_hour_used,
-            finished=lambda key, line: self.driven[key].say_quietly(line) if key in self.driven else None)
+            close=self._close_task)
         self.meter_colors = ("#0178D4", "#FEA62B", "#B93C5B")  # normal, nearly full, full; set from the theme
         self.catalog = commands_mod.load_cached()  # slash commands for boxes whose session hasn't started
         self._summary_text: Text | None = None
@@ -2241,6 +2252,7 @@ class AgentlensApp(App):
             live = self._driven_live(driven, now)
             self._remember(driven)
             self.coordinator.got_id(key, driven.session_id or "")
+            self.coordinator.got_title(key, live.title)
             if driven.catalog is not None and driven.catalog is not self.catalog:
                 self.catalog = driven.catalog  # the freshest list, for boxes whose session hasn't started
                 commands_mod.save_cached(driven.catalog)
@@ -2640,7 +2652,7 @@ class AgentlensApp(App):
     def start_goal(self, cwd: str, text: str, mode: str, space: str) -> DrivenSession | None:
         """Start a goal's lead in a pane of its own, with your goal as its first message. `mode`: the
         permission mode its sessions start in; it changes nothing itself."""
-        goal = self.coordinator.new_goal(cwd, space, mode)
+        goal = self.coordinator.new_goal(cwd, space, mode, text)
         return self.open_driven(cwd, prompt=text, mode="default", in_space=space,
                                 prepare=lambda driven: self._coordinate(driven, goal))
 
@@ -2666,6 +2678,25 @@ class AgentlensApp(App):
                                   first_by=coordinator_mod.COORDINATOR,
                                   prepare=lambda d: self._coordinate(d, goal, task))
         return driven.key if driven is not None else None
+
+    def _close_task(self, key: str, why: str) -> None:
+        """One of a goal's sessions has served its purpose (its task or its goal is done): closed, as w
+        closes one, and its conversation kept in History. While it works, it waits for its turn to end
+        (the coordinator closes it then). One you've written to yourself is yours: it stays, saying why."""
+        driven = self.driven.get(key)
+        if driven is None:
+            return
+        name = driven.title or "a task's session"
+        if driven.last_yours is not None:
+            driven.say_quietly(f"{why}; you've written to it, so it's yours to close")
+            self.notify(f"You've written to it, so it stays open: {keys_mod.name('close')} closes it.",
+                        title=f"{name}: {why}", timeout=6)
+            return
+        if driven.state in (WORKING, STARTING):
+            return
+        self.run_worker(self._end_driven(driven, quiet=True), group="driven", exclusive=False)
+        self.notify(f"{why[0].upper()}{why[1:]}. Its conversation is in History: {continue_keys()}.",
+                    title=f"The coordinator closed {name}", timeout=6)
 
     def _send_from(self, key: str, text: str, note: str, by: str) -> bool:
         """The coordinator's message to the session at `key`, or agentlens's to a lead. Whether it's open."""

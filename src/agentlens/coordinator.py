@@ -86,6 +86,7 @@ class Goal:
     done: bool = False
     asking: str = ""  # what the lead asked you this turn, for the line under its title
     finished: str = ""  # its summary, when it said the goal is done
+    title: str = ""  # what its panes call it: your goal's first words, then its lead's title
 
     def task(self, task_id: Any) -> Task | None:
         try:
@@ -125,6 +126,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def short(text: str, chars: int = 40) -> str:
+    """A goal's first words, for its panes until its lead has a title: its first line, cut at a word."""
+    line = " ".join(next((line for line in str(text or "").splitlines() if line.strip()), "").split())
+    if len(line) <= chars:
+        return line
+    cut = line[:chars].rsplit(" ", 1)[0] or line[:chars]
+    return cut.rstrip(" ,.;:") + "…"
+
+
 def _text(text: str, error: bool = False) -> dict:
     return {"content": [{"type": "text", "text": text}], **({"is_error": True} if error else {})}
 
@@ -142,7 +152,8 @@ it waits for. Prefer a few tasks that can run side by side without changing the 
 and the user's usage); then wait for one to finish.
 - When one of your sessions ends a turn, agentlens sends you its reply, marked as coming from \
 agentlens. Answer it with message_task, mark it done with finish_task, or bring it to the user with \
-ask_you. When its work is merged or it has nothing left to do, finish it.
+ask_you. When its work is merged or it has nothing left to do, finish it. Finishing closes its \
+session, so finish one only when you need nothing more from it.
 - Merge one at a time: when tasks are done and checked, tell one to merge and push the way this \
 repository does it (where changes go through pull requests or review, push the branch and open one), \
 and the next only once that one has, updated with what's merged.
@@ -169,16 +180,16 @@ class Coordinator:
     panes: `open_task` starts a task's session and gives its key, `send` sends a session a message
     and says whether it could, `alive` says whether a session is still open, `yours_since` whether
     you've messaged one since a time, `level` your autopilot setting, `usage` how much of your
-    five-hour window is used (None if it isn't known)."""
+    five-hour window is used (None if it isn't known), `close` closes a session that has served its
+    purpose (its task is done, or its goal), saying why."""
 
     def __init__(self, *, open_task: Callable[[Goal, Task, str], str | None],
                  send: Callable[[str, str, str, str], bool], alive: Callable[[str], bool],
                  yours_since: Callable[[str, str], bool], level: Callable[[], str],
-                 usage: Callable[[], float | None], finished: Callable[[str, str], None] = lambda key, line: None,
+                 usage: Callable[[], float | None], close: Callable[[str, str], None] = lambda key, why: None,
                  file: Path | None = None) -> None:
-        """`finished`: a task's session is done, with the line for under its title; it waits quietly."""
         self.open_task, self.send, self.alive, self.yours_since = open_task, send, alive, yours_since
-        self.level, self.usage, self.finished, self.file = level, usage, finished, file
+        self.level, self.usage, self.close, self.file = level, usage, close, file
         self.goals = load(file)
         self.keys: dict[str, tuple[str, int | None]] = {}  # pane key -> (goal, task); no task: the lead
         self.lead_keys: dict[str, str] = {}  # goal -> its lead's pane key
@@ -188,8 +199,9 @@ class Coordinator:
 
     # Goals and the sessions they run --------------------------------------------------------
 
-    def new_goal(self, cwd: str, space: str, mode: str) -> Goal:
-        goal = Goal(uuid.uuid4().hex[:8], cwd, space, mode)
+    def new_goal(self, cwd: str, space: str, mode: str, text: str = "") -> Goal:
+        """`text`: your goal, whose first words name it until its lead has a title."""
+        goal = Goal(uuid.uuid4().hex[:8], cwd, space, mode, title=short(text))
         self.goals[goal.id] = goal
         self.save()
         return goal
@@ -231,6 +243,24 @@ class Coordinator:
         elif task is not None and task.session_id != session_id:
             task.session_id = session_id
             self.save()
+
+    def got_title(self, key: str, title: str) -> None:
+        """The session at `key` has this title now: a lead's names its goal, on every one of its panes."""
+        found = self.role(key)
+        title = " ".join(str(title or "").split())[:60]
+        if found is None or found[1] is not None or not title or title == "(untitled)":
+            return
+        goal = found[0]
+        if goal.title != title:
+            goal.title = title
+            self.save()
+
+    def name(self, key: str) -> str:
+        """The name of the goal the session at `key` is part of, for its pane; empty if it's none's."""
+        found = self.role(key)
+        if found is None:
+            return ""
+        return found[0].title or "a goal"
 
     def running(self, goal: Goal) -> list[Task]:
         """Its tasks whose sessions are under way: started, not done, and still open."""
@@ -291,7 +321,10 @@ class Coordinator:
             self.save()
             return None
         if goal.done or task.status == DONE:
-            return None
+            # Finished while it was mid-turn: it has served its purpose, now that the turn is over.
+            why = "goal done" if goal.done else "task done"
+            self.close(self.key_of(goal, task), why)
+            return True, why
         lead = self.lead_keys.get(goal.id, "")
         ended = f"ended a turn, with an error: {failed}" if failed else "ended a turn"
         text = (f"{task.title} (task {task.id}) {ended}. The user's autopilot level: {self.level()}.\n\n"
@@ -390,7 +423,7 @@ class Coordinator:
             return _text(f"There's no task {task_id}.", error=True)
         task.status, task.report = DONE, " ".join(str(report or "").split())[:300]
         self.save()
-        self.finished(self.key_of(goal, task), f"task done: {task.report}" if task.report else "task done")
+        self.close(self.key_of(goal, task), f"task done: {task.report}" if task.report else "task done")
         ready = [t for t in goal.tasks if t.status == PLANNED and all(
             (goal.task(a) or t).status == DONE for a in t.after)]
         then = (" Ready to start: " + "; ".join(f"{t.id}. {t.title}" for t in ready)) if ready else ""
@@ -406,6 +439,10 @@ class Coordinator:
         goal.done = True
         goal.finished = " ".join(str(summary or "").split())[:200] or "every task is done"
         self.save()
+        for task in goal.tasks:  # their purpose was the goal: any still open close too
+            key = self.key_of(goal, task)
+            if self.alive(key):
+                self.close(key, "goal done")
         return _text("Done. End your turn: the user will see it.")
 
     def lead_options(self, goal: Goal) -> dict:

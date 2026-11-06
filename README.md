@@ -337,14 +337,21 @@ starts a lead Claude in a pane of its own, in the space you're in:
    marks it done, or brings it to you.
 4. When the tasks are done and checked, it has them merge one at a time, the way the repo
    does it.
-5. It tells you when the goal is done.
+5. A task's session closes once the lead marks it done, as `w` would close it, and its
+   conversation stays in History. One still working closes when its turn ends.
+6. It tells you when the goal is done, and closes any of its sessions still open.
 
 The lead doesn't work on the code itself. It has Read, Grep and Glob, and agentlens's own
 tools for the board: add tasks, start one, message one, finish one, ask you, finish the goal.
 Its pane rings only when it asks you something, answers you, or the goal is done. Otherwise
-it shows what's under way ("coordinating: 2 running, 1 of 3 done"). Its border says
-`coordinator · 2 running · 1/3 done`, and each of its sessions' borders says
-`task 2 of 3 · coordinator`.
+it shows what's under way ("coordinating: 2 running, 1 of 3 done").
+
+A goal's panes stay in the space you started it in, among your other sessions, but stand
+out. Their borders are double lines, still in the state's colour, so yellow is still a
+session that needs you. Each top border starts with the goal's name
+(`◆ Split the parser · agentlens`), in the colour autopilot's level has at the bottom: your
+goal's first words, then the lead's title once Claude Code gives it one. The lead's bottom border says `coordinator · 2 running · 1/3 done`,
+and each of its sessions' says `task 2 of 3 · coordinator`.
 
 How much it decides follows your autopilot level:
 
@@ -361,7 +368,8 @@ The limits are agentlens's, not the lead's to choose:
 - none started once 80% of your five-hour window is used
 - the same number of answers in a row to one session as autopilot gives
 
-You can still type into any of its sessions. That reply comes to you, not the lead. Releases,
+You can still type into any of its sessions. That reply comes to you, not the lead, and a
+session you've written to is yours: it isn't closed when its task is done. Releases,
 deploys, publishing, force-pushes and deletes you can't get back are always yours. Goals are
 kept in `~/.agentlens/goals.json`, so a restart brings the lead and its sessions back as they
 were.

@@ -4,6 +4,7 @@ No real CLI: the lead's tool calls are made here, as it would make them."""
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+from rich.text import Text
 from test_driver import app_with_session, done, text, until
 
 from agentlens import coordinator, tui as tui_mod
@@ -18,7 +19,12 @@ class Panes:
     def __init__(self, level="autonomous", used=None):
         self.level, self.used = level, used
         self.opened, self.sent, self.closed = [], [], set()
+        self.closes: list[tuple[str, str]] = []  # what the coordinator closed, and why
         self.yours: dict[str, datetime] = {}
+
+    def close(self, key, why):
+        self.closes.append((key, why))
+        self.closed.add(key)
 
     def open_task(self, goal, task, first):
         key = f"k{task.id}"
@@ -35,8 +41,9 @@ class Panes:
         c = Coordinator(open_task=self.open_task, send=self.send, alive=lambda key: bool(key) and key not in self.closed,
                         yours_since=lambda key, when: key in self.yours and (
                             not when or self.yours[key] > datetime.fromisoformat(when)),
-                        level=lambda: self.level, usage=lambda: self.used, file=tmp_path / "goals.json")
-        goal = c.new_goal("D:/work/demo", "demo", "acceptEdits")
+                        level=lambda: self.level, usage=lambda: self.used, close=self.close,
+                        file=tmp_path / "goals.json")
+        goal = c.new_goal("D:/work/demo", "demo", "acceptEdits", "Split the parser")
         c.link("lead", goal)
         return c, goal
 
@@ -73,6 +80,48 @@ def test_a_plan_runs_as_sessions_and_each_turn_goes_to_the_lead(tmp_path):
     assert panes.sent[-1] == ("k1", "Yes, add tests.", NOTE, COORDINATOR)
     assert "Ready to start: 2. CLI" in said(c.finish_task(goal, 1, "split, with tests"))
     assert goal.task(1).status == DONE and "Done: split, with tests" in c.board(goal)
+
+
+def test_a_session_closes_once_it_has_served_its_purpose(tmp_path):
+    panes = Panes()
+    c, goal = panes.coordinator(tmp_path)
+    c.add_tasks(goal, tasks("Parser", "CLI", "Docs"))
+    for n in (1, 2, 3):
+        c.start_task(goal, n)
+        c.link(f"k{n}", goal, goal.task(n))
+
+    # Its task done, its session closes.
+    c.finish_task(goal, 1, "split, with tests")
+    assert panes.closes == [("k1", "task done: split, with tests")]
+    assert "1. Parser [done] Done: split, with tests" in c.board(goal)  # done, not "closed by the user"
+    # Finished while it was mid-turn: it closes when that turn ends, without going to the lead.
+    c.finish_task(goal, 2, "")
+    panes.closed.discard("k2")  # as the app leaves it open while it works
+    sent = len(panes.sent)
+    assert c.turn_ended("k2", False, "Pushed.") == (True, "task done") and len(panes.sent) == sent
+    assert panes.closes[-1] == ("k2", "task done")
+    # The goal done, what's still open of it closes too, and the lead stays.
+    c.goal_done(goal, "Parser split")
+    assert panes.closes[-1] == ("k3", "goal done") and "lead" not in panes.closed
+
+
+def test_a_goals_panes_are_named_after_it(tmp_path):
+    panes = Panes()
+    c, goal = panes.coordinator(tmp_path)
+    assert goal.title == "Split the parser" and c.name("lead") == "Split the parser"
+    c.add_tasks(goal, tasks("Parser"))
+    c.start_task(goal, 1)
+    c.link("k1", goal, goal.task(1))
+    assert c.name("k1") == "Split the parser" and c.name("someone else's") == ""
+    c.got_title("k1", "Parser")  # a task's title doesn't name the goal
+    c.got_title("lead", "(untitled)")
+    assert goal.title == "Split the parser"
+    c.got_title("lead", "Parser split into modules")  # its lead's title, once Claude Code gives it one
+    assert c.name("k1") == "Parser split into modules"
+    assert coordinator.load(tmp_path / "goals.json")[goal.id].title == "Parser split into modules"
+    assert coordinator.short("Split the parser into a module per format, with a test for each\nmore") == \
+        "Split the parser into a module per…"
+    assert coordinator.short("\n  Fix   it \n") == "Fix it"
 
 
 def test_what_the_lead_asks_you_or_finishing_the_goal_calls_you(tmp_path):
@@ -266,10 +315,51 @@ def test_g_starts_a_goal_whose_sessions_report_to_its_lead(projects, tmp_path):
             await until(pilot, lambda: app.sessions[lead.key].state == BACKGROUND == app.sessions[worker.key].state)
             assert not app.needs_you(app.sessions[lead.key]) and not app.needs_you(app.sessions[worker.key])
 
-            # Finished, its session says so, and still doesn't call you.
+            # A goal's panes stand out: double lines, and the goal's name first, on the lead and its sessions.
+            for d in (lead, worker):
+                pane = app.query_one(f"#s-{d.key}", tui_mod.SessionPane)
+                title = Text.from_markup(pane.border_title).plain
+                assert pane.has_class("coordinated") and title.startswith("◆ Split the parser · ")
+
+            # Finished, its session has served its purpose: closed as w closes one, without calling you,
+            # and not brought back at the next launch.
             app.coordinator.finish_task(goal, 1, "split, with tests")
-            assert worker.state == BACKGROUND and worker.detail == "task done: split, with tests"
-            assert app.coordinator.label(worker.key) == "task 1 of 1 done · coordinator"
+            await until(pilot, lambda: worker.key not in app.driven and not app.query(f"#s-{worker.key}"))
+            assert worker.session_id not in {d["session_id"] for d in app.config.driven_sessions}
+            assert any(n.title == "The coordinator closed Parser" and "Task done: split, with tests" in n.message
+                       for n in app._notifications)
+            assert lead.key in app.driven and app.coordinator.label(lead.key) == "coordinator · 0 running · 1/1 done"
+
+    asyncio.run(go())
+
+
+def test_a_task_session_you_wrote_to_stays_when_its_task_is_done(projects, tmp_path):
+    scripts = Prefixes({
+        "Split the parser": [text("I'll plan it."), done()],
+        "Do Parser.": [text("Split it."), done()],
+        "Parser (task 1) ended a turn": [text("Good."), done()],
+        "keep the old names": [text("Kept them."), done()],  # yours, to its session
+    })
+    app, folder, _ = app_with_session(projects, tmp_path, scripts)
+    app.config.coordinator, app.config.autopilot = True, "autonomous"
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            lead = app.start_goal(str(folder), "Split the parser", "acceptEdits", "")
+            await until(pilot, lambda: lead.state == WAITING)
+            goal = app.coordinator.role(lead.key)[0]
+            app.coordinator.add_tasks(goal, tasks("Parser"))
+            app.coordinator.start_task(goal, 1)
+            worker = next(d for d in app.driven.values() if d is not lead)
+            await until(pilot, lambda: worker.state == BACKGROUND)
+            await worker.send("keep the old names")
+            await until(pilot, lambda: worker.events[-1].text == "Kept them." and worker.state == WAITING)
+            app._notifications.clear()
+            app.coordinator.finish_task(goal, 1, "split")
+            await pilot.pause(0.2)
+            assert worker.key in app.driven and app.coordinator.label(worker.key) == "task 1 of 1 done · coordinator"
+            [shown] = [n for n in app._notifications if n.title == "Parser: task done: split"]
+            assert "stays open" in shown.message
 
     asyncio.run(go())
 
