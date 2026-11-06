@@ -230,6 +230,8 @@ def test_goals_are_kept_and_their_sessions_known_again_after_a_restart(tmp_path)
 def test_its_messages_are_told_from_yours_in_a_transcript():
     assert coordinator.said_by_it(f"Add tests.\n\n{NOTE}") == (COORDINATOR, "Add tests.")
     assert coordinator.said_by_it(f"Parser ended a turn.\n\n{BOARD_NOTE}") == (BOARD, "Parser ended a turn.")
+    handed = coordinator.handover("Split the parser", "1. One module per format.", "Parser plan")
+    assert coordinator.said_by_it(f"{handed}\n\n{coordinator.HANDOVER_NOTE}") == (coordinator.HANDOVER, handed)
     assert coordinator.said_by_it("Add tests.") is None
 
 
@@ -367,6 +369,77 @@ def test_a_task_session_you_wrote_to_stays_when_its_task_is_done(projects, tmp_p
             assert worker.key in app.driven and app.coordinator.label(worker.key) == "task 1 of 1 done · coordinator"
             [shown] = [n for n in app._notifications if n.title == "Parser: task done: split"]
             assert "stays open" in shown.message
+
+    asyncio.run(go())
+
+
+def test_a_session_you_planned_in_hands_the_work_to_the_coordinator_when_you_ask(projects, tmp_path):
+    """Plan in an ordinary session, then say "delegate this to a coordinator": its Claude calls the tool
+    it has for that, and a goal's lead starts in a pane of its own, as with G, with the plan."""
+    import asyncio as _asyncio
+
+    from test_driver import started
+
+    scripts = Prefixes({
+        "plan the parser split": [text("Plan: one module per format, a test for each."), done()],
+        "Split the parser": [text("I'll make tasks of it."), done()],  # the handover, to the lead
+    })
+    app, folder, fakes = app_with_session(projects, tmp_path, scripts)
+    app.config.coordinator, app.config.autopilot = True, "autonomous"
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            planner = await started(app, pilot, folder, prompt="plan the parser split")
+            options = fakes[0].options
+            assert coordinator.DELEGATE_TOOL in options.allowed_tools and coordinator.SERVER in options.mcp_servers
+
+            # Its Claude calls the tool, as it would when you say to delegate.
+            ok, said = app._hand_over(planner, "Split the parser", "1. One module per format.\n2. A test for each.")
+            assert ok and "◆ Split the parser" in said and "Tell the user it's there" in said
+            lead = next(d for d in app.driven.values() if d is not planner)
+            await until(pilot, lambda: lead.events and lead.events[-1].kind == "claude")
+            first = fakes[1].sent[0]
+            assert first.startswith("Split the parser\n\nThe plan, as the user made it with Claude in the session")
+            assert "A test for each." in first and first.endswith(coordinator.HANDOVER_NOTE)
+            assert lead.events[0].tag == coordinator.HANDOVER  # not yours: its pane says so
+            goal = app.coordinator.role(lead.key)[0]
+            assert goal.title == "Split the parser" and goal.mode == planner.permission_mode
+            assert app.coordinator.role(planner.key) is None and planner.key in app.driven  # it stays as it was
+            assert coordinator.SERVER in fakes[1].options.mcp_servers  # the lead's own tools
+            assert coordinator.DELEGATE_TOOL not in fakes[1].options.allowed_tools  # not the delegate tool
+            assert any(n.title == "The coordinator took over: Split the parser" for n in app._notifications)
+            # Turned off, there's nothing to hand over to, and the tool says how to turn it on.
+            app.config.coordinator = False
+            ok, said = app._hand_over(planner, "More", "Plan")
+            assert not ok and "turn it on" in said
+
+    asyncio.run(go())
+
+
+def test_the_delegate_tool_passes_on_the_goal_and_plan_and_says_how_it_went():
+    handed = []
+
+    def hand_over(goal, plan):
+        handed.append((goal, plan))
+        return (True, "Handed over.") if plan else (False, "Give the plan.")
+
+    tool = coordinator.delegate_tool(hand_over)
+    assert tool.name == coordinator.DELEGATE and "only when the user asks" in tool.description
+    result = asyncio.run(tool.handler({"goal": " Split  the\nparser ", "plan": "  1. One module per format.\n"}))
+    assert handed == [("Split the parser", "1. One module per format.")] and said(result) == "Handed over."
+    assert not result.get("is_error")
+    assert asyncio.run(tool.handler({"goal": "Split it"}))["is_error"]
+
+
+def test_with_the_coordinator_off_sessions_get_no_tool_for_it(projects, tmp_path):
+    from test_driver import started
+
+    app, folder, fakes = app_with_session(projects, tmp_path, {"hi": [text("Hello."), done()]})
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await started(app, pilot, folder, prompt="hi")
+            assert not fakes[0].options.mcp_servers and coordinator.DELEGATE_TOOL not in fakes[0].options.allowed_tools
 
     asyncio.run(go())
 

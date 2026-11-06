@@ -40,6 +40,7 @@ LEAD_TOOLS = ["Read", "Grep", "Glob"]  # Claude Code's own: it reads the reposit
 # Tags of message events, as autopilot's are (model.AUTOPILOT): who sent it, when you didn't.
 COORDINATOR = "coordinator"  # the lead's message to one of its sessions
 BOARD = "board"  # agentlens telling the lead what one of its sessions said
+HANDOVER = "handover"  # a lead's first message: the goal and plan another session handed over
 
 # With its messages, so Claude knows you didn't type them. The transcript keeps them, which is how
 # agentlens tells them from yours there (said_by_it): keep this wording.
@@ -47,6 +48,19 @@ NOTE = ("(agentlens's coordinator sent this for the user, who didn't type it. It
         "sessions for them. If something needs the user's own decision, say so and stop: the coordinator "
         "brings it to them.)")
 BOARD_NOTE = "(agentlens sent this to you, the coordinator, about one of the goal's sessions: the user didn't type it.)"
+HANDOVER_NOTE = ("(Another Claude session handed this goal to you, the coordinator, when the user asked it to: they "
+                 "planned it there with that Claude, and didn't type this themselves.)")
+
+# The one tool a session agentlens runs has while the coordinator is on: the work planned in it, handed to
+# a goal whose lead starts in a pane of its own, as with G.
+DELEGATE = "delegate_to_coordinator"
+DELEGATE_TOOL = f"mcp__{SERVER}__{DELEGATE}"
+DELEGATE_ABOUT = (
+    "Hand the work planned in this session to agentlens's coordinator. It runs the work across several Claude "
+    "Code sessions in panes of their own, where the user can follow it. Use this only when the user asks you "
+    "to delegate the work, or hand it, to a coordinator. Give the goal in a line, and the plan as agreed here, "
+    "for a lead that hasn't seen this conversation: what to do and where, how to check it, what's out of "
+    "scope, and what the user decided.")
 
 PLANNED, RUNNING, DONE = "planned", "running", "done"
 
@@ -55,7 +69,7 @@ def said_by_it(text: str) -> tuple[str, str] | None:
     """A message in a transcript as the coordinator or agentlens sent it: (its tag, the message without
     its note). None if you sent it."""
     body = text.rstrip()
-    for note, tag in ((NOTE, COORDINATOR), (BOARD_NOTE, BOARD)):
+    for note, tag in ((NOTE, COORDINATOR), (BOARD_NOTE, BOARD), (HANDOVER_NOTE, HANDOVER)):
         if body.endswith(note):
             return tag, body[:-len(note)].rstrip()
     return None
@@ -135,6 +149,35 @@ def short(text: str, chars: int = 40) -> str:
     return cut.rstrip(" ,.;:") + "…"
 
 
+def handover(goal: str, plan: str, by: str) -> str:
+    """A lead's first message, for a goal another session hands over: the goal, then the plan made there."""
+    return f"{goal}\n\nThe plan, as the user made it with Claude in the session \"{by}\":\n\n{plan}"
+
+
+def delegate_tool(hand_over: Callable[[str, str], tuple[bool, str]]):
+    """The delegate tool. `hand_over(goal, plan)` starts the goal, and says whether it could and what to
+    tell Claude."""
+    from claude_agent_sdk import tool
+
+    async def handler(args: dict) -> dict:
+        ok, said = hand_over(" ".join(str(args.get("goal") or "").split()), str(args.get("plan") or "").strip())
+        return _text(said, error=not ok)
+
+    schema = {"type": "object", "required": ["goal", "plan"],
+              "properties": {"goal": {"type": "string", "description": "The goal, in a line"},
+                             "plan": {"type": "string", "description": "The plan, as agreed in this session"}}}
+    return tool(DELEGATE, DELEGATE_ABOUT, schema)(handler)
+
+
+def delegate_options(hand_over: Callable[[str, str], tuple[bool, str]]) -> dict:
+    """What a session agentlens runs gets while the coordinator is on: the delegate tool, allowed without
+    asking."""
+    from claude_agent_sdk import create_sdk_mcp_server
+
+    server = create_sdk_mcp_server(SERVER, tools=[delegate_tool(hand_over)])
+    return {"mcp_servers": {SERVER: server}, "allowed_tools": [DELEGATE_TOOL]}
+
+
 def _text(text: str, error: bool = False) -> dict:
     return {"content": [{"type": "text", "text": text}], **({"is_error": True} if error else {})}
 
@@ -145,6 +188,8 @@ You don't do the work yourself: you have no Bash, Edit or Write. You read the re
 Glob) to plan, and run the work through sessions agentlens starts for you, one per task. Each is a full \
 Claude Code session in this repository, working beside the others, and knows only what you tell it.
 
+- A goal another session handed you comes with the plan the user made there: keep to what they \
+decided, and bring what it leaves open to them.
 - add_tasks: break the goal into tasks. Each has a title, a brief that a fresh session can act on \
 without this conversation (what to do and where, how to check it, what's out of scope), and the tasks \
 it waits for. Prefer a few tasks that can run side by side without changing the same files.

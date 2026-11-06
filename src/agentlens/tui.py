@@ -2100,6 +2100,10 @@ class AgentlensApp(App):
             self._coordinate(driven)  # a goal's lead or one of its sessions, back from last time
         if prepare is not None:
             prepare(driven)
+        if self.config.coordinator and self.coordinator.role(driven.key) is None:
+            # Not part of a goal: when you ask, it can hand the work planned in it to the coordinator.
+            driven.options_extra = coordinator_mod.delegate_options(
+                lambda goal, plan: self._hand_over(driven, goal, plan))
         if not resume and (space := self._made_space() if in_space is None else in_space):
             # One you start goes in the space you're in. One that comes back (at launch, from History)
             # keeps its own: restored at launch, every session would go in the space you quit in.
@@ -2653,12 +2657,39 @@ class AgentlensApp(App):
         self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode,
                                           (lambda folder, prompt: made) if made else None, goal=True), chosen)
 
-    def start_goal(self, cwd: str, text: str, mode: str, space: str) -> DrivenSession | None:
+    def start_goal(self, cwd: str, text: str, mode: str, space: str, *, title: str = "", note: str = "",
+                   by: str = "", focus: bool = True) -> DrivenSession | None:
         """Start a goal's lead in a pane of its own, with your goal as its first message. `mode`: the
-        permission mode its sessions start in; it changes nothing itself."""
-        goal = self.coordinator.new_goal(cwd, space, mode, text)
-        return self.open_driven(cwd, prompt=text, mode="default", in_space=space,
-                                prepare=lambda driven: self._coordinate(driven, goal))
+        permission mode its sessions start in; it changes nothing itself. `title`: what names the goal,
+        if not the text's first words. `note`, `by`: as send's, for a first message you didn't type."""
+        goal = self.coordinator.new_goal(cwd, space, mode, title or text)
+        return self.open_driven(cwd, prompt=text, mode="default", in_space=space, first_note=note, first_by=by,
+                                focus=focus, prepare=lambda driven: self._coordinate(driven, goal))
+
+    def _hand_over(self, driven: DrivenSession, goal: str, plan: str) -> tuple[bool, str]:
+        """A session agentlens runs hands the work planned in it to the coordinator, as you asked it to:
+        a goal, whose lead starts in a pane of its own as with G, with the plan as its first message.
+        The session stays as it is. Whether it could, and what to tell its Claude."""
+        if not goal or not plan:
+            return False, "Give the goal in a line, and the plan."
+        if not self.config.coordinator:
+            return False, ("agentlens's coordinator is off. Tell the user to turn it on in agentlens's settings (,), "
+                           "under Experimental, and to ask again.")
+        name = driven.title or "a session"
+        space = self.space_of.get(driven.key, "")
+        made = space in {s.name for s in self.config.spaces} and not self._named_after_a_repository(space)
+        lead = self.start_goal(driven.cwd, coordinator_mod.handover(goal, plan, name), driven.permission_mode,
+                               space if made else "", title=goal, note=coordinator_mod.HANDOVER_NOTE,
+                               by=coordinator_mod.HANDOVER, focus=False)
+        if lead is None:
+            return False, "agentlens couldn't start the coordinator's lead in this folder."
+        called = coordinator_mod.short(goal)
+        self.notify(f"Its lead plans the tasks from {name}'s plan. "
+                    f"[@click=app.open_session('{lead.key}')] Open it [/]",
+                    title=f"The coordinator took over: {called}", timeout=10)
+        return True, (f"Handed over. agentlens's coordinator has a lead for it in a pane of its own, \"◆ {called}\". "
+                      "It turns the plan into tasks, starts a session for each, and brings questions to the user. "
+                      "This session isn't part of it. Tell the user it's there.")
 
     def _coordinate(self, driven: DrivenSession, goal: coordinator_mod.Goal | None = None,
                     task: coordinator_mod.Task | None = None) -> None:

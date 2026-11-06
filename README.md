@@ -354,6 +354,15 @@ starts a lead Claude in a pane of its own, in the space you're in:
    conversation stays in History. One still working closes when its turn ends.
 6. It tells you when the goal is done, and closes any of its sessions still open.
 
+You can also plan the work first, in an ordinary session you started here. When the plan is
+ready, tell that session to delegate it to a coordinator. While the coordinator is on, each
+session agentlens runs has one tool for this, which its Claude uses only when you ask. It
+hands over the goal and the plan, and a lead starts in a pane of its own, as with `G`, in
+the planning session's mode. The lead's first message is the plan, marked as handed over
+from that session, and the lead keeps to what you decided there. The planning session stays
+as it was, and a note on the wall opens the lead's pane. Sessions already open when you turn
+the coordinator on get the tool the next time agentlens starts.
+
 The lead doesn't work on the code itself. It has Read, Grep and Glob, and agentlens's own
 tools for the board: add tasks, start one, message one, finish one, ask you, finish the goal.
 Its pane rings only when it asks you something, answers you, or the goal is done. Otherwise
