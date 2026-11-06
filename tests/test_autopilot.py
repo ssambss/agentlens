@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 
 import pytest
+from claude_agent_sdk import ResultMessage
 from rich.console import Console
 from rich.text import Text
 from conftest import at, common, human, text as said, write_jsonl
@@ -13,7 +14,7 @@ from test_driver import app_with_session, done, make, settle, started, text, unt
 from agentlens import autopilot, config as config_mod, tui as tui_mod
 from agentlens.adapters.claude_transcripts import load_tail
 from agentlens.autopilot import NOTE, Decision
-from agentlens.driver import WAITING, WORKING
+from agentlens.driver import BACKGROUND, WAITING, WORKING
 from agentlens.feed import Palette, conversation
 from agentlens.model import AUTOPILOT, MODEL, WAITING_ON_YOU, Event
 from agentlens.tui_driven import placeholder
@@ -49,10 +50,13 @@ def test_the_prompt_has_the_levels_rules_your_messages_and_the_end_of_the_reply(
     reply = "x" * 9000 + "Should I update the call sites too?"
     asked = autopilot.prompt("balanced", "Null handling", said, reply)
     assert autopilot.RULES["balanced"] in asked and autopilot.RULES["autonomous"] not in asked
-    assert autopilot.ALWAYS_YOURS in asked and "Session: Null handling" in asked
+    assert autopilot.ALWAYS_YOURS["balanced"] in asked and autopilot.ALWAYS_YOURS["autonomous"] not in asked
+    assert "Session: Null handling" in asked
     assert "fix the null handling\n---\n(autopilot) go ahead" in asked
     assert "Should I update the call sites too?" in asked and "x" * 9000 not in asked  # the reply's end
-    assert autopilot.RULES["autonomous"] in autopilot.prompt("autonomous", "", said, reply)
+    autonomous = autopilot.prompt("autonomous", "", said, reply)
+    assert autopilot.RULES["autonomous"] in autonomous and autopilot.ALWAYS_YOURS["autonomous"] in autonomous
+    assert autopilot.RULES["balanced"] not in autonomous and autopilot.ALWAYS_YOURS["balanced"] not in autonomous
 
 
 def test_it_runs_your_claude_on_sonnet_at_medium_effort_with_no_tools_and_leaves_no_session():
@@ -173,7 +177,7 @@ def test_off_it_asks_nothing():
 
 
 def test_after_a_few_go_aheads_in_a_row_one_is_yours(monkeypatch):
-    monkeypatch.setattr(autopilot, "IN_A_ROW", 2)
+    monkeypatch.setitem(autopilot.IN_A_ROW, "autonomous", 2)
     decide, asked = fake_check(Decision("yes", "more of the same"))
     scripts = {"go": [text("Step done. Next?"), done()], by_autopilot("yes"): [text("Step done. Next?"), done()],
                "keep going": [text("Step done. Next?"), done()]}
@@ -298,6 +302,67 @@ def test_a_turn_claude_code_started_itself_is_yours():
         assert asked[1][2] == "Shall I go on?"
         await d.close()
     asyncio.run(go())
+
+
+def finished(origin):
+    """The end of a turn something other than a message from agentlens started, as Claude Code says it."""
+    return ResultMessage("success", 10, 10, False, 1, "sess-42", origin=origin)
+
+
+def test_while_claude_waits_on_its_own_work_it_answers_nothing_and_doesnt_call_you():
+    decide, asked = fake_check(Decision("", "Claude is waiting on the test run", waiting=True),
+                               Decision("Yes, push it.", "Claude asked whether to push"))
+    decided = []
+
+    async def go():
+        d, fakes = make({"run the tests": [text("They're running in the background; I'll report back."), done()]},
+                        autopilot="autonomous", decide=decide, on_pilot=decided.append)
+        await d.start("run the tests")
+        await settle(lambda: d.state == BACKGROUND)
+        assert d.detail == "Claude is waiting on the test run" and fakes[0].sent == ["run the tests"]
+        assert decided == []  # not an answer, nor one left for you
+        # The run finishing starts Claude's next turn, which carries on the work: it reads that one.
+        await fakes[0]._play([text("All 40 pass. Shall I push?"), finished({"kind": "task-notification"})])
+        await settle(lambda: len(fakes[0].sent) == 2)
+        assert fakes[0].sent[1] == by_autopilot("Yes, push it.")
+        assert "All 40 pass. Shall I push?" in asked[1][2]
+        await d.close()
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("origin", [{"kind": "peer", "from": "uds:x", "name": "Bug fixes"},
+                                    {"kind": "task-notification", "subkind": "peer-send-message"},
+                                    {"kind": "task-notification", "subkind": "scheduled-trigger"}])
+def test_a_turn_another_sessions_message_or_a_schedule_started_is_yours(origin):
+    decide, asked = fake_check(Decision("", "done"))
+
+    async def go():
+        d, fakes = make({"go": [text("Done with that."), done()]}, autopilot="autonomous", decide=decide)
+        await d.start("go")
+        await settle(lambda: d.state == WAITING and len(asked) == 1)
+        await fakes[0]._play([text("Sure, here's the branch name."), finished(origin)])
+        await settle(lambda: d.state == WAITING and d.events[-1].text.startswith("Sure"))
+        await asyncio.sleep(0.1)
+        assert len(asked) == 1 and d.detail == "turn finished"
+        await d.close()
+    asyncio.run(go())
+
+
+def test_it_runs_in_a_folder_of_its_own_so_no_projects_notes_come_with_it(isolated_home, monkeypatch):
+    ran = {}
+
+    class Done:
+        returncode, stderr = 0, ""
+        stdout = result({"action": "wait", "message": "ignored", "reason": "Claude is waiting on the build"})
+
+    def run(cmd, **kwargs):
+        ran.update(kwargs)
+        return Done()
+
+    monkeypatch.setattr(autopilot.subprocess, "run", run)
+    decision = autopilot.decide("autonomous", "Build", [("build it", False)], "Building…", cli_path="claude")
+    assert decision == Decision("", "Claude is waiting on the build", waiting=True)
+    assert ran["cwd"] == isolated_home / "autopilot" and ran["cwd"].is_dir() and not any(ran["cwd"].iterdir())
 
 
 def test_your_setting_changing_starts_at_the_next_turn_not_the_one_waiting_on_you():

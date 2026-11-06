@@ -3142,8 +3142,9 @@ class AgentlensApp(App):
         what = {"off": "Every turn that ends is yours again.",
                 "balanced": "When a turn ends, Sonnet reads the reply and gives the go-aheads for you. "
                             "Anything else it leaves for you, saying what it needs.",
-                "autonomous": "When a turn ends, Sonnet reads the reply and gives the go-aheads for you, and "
-                              "answers the routine questions. Design choices and finished work it leaves for you."}
+                "autonomous": "When a turn ends, Sonnet reads the reply and answers it for you, through "
+                              "checking and pushing the work. Big design decisions, releases and deletes you "
+                              "can't get back it leaves for you."}
         if driven.own_autopilot:
             title, which = f"Autopilot for this pane: {level}", f"The others follow your setting, {setting}."
         else:

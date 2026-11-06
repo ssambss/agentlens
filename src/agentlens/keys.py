@@ -61,7 +61,7 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
                frozenset({APP, "history"})),
         Action("move-to-space", "g", "move it to a space"),
         Action("autopilot", "p", "autopilot for it, one of agentlens's sessions: off, balanced (it gives the "
-               "go-aheads for you), autonomous (routine questions too)"),
+               "go-aheads for you), autonomous (all but the big decisions)"),
         Action("close", "w,delete", "close it, once you've said so again (stops a background session, hides "
                "one in a terminal or an editor)"),
     ]),

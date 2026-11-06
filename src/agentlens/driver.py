@@ -55,6 +55,7 @@ from agentlens.terminal import CLAUDE_ENV
 STARTING = "starting"
 WORKING = "working"
 WAITING = "waiting on you"
+BACKGROUND = "waiting on agents"  # live.BACKGROUND: its turn ended, and work it started brings it back
 PERMISSION = "approve tool"
 QUESTION = "question"
 APPROVAL = "approve plan"
@@ -107,6 +108,14 @@ async def _with_images(text: str, images: list[PastedImage]):
 def running(tool: str, summary: str) -> str:
     """What a session running a tool is doing, as its pane says: `running Bash: npm test`."""
     return f"running {tool}: {summary}" if summary else f"running {tool}"
+
+
+def _started_by_its_own_work(result) -> bool:
+    """Whether this turn began when a background task Claude had started, such as a test run, finished.
+    Claude Code says what began each turn: a scheduled prompt or another session's message has a
+    subkind, or another kind."""
+    origin = getattr(result, "origin", None)
+    return isinstance(origin, dict) and origin.get("kind") == "task-notification" and not origin.get("subkind")
 
 
 def find_claude() -> str | None:
@@ -235,8 +244,9 @@ class DrivenSession:
         self._interrupted = False  # you stopped the turn under way: autopilot leaves it to you
         # Whether agentlens sent a message (yours or autopilot's) since the last turn ended, and so
         # whether that turn was ours. Claude Code starts turns of its own too: another session's
-        # message, a background task finishing. Your messages don't say what those are about, so
-        # autopilot leaves them to you.
+        # message, a background task finishing. Your messages don't say what another session's are
+        # about, so autopilot leaves those to you. A turn that Claude's own background work started,
+        # such as a test run it left going, carries on the work and counts as ours.
         self._sent = False
         self._turn_ours = False
 
@@ -550,20 +560,25 @@ class DrivenSession:
         if self._piloting is not asyncio.current_task() or self._client is None:
             return  # stopped meanwhile
         self._piloting = None
-        if decision is not None and decision.send and self.piloted < autopilot_mod.IN_A_ROW:
+        in_a_row = autopilot_mod.IN_A_ROW.get(self.autopilot, 0)
+        if decision is not None and decision.send and self.piloted < in_a_row:
             self.piloted += 1
             self.turn_started = None  # its message starts the next turn
             self.on_pilot(self._entry(decision.reason, decision.send))
             await self.send(decision.send, autopilot_mod.NOTE, by_autopilot=True)
+            return
+        if decision is not None and decision.waiting:
+            # Nothing to answer, nor yours yet: what Claude waits on starts its next turn.
+            self._set(BACKGROUND, decision.reason[:200] or "Claude is waiting on work it started")
             return
         if decision is not None:
             self.on_pilot(self._entry(decision.reason))  # left to you
         if decision is None:
             note, detail = f"Autopilot couldn't decide ({failed[:200]}), so this one is yours.", "turn finished"
         elif decision.send:
-            note = (f"Autopilot has answered {autopilot_mod.IN_A_ROW} times in a row, so this one is yours. "
+            note = (f"Autopilot has answered {in_a_row} times in a row, so this one is yours. "
                     f"It would have said: {decision.send}")
-            detail = f"autopilot: {autopilot_mod.IN_A_ROW} answers in a row, over to you"
+            detail = f"autopilot: {in_a_row} answers in a row, over to you"
         else:
             # The reply above says it already; the line under its title is for the wall.
             note, detail = "", decision.reason or "turn finished"
@@ -673,7 +688,7 @@ class DrivenSession:
         """Fold one SDK message into the feed and state. Public for tests."""
         kind = type(message).__name__
         now = datetime.now(timezone.utc)
-        if kind in ("StreamEvent", "AssistantMessage") and self.state == WAITING:
+        if kind in ("StreamEvent", "AssistantMessage") and self.state in (WAITING, BACKGROUND):
             self._set(WORKING, "thinking")
         if kind == "StreamEvent":
             event = getattr(message, "event", {}) or {}
@@ -789,7 +804,7 @@ class DrivenSession:
                 errors = getattr(message, "errors", None) or [getattr(message, "result", "") or "the turn failed"]
                 self.events.append(Event(now, "error", str(errors[0])[:240], "\n".join(map(str, errors))))
             self._cancel_pilot()  # another turn ended meanwhile (another session's message started it)
-            self._turn_ours, self._sent = self._sent, False
+            self._turn_ours, self._sent = self._sent or _started_by_its_own_work(message), False
             if self._pilot_due(message):
                 self._set(WORKING, "autopilot is reading the reply")
                 self._piloting = asyncio.ensure_future(self._pilot())

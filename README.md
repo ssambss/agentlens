@@ -9,8 +9,7 @@ you've used.
   it rings and lights up, and `j` takes you there.
 - **Sessions you start here**: type into them, answer their questions and
   permission prompts, and hand them to Claude Code's background service and back. With
-  [autopilot](#autopilot) on, Claude gives the go-aheads for you, and only what needs you
-  rings.
+  [autopilot](#autopilot) on, Claude answers them for you, and only what needs you rings.
 - **History** of every past session, to read again or continue.
 
 It runs locally, on the session files Claude Code keeps on this computer
@@ -257,21 +256,38 @@ answers it the way you would, or leaves it for you:
 
 - **Balanced** gives the go-aheads: the "shall I go on with the rest?" in the middle of
   what you asked for.
-- **Autonomous** also answers routine questions, such as a name, a small detail, or whether
-  to add tests, when your messages make the answer clear or a default is easy to change
-  later.
+  Finished work, design choices, things to try by hand, a session that's stuck, and anything
+  that pushes, merges, releases or deletes, it leaves for you.
+- **Autonomous** runs the session for you and leaves you the big decisions. It answers
+  Claude's questions with the option Claude recommends, or a sensible default, when that fits
+  what you asked for. It takes small follow-ups Claude offers, and cleans up what the work
+  left behind. When Claude asks you to try something, it first has Claude check what it can
+  itself. When the work is done and checked, it has Claude merge and push it the way the
+  repo does: where changes go through pull requests, that means a pull request, not a
+  merge. What it leaves for you:
+  - design decisions with lasting consequences, and scope beyond what you asked for
+  - releases, deploys, publishing, force-pushes, and deletes you can't easily get back
+  - what only you can do or judge, like a purchase, restarting an app, or how something
+    looks once Claude has checked it
+  - finished work that's checked and pushed
+  - a session that's stuck or isn't sure what you meant
 
-Finished work, design choices, things to try by hand, a session that's stuck, and anything
-that pushes, merges, releases or deletes, it leaves for you. Then the session rings as it
-would without autopilot, and the line under its title says what it needs, like "Claude
-wants you to pick: Redis or in-memory". Questions, permission prompts and plans come in
-the middle of a turn, so it never sees them: those are always yours. After five answers in
-a row to one session, the next one is yours anyway.
+When Claude only says it's waiting on something it started, like a test run, autopilot
+answers nothing and the session doesn't ring. It shows as waiting on agents until that work
+finishes and Claude carries on, and autopilot reads that turn too. A turn another session's
+message starts is always yours.
+
+What it leaves for you rings as it would without autopilot, and the line under its title says
+what it needs, like "Claude wants you to pick: Redis or in-memory". Questions, permission
+prompts and plans come in the middle of a turn, so it never sees them: those are always
+yours. After five answers in a row to one session (twelve on autonomous), the next one is
+yours anyway.
 
 Its messages show as Autopilot's, in the pane and in History, and Claude is told you didn't
 type them. While it reads a reply, typing your own message goes instead of its answer,
 and `x` stops it. It's off unless you turn it on. Each check is a short `claude -p` on
-Sonnet at medium effort, with no tools, so it counts against your plan: a few seconds,
+Sonnet at medium effort, with no tools, in an empty folder of its own, so no project's
+CLAUDE.md or memory comes into it. It counts against your plan: a few seconds,
 once for each turn that ends in a session it's on for.
 
 The setting is for every session agentlens runs. Changed, it reaches the open ones from their
