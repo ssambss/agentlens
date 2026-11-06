@@ -6,9 +6,10 @@ from datetime import datetime, timedelta, timezone
 
 from test_driver import app_with_session, done, text, until
 
-from agentlens import coordinator
+from agentlens import coordinator, tui as tui_mod
 from agentlens.coordinator import BOARD, BOARD_NOTE, COORDINATOR, DONE, NOTE, PLANNED, RUNNING, Coordinator
 from agentlens.driver import BACKGROUND, WAITING
+from agentlens.tui_driven import ComposerInput
 
 
 class Panes:
@@ -269,6 +270,46 @@ def test_g_starts_a_goal_whose_sessions_report_to_its_lead(projects, tmp_path):
             app.coordinator.finish_task(goal, 1, "split, with tests")
             assert worker.state == BACKGROUND and worker.detail == "task done: split, with tests"
             assert app.coordinator.label(worker.key) == "task 1 of 1 done · coordinator"
+
+    asyncio.run(go())
+
+
+def test_a_goals_panes_offer_no_autopilot_as_the_coordinator_answers_there(projects, tmp_path):
+    scripts = Prefixes({
+        "Split the parser": [text("I'll plan it."), done()],
+        "Do Parser.": [text("Split it."), done()],
+        "Parser (task 1) ended a turn": [text("Good."), done()],
+    })
+    app, folder, _ = app_with_session(projects, tmp_path, scripts)
+    app.config.coordinator, app.config.autopilot = True, "autonomous"  # your other panes would show it
+
+    def box(d):
+        return app.query_one(f"#s-{d.key}", tui_mod.SessionPane).query_one(ComposerInput).placeholder
+
+    async def pressing_p_on(pilot, d):
+        before = (d.autopilot, d.own_autopilot)
+        app._notifications.clear()
+        app._focus_key(d.key)
+        await pilot.press("p")
+        assert (d.autopilot, d.own_autopilot) == before
+        [shown] = app._notifications
+        assert shown.title == "No autopilot on this pane"
+        assert "The coordinator answers" in shown.message and "your autopilot setting, autonomous" in shown.message
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            lead = app.start_goal(str(folder), "Split the parser", "acceptEdits", "")
+            await until(pilot, lambda: lead.state == WAITING and box(lead).startswith("Message Claude…"))
+            assert "autopilot" not in box(lead)
+            await pressing_p_on(pilot, lead)
+
+            goal = app.coordinator.role(lead.key)[0]
+            app.coordinator.add_tasks(goal, tasks("Parser"))
+            app.coordinator.start_task(goal, 1)
+            worker = next(d for d in app.driven.values() if d is not lead)
+            await until(pilot, lambda: worker.state == BACKGROUND and box(worker).startswith("Message Claude…"))
+            assert "autopilot" not in box(worker)
+            await pressing_p_on(pilot, worker)
 
     asyncio.run(go())
 

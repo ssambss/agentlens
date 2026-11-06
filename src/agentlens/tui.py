@@ -3205,7 +3205,8 @@ class AgentlensApp(App):
 
     def action_autopilot(self) -> None:
         """The next autopilot level for the session you're on: off, balanced, autonomous, then off. Its
-        own, until it comes round to your setting's, when it follows your setting again."""
+        own, until it comes round to your setting's, when it follows your setting again. Not on a
+        goal's panes: the coordinator answers there, instead of autopilot."""
         session = self._focused_session()
         if session is None:
             return
@@ -3213,6 +3214,11 @@ class AgentlensApp(App):
         if driven is None:
             self.notify(f"Autopilot answers for you in the sessions agentlens runs. Bring this one here with "
                         f"{keys_mod.name('bring-here')} first.", title="Not one agentlens runs", timeout=6)
+            return
+        if driven.on_turn_end is not None:
+            self.notify(f"The coordinator answers for this goal's sessions. How much it decides on its own "
+                        f"follows your autopilot setting, {self.config.autopilot}.",
+                        title="No autopilot on this pane", timeout=6)
             return
         levels = list(autopilot_mod.LEVELS)
         level = levels[(levels.index(driven.autopilot) + 1) % len(levels)] if driven.autopilot in levels else levels[1]

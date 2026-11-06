@@ -188,7 +188,7 @@ def placeholder(d: DrivenSession) -> str:
         return "Type to continue this session…  (Enter to send, Esc to leave the box)"
     if d.state in (ENDED, FAILED):
         return "Session closed"
-    pilot = pilot_label(d, " for this pane")
+    pilot = pilot_label(d, " for this pane") if d.on_turn_end is None else ""  # the coordinator's: not autopilot's
     pilot = f"{pilot}, {keys_mod.name('autopilot')} changes it · " if pilot else ""
     if d.state == WORKING:
         return f"Message Claude… it reads this at its next step  ({pilot}Enter to send, Esc to leave the box)"
