@@ -1463,7 +1463,10 @@ class AgentlensApp(App):
         Toast { link-background: $primary; link-color: $text; link-style: bold;
                 link-background-hover: $primary-lighten-2; link-color-hover: $text; link-style-hover: bold; }
         #topbar { height: 1; background: $panel; }
-        #topbar #summary { width: 1fr; }
+        /* One line that runs out of room ends in an ellipsis, rather than wrapping onto a line that isn't shown.
+           Where you are has a widget of its own, so the counts are what gives way. */
+        #topbar #summary { width: 1fr; text-wrap: nowrap; text-overflow: ellipsis; }
+        #where { width: auto; max-width: 75%; height: 1; padding: 0 1; text-wrap: nowrap; text-overflow: ellipsis; }
         #usage-meter { width: auto; height: 1; padding: 0 1; }
         #activity { width: auto; max-width: 60%; height: 1; padding: 0 1; display: none; }
         #grid { layout: grid; grid-size: 2; grid-gutter: 0 1; padding: 0 1; }
@@ -1676,6 +1679,7 @@ class AgentlensApp(App):
         self.meter_colors = ("#0178D4", "#FEA62B", "#B93C5B")  # normal, nearly full, full; set from the theme
         self.catalog = commands_mod.load_cached()  # slash commands for boxes whose session hasn't started
         self._summary_text: Text | None = None
+        self._where_text: Text | None = None
         self._empty_text = ""  # what the wall says while it shows no panes
         self._loads = 0  # refreshes started, so a listing can be told apart from one fetched earlier
         self._listing = False  # a refresh is under way
@@ -1712,6 +1716,7 @@ class AgentlensApp(App):
             with Vertical(id="main"):
                 with Horizontal(id="topbar"):
                     yield Static(id="summary")
+                    yield Static(id="where")  # the space you're in, and what a filter hides
                     yield Activity(id="activity")
                     yield UsageMeter(id="usage-meter")
                 with Grid(id="grid"):
@@ -3119,16 +3124,21 @@ class AgentlensApp(App):
             text.append("  ·  ")
             text.append(f"autopilot answered {answered}",
                         style=Style(color=self.palette.notice, bold=True, meta={"@click": "app.autopilot_log"}))
+        where = Text()
         if self.current_space != ALL:
-            text.append(f"   space: {self.current_space}", style="bold")
-        if self.only_needs_you:
-            text.append(f"   showing only sessions that need you ({keys_mod.name('toggle-filter')})", style="italic")
-        elif self.only_working:
-            text.append(f"   showing only sessions that are working ({keys_mod.name('toggle-working')})",
-                        style="italic")
+            where.append(f"space: {self.current_space}", style="bold")
+        if self.only_needs_you or self.only_working:
+            hidden = (f"need you ({keys_mod.name('toggle-filter')})" if self.only_needs_you
+                      else f"are working ({keys_mod.name('toggle-working')})")
+            where.append(f"{'   ' if where else ''}showing only sessions that {hidden}", style="italic")
         if text != self._summary_text:  # this runs on every streamed word
             self._summary_text = text
             self.query_one("#summary", Static).update(text, layout=False)  # one line, always
+        if where != self._where_text:
+            self._where_text = where
+            label = self.query_one("#where", Static)
+            label.update(where)  # its width follows it
+            label.display = bool(where)
         grid = self.query_one("#grid", Grid)
         empty = list(grid.query("#empty"))
         visible = self._visible_panes()

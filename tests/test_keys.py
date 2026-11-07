@@ -150,7 +150,7 @@ def test_changing_a_key_in_the_keys_list(projects, tmp_path):
         await pilot.press("f")  # no longer anything
         await pilot.pause(0.1)
         assert app.only_needs_you
-        assert "need you (r)" in str(app.query_one("#summary", Static).render())  # the hint names it
+        assert "need you (r)" in str(app.query_one("#where", Static).render())  # the hint names it
 
         # Backspace puts agentlens's back, unless another action has it now.
         await pilot.press("question_mark")

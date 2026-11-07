@@ -121,7 +121,7 @@ def test_F_shows_only_the_sessions_that_are_working(projects):
         await pilot.press("F")
         await pilot.pause(0.1)
         assert shown() == ["busy"]
-        assert "showing only sessions that are working (F)" in app.query_one("#summary").content.plain
+        assert "showing only sessions that are working (F)" in app.query_one("#where").content.plain
         app.sessions["other"].state = BACKGROUND  # its own turn is over, but its subagents aren't
         app._apply_visibility()
         assert shown() == ["busy", "other"]
@@ -911,6 +911,27 @@ def test_spaces_group_by_repo_and_can_be_assigned(projects, isolated_home):
         assert saved.last_space == "demo"
 
     run_app(app, steps)
+
+
+def test_a_long_space_name_still_shows_on_a_crowded_top_line(projects):
+    long = "AndroidProjectsAndMore"
+    write_jsonl(projects / "android" / "phone.jsonl",
+                common([human(0), text(1)], "phone", cwd=f"D:\\work\\{long}"))
+    app = AgentlensApp(provider=lambda: [entry("phone", "idle", 0, f"D:\\work\\{long}")], root=projects,
+                       interval=60)
+
+    async def steps(app, pilot):
+        await pilot.press("right_square_bracket")
+        await pilot.press("f")  # and a filter's notice besides
+        await pilot.pause(0.1)
+        where, summary = app.query_one("#where"), app.query_one("#summary")
+        label = f"space: {long}   showing only sessions that need you (f)"
+        assert where.content.plain == label
+        # The name used to wrap onto a second line of a one-line box, leaving "space:" with nothing after it.
+        assert where.region.width == len(label) + 2 and where.region.y == summary.region.y
+        assert summary.region.right <= where.region.x  # the counts give way, cut short with an ellipsis
+
+    run_app(app, steps, size=(140, 30))
 
 
 def test_spaces_list_works_from_the_keyboard(projects):
