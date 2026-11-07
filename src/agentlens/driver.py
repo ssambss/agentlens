@@ -269,6 +269,9 @@ class DrivenSession:
         self.decide = decide or self._decide
         self._piloting: asyncio.Task | None = None  # autopilot reading the turn that just ended
         self._interrupted = False  # you stopped the turn under way: autopilot leaves it to you
+        # A turn of the main conversation is under way, until its result: one a message sent to it starts, or
+        # one Claude Code starts itself. A background subagent working on after a turn is no turn of it.
+        self._in_turn = False
         # What Claude has left going that brings it back by itself (a command or subagent in the
         # background, a monitor, a wakeup), and whether it waits on agents because autopilot said it waits
         # on that, with the timer that makes it yours if nothing comes (QUIET_SECONDS).
@@ -407,7 +410,7 @@ class DrivenSession:
         shown = f"{image_marks(len(images))} {text}".strip()
         tag = by or ("queued" if busy else "")
         self.events.append(Event(now, "you", shown.splitlines()[0][:240], shown, tag=tag))
-        self._sent = True
+        self._sent = self._in_turn = True
         if not self.title and text and not text.startswith("/") and not by:
             self.title = text.splitlines()[0][:80]
         if self._client is None or starting:
@@ -479,7 +482,9 @@ class DrivenSession:
             self._set(WAITING, "turn finished")
             return
         if self._client is not None and self.state in (WORKING, PERMISSION, QUESTION, APPROVAL):
-            self._interrupted = True
+            # With no turn under way (a background subagent asking after one), no turn ends saying it
+            # stopped, and the next turn is taken as it would be.
+            self._interrupted = self._in_turn
             if self.pending and self.pending.future and not self.pending.future.done():
                 self._resolve(self._deny("Interrupted by the user.", interrupt=True))
             try:
@@ -758,6 +763,7 @@ class DrivenSession:
             return  # already handled, or a client this session has since replaced
         self._client = None
         self._cancel_pilot()
+        self._in_turn = self._interrupted = False  # a turn it was in, stopped or not, ended with it
         self.work.clear()  # what it had going stopped with it
         if self.pending and self.pending.future and not self.pending.future.done():
             self.pending.future.cancel()
@@ -784,8 +790,12 @@ class DrivenSession:
     def _fold(self, message) -> None:
         kind = type(message).__name__
         now = datetime.now(timezone.utc)
-        if kind in ("StreamEvent", "AssistantMessage") and self.state in (WAITING, BACKGROUND):
-            self._set(WORKING, "thinking")
+        # Only the main conversation's replies start a turn: a background subagent goes on after the turn that
+        # started it, with its own (parent_tool_use_id, its Agent call), until the turn its end starts.
+        if kind in ("StreamEvent", "AssistantMessage") and getattr(message, "parent_tool_use_id", None) is None:
+            self._in_turn = True
+            if self.state in (WAITING, BACKGROUND):
+                self._set(WORKING, "thinking")
         if kind == "StreamEvent":
             event = getattr(message, "event", {}) or {}
             stream = getattr(message, "parent_tool_use_id", None)  # None: the main conversation
@@ -813,8 +823,11 @@ class DrivenSession:
             return
         if kind == "AssistantMessage":
             if getattr(message, "parent_tool_use_id", None):
-                self.detail = "a subagent is working"
-                self.on_change(self)
+                # In a turn it's what the turn waits on. Outside one, the line says what it did: the turn
+                # finished, or autopilot's or the coordinator's.
+                if self.state == WORKING and self._in_turn:
+                    self.detail = "a subagent is working"
+                    self.on_change(self)
                 return
             # A slash command's output (/context, /model...) comes from Claude Code, not the model.
             tag = "command" if getattr(message, "model", "") == "<synthetic>" else ""
@@ -913,7 +926,7 @@ class DrivenSession:
             return
         if kind == "ResultMessage":
             self.partial = ""
-            self.turn_started = None
+            self.turn_started, self._in_turn = None, False
             # A message of yours sent while Claude worked: you answered this turn yourself. It went in at a
             # step of the turn, or goes in now as the next one, and autopilot's answer would only follow it.
             queued = False

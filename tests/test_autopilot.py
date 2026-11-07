@@ -5,12 +5,12 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from claude_agent_sdk import ResultMessage, UserMessage
+from claude_agent_sdk import ResultMessage, ToolResultBlock, UserMessage
 from rich.console import Console
 from rich.text import Text
 from conftest import at, common, human, text as said, write_jsonl
 from test_driver import (app_with_session, background_command, background_subagent, done, make, notified, partial,
-                         settle, started, task_done, text, until)
+                         settle, started, subagent_called, task_done, text, until)
 
 from agentlens import autopilot, config as config_mod, driver as driver_mod, tui as tui_mod
 from agentlens.adapters.claude_transcripts import load_tail
@@ -391,6 +391,44 @@ def test_waiting_on_a_background_subagent_ends_with_the_turn_its_notification_st
         await fakes[0]._play([notified("ag1"), text("Found 3 callers."), finished({"kind": "task-notification"})])
         await settle(lambda: d.state == WAITING and d.detail == "Claude found 3 callers")
         assert len(asked) == 2 and asked[1][2].endswith("Found 3 callers.") and d.work.outstanding() == []
+        await d.close()
+    asyncio.run(go())
+
+
+def test_a_background_subagent_working_on_leaves_the_wait_on_it(monkeypatch):
+    """The subagent's own messages after the turn aren't Claude's next turn: it still waits on agents, and is
+    yours after a while if the subagent ends and no turn follows."""
+    monkeypatch.setattr(driver_mod, "QUIET_SECONDS", 0.1)
+    decide, asked = fake_check(Decision("", "Claude is waiting on its subagent", waiting=True))
+
+    async def go():
+        d, fakes = make({"find the callers": [*background_subagent(), text("A subagent is looking."), done()]},
+                        autopilot="balanced", decide=decide)
+        await d.start("find the callers")
+        await settle(lambda: d.state == BACKGROUND)
+        await fakes[0]._play([subagent_called(),
+                              UserMessage([ToolResultBlock("s1", "3 matches")], parent_tool_use_id="a1")])
+        await settle(lambda: fakes[0].queue.empty())
+        assert d.state == BACKGROUND and d.detail == "Claude is waiting on its subagent" and d._awaiting
+        assert d.work.outstanding() == ["Find the callers"]
+        await fakes[0]._play([task_done("ag1")])  # it ended, but no turn follows
+        await settle(lambda: fakes[0].queue.empty())
+        assert d._quiet is not None and d.state == BACKGROUND
+        await settle(lambda: d.state == WAITING)
+        assert d.detail == "Claude didn't carry on after the work it waited on" and len(asked) == 1
+        await d.close()
+    asyncio.run(go())
+
+
+def test_a_background_subagent_working_on_while_autopilot_reads_leaves_its_line():
+    async def go():
+        d, fakes = make({"find the callers": [*background_subagent(), text("A subagent is looking."), done()]},
+                        autopilot="balanced", decide=never())
+        await d.start("find the callers")
+        await reading(d)
+        await fakes[0]._play([subagent_called()])
+        await settle(lambda: fakes[0].queue.empty())
+        assert d.state == WORKING and d.detail == "autopilot is reading the reply"
         await d.close()
     asyncio.run(go())
 

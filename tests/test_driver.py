@@ -2539,3 +2539,48 @@ def test_the_coordinators_quiet_wait_isnt_made_yours(monkeypatch):
         assert d.state == driver_mod.BACKGROUND and d.detail == "the coordinator is reading this"
         await d.close()
     asyncio.run(go())
+
+
+def subagent_called(call="s1", tool="Grep", agent_call="a1"):
+    """A tool call by the subagent that the main conversation's call `agent_call` started."""
+    return AssistantMessage([ToolUseBlock(call, tool, {})], "claude-haiku-4-5", parent_tool_use_id=agent_call)
+
+
+def test_a_background_subagent_working_on_after_the_turn_leaves_it_yours():
+    """The subagent's own messages after the turn are no turn of Claude's: the session waits on you until
+    Claude's next turn starts."""
+    async def go():
+        d, fakes = make({"find the callers": [*background_subagent(), text("A subagent is looking."), done()]})
+        await d.start("find the callers")
+        await settle(lambda: d.state == WAITING and d.detail == "turn finished")
+        await fakes[0]._play([subagent_called(),
+                              UserMessage([ToolResultBlock("s1", "3 matches")], parent_tool_use_id="a1")])
+        await settle(lambda: fakes[0].queue.empty())
+        assert d.state == WAITING and d.detail == "turn finished" and d.turn_started is None
+        await fakes[0]._play([partial("Found")])  # Claude's next turn
+        await settle(lambda: d.state == driver_mod.WORKING)
+        assert d.turn_started is not None
+        await d.close()
+    asyncio.run(go())
+
+
+def test_stopping_with_no_turn_under_way_leaves_the_next_turn_as_it_would_be():
+    """A background subagent asking after the turn, and you stopping it: no turn ends saying it stopped,
+    so the next one is taken as usual, here by the coordinator."""
+    ends = []
+
+    async def go():
+        d, fakes = make({"find the callers": [*background_subagent(), text("A subagent is looking."), done()],
+                         "and the docs": [text("Docs done."), done()]})
+        d.on_turn_end = lambda session, yours, reply, failed: ends.append(reply)
+        await d.start("find the callers")
+        await settle(lambda: d.state == WAITING and ends)
+        asking = asyncio.ensure_future(fakes[0]._play([("ask", "Bash", {"command": "ls"}, "s1")]))
+        await settle(lambda: d.state == PERMISSION)
+        await d.interrupt()  # Claude Code stops the subagent, and sends nothing
+        await asking
+        await d.send("and the docs")
+        await settle(lambda: len(ends) == 2)
+        assert ends == ["A subagent is looking.", "Docs done."]
+        await d.close()
+    asyncio.run(go())
