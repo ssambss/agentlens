@@ -253,6 +253,8 @@ class Coordinator:
         self.goals = load(file)
         self.keys: dict[str, tuple[str, int | None]] = {}  # pane key -> (goal, task); no task: the lead
         self.lead_keys: dict[str, str] = {}  # goal -> its lead's pane key
+        # goal -> the tasks whose sessions goal_done closed: one that was mid-turn closes as that ends
+        self.goal_closed: dict[str, set[int]] = {}
 
     def save(self) -> None:
         save(self.goals, self.file)
@@ -390,9 +392,12 @@ class Coordinator:
             task.waiting_on_lead = False
             self.save()
             return None
-        if goal.done or task.status == DONE:
-            # Finished while it was mid-turn: it has served its purpose, now that the turn is over.
-            why = "goal done" if goal.done else "task done"
+        with_goal = task.id in self.goal_closed.get(goal.id, ())
+        if with_goal or task.status == DONE:
+            # Finished while it was mid-turn: it has served its purpose, now that the turn is over. One still
+            # running in a goal that says it's done otherwise (kept so from before goals opened again for new
+            # work) is the lead's.
+            why = "goal done" if with_goal else "task done"
             self.close(self.key_of(goal, task), why)
             return True, why
         lead = self.lead_keys.get(goal.id, "")
@@ -435,8 +440,18 @@ class Coordinator:
             goal.tasks.append(task)
             added.append(task)
         goal.planned_at = _now()
+        again = " The goal is open again: call goal_done once these are done too." if self._reopen(goal) else ""
         self.save()
-        return _text("Added: " + "; ".join(f"{t.id}. {t.title}" for t in added) + "\n\n" + self.board(goal))
+        return _text("Added: " + "; ".join(f"{t.id}. {t.title}" for t in added) + again + "\n\n" + self.board(goal))
+
+    def _reopen(self, goal: Goal) -> bool:
+        """New work on a goal that was done opens it again: its lead and panes go on as for any open goal.
+        Whether it was done."""
+        if not goal.done:
+            return False
+        goal.done, goal.finished = False, ""  # its summary, if its lead's turn hasn't ended yet, would say it's done
+        self.goal_closed.pop(goal.id, None)
+        return True
 
     def start_task(self, goal: Goal, task_id: Any) -> dict:
         task = goal.task(task_id)
@@ -469,8 +484,9 @@ class Coordinator:
             return _text(f"agentlens couldn't start a session for task {task.id}.", error=True)
         task.status = RUNNING
         goal.started += 1
+        again = " The goal is open again: call goal_done once it's done too." if self._reopen(goal) else ""
         self.save()
-        return _text(f"Started task {task.id}, {task.title}. Its replies come to you as it ends its turns.")
+        return _text(f"Started task {task.id}, {task.title}. Its replies come to you as it ends its turns.{again}")
 
     def message_task(self, goal: Goal, task_id: Any, message: str) -> dict:
         task = goal.task(task_id)
@@ -511,10 +527,10 @@ class Coordinator:
         goal.done = True
         goal.finished = " ".join(str(summary or "").split())[:200] or "every task is done"
         self.save()
-        for task in goal.tasks:  # their purpose was the goal: any still open close too
-            key = self.key_of(goal, task)
-            if self.alive(key):
-                self.close(key, "goal done")
+        still_open = [t for t in goal.tasks if self.alive(self.key_of(goal, t))]
+        self.goal_closed[goal.id] = {t.id for t in still_open}
+        for task in still_open:  # their purpose was the goal: any still open close too
+            self.close(self.key_of(goal, task), "goal done")
         return _text("Done. End your turn: the user will see it.")
 
     def lead_options(self, goal: Goal) -> dict:
