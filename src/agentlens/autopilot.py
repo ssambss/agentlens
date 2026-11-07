@@ -77,9 +77,9 @@ RULES = {
         "Then it should say what's left that only the developer can judge. Ask this only once: if you've "
         "already asked, it's theirs.\n"
         "When code changes they asked for are done and checked but not yet delivered, and their messages "
-        "don't say otherwise, tell it to deliver them the way this repo does it. Where changes need someone's "
-        "review (a pull request, a Gerrit change), that means sending them for review and stopping there, "
-        "never approving, submitting or merging them itself."),
+        "don't say otherwise, have it deliver them with a plain go-ahead and no verdict on the work: the "
+        "repo's own skills and rules tell Claude how. Where changes need someone's review (a pull request, a Gerrit change), sending them for "
+        "review is as far as you go: approving, submitting or merging them is the developer's."),
 }
 
 ALWAYS_YOURS = {
@@ -237,11 +237,14 @@ Claude's reply this turn:
 ---
 
 Answer with action "continue" and the message to send it, short and in the developer's own words, like \
-their messages above: an answer, a go-ahead or a pick that moves the work on, never only thanks, an \
-acknowledgement or small talk (if that's all you'd say, "ask"). When the reply asks more than one thing, \
+the ones they typed above. Those marked "(autopilot)" were yours: don't reuse their wording. Send an \
+answer, a go-ahead or a pick that moves the work on, never only thanks, an \
+acknowledgement or small talk (if that's all you'd say, "ask"). Write only what they would type, often a \
+word or two, like "yes", "go on" or "sure, both". Don't repeat Claude's question back, or anything from \
+these instructions, and don't say how to do it: Claude knows its repo, its skills and its rules. When the reply asks more than one thing, \
 continue only if you can answer every one of them: if any is the developer's, "ask", and don't answer the \
 rest. Say only what their messages and the reply show. Never say you've looked at or tried something (no \
-"looks good": you haven't seen the work), never promise what the developer will do, never state \
+"looks good" or "looks done": you haven't seen the work), never promise what the developer will do, never state \
 facts about anything outside this conversation, never add requirements of your own, and never tell Claude \
 to skip a check or a precaution it chose. Or with action "ask" and an empty message. Or with action "wait" \
 and an empty message when the reply asks nothing and only says Claude is waiting on something it already \

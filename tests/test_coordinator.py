@@ -71,7 +71,7 @@ def test_a_plan_runs_as_sessions_and_each_turn_goes_to_the_lead(tmp_path):
     assert "worktree" not in brief and "push the branch" not in coordinator.INSTRUCTIONS
     # Where it stops is agentlens's: a change that needs review is sent for it, never approved or submitted.
     assert "sent for review counts as delivered" in coordinator.INSTRUCTIONS
-    assert "never approving, submitting or merging them itself" in coordinator.INSTRUCTIONS  # autonomous's, carried
+    assert "approving, submitting or merging them is the user's" in coordinator.INSTRUCTIONS  # autonomous's, carried
     assert "merge and push" not in coordinator.INSTRUCTIONS
     assert goal.task(1).status == RUNNING and goal.started == 1
 

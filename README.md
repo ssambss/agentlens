@@ -270,11 +270,10 @@ answers it the way you would, or leaves it for you:
   Claude's questions with the option Claude recommends, or a sensible default, when that fits
   what you asked for. It takes small follow-ups Claude offers, and cleans up what the work
   left behind. When Claude asks you to try something, it first has Claude check what it can
-  itself. When the work is done and checked, it has Claude deliver it the way the repo does
-  it. Where changes need someone's review (a pull request, a Gerrit change), that means
-  sending them for review and stopping there: approving, submitting and merging are the
-  reviewers'. The steps are the repo's and your own skills', not agentlens's. What it leaves
-  for you:
+  itself. When the work is done and checked, it gives the go-ahead to deliver it. How is up
+  to the repo and your own skills, so it doesn't say. Where changes need someone's review
+  (a pull request, a Gerrit change), sending them for review is as far as it goes:
+  approving, submitting and merging are the reviewers'. What it leaves for you:
   - design decisions with lasting consequences, and scope beyond what you asked for
   - releases, deploys, publishing, force-pushes, approving or submitting a change that needs
     review, and deletes you can't easily get back
@@ -294,8 +293,9 @@ prompts and plans come in the middle of a turn, so it never sees them: those are
 yours. After five answers in a row to one session (twelve on autonomous), the next one is
 yours anyway.
 
-Its messages show as Autopilot's, in the pane and in History, and Claude is told you didn't
-type them. While it reads a reply, typing your own message goes instead of its answer,
+It writes what you'd type, often a word or two like "yes" or "go on", without repeating
+Claude's question back. Its messages show as Autopilot's, in the pane and in History, and
+Claude is told you didn't type them. While it reads a reply, typing your own message goes instead of its answer,
 and `x` stops it. A turn you wrote to while Claude worked is yours, so it doesn't read that
 one at all. It's off unless you turn it on. Each check is a short `claude -p` on
 Sonnet at medium effort, with no tools, in an empty folder of its own, so no project's
