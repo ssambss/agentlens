@@ -294,6 +294,17 @@ def test_the_lead_reads_the_repository_and_has_the_boards_tools_but_nothing_that
     assert "the developer" not in coordinator.INSTRUCTIONS  # it speaks of the user, as autopilot's rules don't
 
 
+def test_asking_you_ends_the_leads_turn_so_it_cant_say_it_again_under_the_question(tmp_path):
+    import asyncio
+
+    c, goal = Panes().coordinator(tmp_path)
+    (matcher,) = c.lead_options(goal)["hooks"]["PostToolUse"]
+    assert matcher.matcher == coordinator.ASK_YOU_TOOL
+    (hook,) = matcher.hooks
+    stop = asyncio.run(hook({"hook_event_name": "PostToolUse", "tool_name": coordinator.ASK_YOU_TOOL}, "t1", None))
+    assert stop["continue_"] is False and stop["stopReason"] == coordinator.ASKED
+
+
 def test_a_message_from_another_session_shows_in_the_pane_and_a_subagents_report_doesnt():
     from claude_agent_sdk import UserMessage
 

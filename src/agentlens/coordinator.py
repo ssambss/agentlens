@@ -37,6 +37,7 @@ SERVER = "agentlens"  # its tools are mcp__agentlens__<name>
 TOOLS = ("board", "add_tasks", "start_task", "message_task", "finish_task", "ask_you", "goal_done")
 TOOL_NAMES = [f"mcp__{SERVER}__{name}" for name in TOOLS]
 ASK_YOU_TOOL = f"mcp__{SERVER}__ask_you"  # its question shows in the lead's conversation, as Claude's own do
+ASKED = "ask_you ends your turn: the question went to the user."  # the lead reads it with their answer
 LEAD_TOOLS = ["Read", "Grep", "Glob"]  # Claude Code's own: it reads the repository, and changes nothing
 
 # Tags of message events, as autopilot's are (model.AUTOPILOT): who sent it, when you didn't.
@@ -215,8 +216,9 @@ someone's review (a pull request, a Gerrit change), sent for review counts as de
 submitting are the reviewers' job, never yours or a session's.
 - Use ask_you whenever you need the user: to decide, to look at the work, or before it's delivered. \
 A turn you end without it waits quietly while your sessions work.
-- ask_you brings a question to the user: one at a time, short, written to them as "you", with your \
-recommendation. Then end your turn; their answer comes as their next message.
+- ask_you brings a question to the user: one at a time, written to them as "you", with your \
+recommendation. It's what they read, and your turn ends with it, so put in it everything they need \
+to answer, as briefly as you can. Their answer comes as their next message.
 - When every task is done, call goal_done with a short summary for the user.
 - Never tell a session to release, deploy, publish, force-push, or delete what can't easily be got \
 back: those are always the user's.
@@ -503,8 +505,7 @@ class Coordinator:
     def ask_you(self, goal: Goal, question: str) -> dict:
         goal.asking = " ".join(str(question or "").split())[:200] or "The coordinator wants you"
         self.save()
-        return _text("The user will see it when you end your turn. End it now; their answer comes as their next "
-                     "message.")
+        return _text("The user has your question. Their answer comes as their next message.")
 
     def goal_done(self, goal: Goal, summary: str) -> dict:
         goal.done = True
@@ -519,7 +520,7 @@ class Coordinator:
     def lead_options(self, goal: Goal) -> dict:
         """What the lead's session runs with: Claude Code's prompt with these instructions, the tools
         to read the repository, and the board's."""
-        from claude_agent_sdk import create_sdk_mcp_server, tool
+        from claude_agent_sdk import HookMatcher, create_sdk_mcp_server, tool
 
         def bound(name: str, description: str, schema: dict, run: Callable[[dict], dict]):
             async def handler(args: dict) -> dict:
@@ -553,7 +554,8 @@ class Coordinator:
                 "type": "object", "required": ["task", "report"],
                 "properties": {"task": task_id, "report": {"type": "string", "description": "One line on what it did"}}},
                   lambda g, a: self.finish_task(g, a.get("task"), a.get("report", ""))),
-            bound("ask_you", "Bring a question to the user. End your turn after it.",
+            bound("ask_you", "Bring a question to the user, with everything they need to answer it. Your turn ends "
+                  "with it.",
                   {"type": "object", "required": ["question"], "properties": {"question": {"type": "string"}}},
                   lambda g, a: self.ask_you(g, a.get("question", ""))),
             bound("goal_done", "Say the goal is done, with a short summary for the user.",
@@ -565,4 +567,12 @@ class Coordinator:
             "tools": LEAD_TOOLS,
             "allowed_tools": [*LEAD_TOOLS, *TOOL_NAMES],
             "mcp_servers": {SERVER: create_sdk_mcp_server(SERVER, tools=tools)},
+            "hooks": {"PostToolUse": [HookMatcher(matcher=ASK_YOU_TOOL, hooks=[end_turn_after_asking])]},
         }
+
+
+async def end_turn_after_asking(hook_input: dict, tool_use_id: str | None, context: Any) -> dict:
+    """ask_you ends the lead's turn, as Claude Code's own questions do. Told to stop there, it still
+    wrote a line after every question in its logged turns (and in replays), which read as a second
+    message saying the same."""
+    return {"continue_": False, "stopReason": ASKED}

@@ -371,8 +371,8 @@ The lead doesn't work on the code itself. It has Read, Grep and Glob, and agentl
 tools for the board: add tasks, start one, message one, finish one, ask you, finish the goal.
 Its pane rings when it asks you something, answers you, or the goal is done. What it asks
 you reads in its conversation, options and all, as Claude's own questions do, and you answer
-by writing to it. It also rings
-when it ends a turn while none of its sessions is at work: those waiting on its answer
+by writing to it. Asking ends its turn, so the question is the last thing it says. It also
+rings when it ends a turn while none of its sessions is at work: those waiting on its answer
 don't count, since nothing would bring it back, so what it said is for you. The line under
 its title is then the start of its reply. Otherwise it shows what's under way
 ("coordinating: 2 running, 1 of 3 done").
