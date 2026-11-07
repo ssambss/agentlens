@@ -60,6 +60,10 @@ SUSPENDABLE = {TOOL, DELEGATED, WAITING_ON_YOU, WAITING_ON_BACKGROUND}
 ORPHAN_NOTICE = "<task-id>__orphan_summary__"
 EVENT_LIMIT = 300  # feed lines kept per thread for the live views
 SLASH_COMMAND = re.compile(r"<command-name>\s*(/[^<\s]+)\s*</command-name>")
+# How much of a tool error, a notice, or a question and its answer is kept. What you and Claude say
+# is kept in full, as it is while a session runs: a pane brought back from a transcript, or one
+# open in a terminal, would otherwise stop mid-sentence. Replies stay small (13K characters at most
+# in real history); tool output is what can be huge.
 DETAIL_CHARS = 4000
 
 
@@ -454,14 +458,14 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
                 if not isinstance(block, dict):
                     continue
                 if block.get("type") == "text" and block.get("text", "").strip():
-                    events.append(Event(t, "claude", _one_line(block["text"]), block["text"][:DETAIL_CHARS]))
+                    events.append(Event(t, "claude", _one_line(block["text"]), block["text"]))
                 elif block.get("type") == "tool_use":
                     name = block.get("name", "?")
                     tool_input = block.get("input") or {}
                     report = tool_input.get("message")
                     if name in HANDBACK_TOOLS and isinstance(report, str) and report.strip():
                         # A background subagent's final report is its reply, not a tool call.
-                        events.append(Event(t, "claude", _one_line(report), report[:DETAIL_CHARS]))
+                        events.append(Event(t, "claude", _one_line(report), report))
                         continue
                     if name == QUESTION_TOOL:  # what it asked you, not a tool call
                         asked[block.get("id", "")] = questions_of(tool_input)
@@ -483,11 +487,11 @@ def extract_events(records: list[dict], is_main: bool) -> list[Event]:
         if is_main and _is_human_prompt(r):
             images = sum(1 for b in _content(r) if isinstance(b, dict) and b.get("type") == "image")
             body = f"{image_marks(images)} {_text_of(r)}".strip()
-            events.append(Event(t, "you", _one_line(body), body[:DETAIL_CHARS]))
+            events.append(Event(t, "you", _one_line(body), body))
         elif is_main and (said := _autopilot_said(r)) is not None:
-            events.append(Event(t, "you", _one_line(said), said[:DETAIL_CHARS], tag=AUTOPILOT))
+            events.append(Event(t, "you", _one_line(said), said, tag=AUTOPILOT))
         elif is_main and (sent := _coordinator_said(r)) is not None:
-            events.append(Event(t, "you", _one_line(sent[1]), sent[1][:DETAIL_CHARS], tag=sent[0]))
+            events.append(Event(t, "you", _one_line(sent[1]), sent[1], tag=sent[0]))
         elif _origin_kind(r) in ("task-notification", "peer", "coordinator"):
             body = _text_of(r)
             match = re.search(r"<summary>(.*?)</summary>", body, re.S)

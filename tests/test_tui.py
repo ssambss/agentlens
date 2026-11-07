@@ -1438,6 +1438,25 @@ def test_events_are_readable(projects):
     assert events["main"][-1].detail == "Fixed it.\nDetails follow."
 
 
+def test_what_you_and_claude_said_reads_in_full_however_long(projects):
+    # As it does while the session runs: a pane brought back from its transcript doesn't stop mid-sentence.
+    # Tool output, which can be huge, is still cut.
+    long_reply = "Decisions for you.\n\n" + "word " * 1000 + "the last words."
+    long_message = "here's the log:\n" + "line\n" * 1000 + "what broke?"
+    path = write_jsonl(projects / "demo" / "s.jsonl", common([
+        human(0, long_message),
+        {"type": "user", "timestamp": at(1), "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "b1", "is_error": True, "content": "error\n" * 2000}]}},
+        text(2, long_reply),
+    ], "s"))
+    _, events = load_tail(path, tail_bytes=100_000)
+    said, error, reply = events["main"]
+    assert len(long_reply) > DETAIL_CHARS and reply.detail == long_reply
+    assert len(long_message) > DETAIL_CHARS and said.detail == long_message
+    assert len(error.detail) == DETAIL_CHARS
+    assert "the last words." in plain(conversation(events["main"], Palette(), clip=False))
+
+
 def test_images_pasted_with_a_message_show_as_marks(projects):
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0K"}}
     path = write_jsonl(projects / "demo" / "s.jsonl", common([

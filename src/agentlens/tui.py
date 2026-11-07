@@ -49,7 +49,6 @@ from agentlens import editor as editor_mod, keys as keys_mod, preferences, setti
 from agentlens import usage as usage_mod
 from agentlens.adapters.claude_transcripts import (
     DEFAULT_ROOT,
-    DETAIL_CHARS,
     SessionCache,
     load_tail,
     recent_transcripts,
@@ -3349,9 +3348,7 @@ class AgentlensApp(App):
         if not reply:
             self.notify("Nothing from Claude to copy yet.", timeout=3)
             return
-        cut = session.kind != "agentlens" and len(reply) >= DETAIL_CHARS  # transcripts keep this much of a reply
-        self.copy_to_clipboard(reply, f"the first {DETAIL_CHARS} characters of Claude's reply" if cut
-                               else "Claude's last reply")
+        self.copy_to_clipboard(reply, "Claude's last reply")
 
     def open_link(self, href: str, widget: Widget | None = None) -> None:
         """A link you clicked: web pages open in your browser, files in your editor. Anything

@@ -1349,11 +1349,14 @@ from agentlens import config as _config  # noqa: E402
 from agentlens.driver import PAUSED  # noqa: E402
 
 
+LONG_REPLY = "Parser added.\n\n" + "It reads every comment now. " * 200 + "Decisions for you: none."
+
+
 def test_sessions_come_back_paused_with_their_conversation(projects, tmp_path, isolated_home):
     folder = tmp_path / "repo"
     folder.mkdir()
     _write(projects / "repo" / "sess-42.jsonl",
-           _common([_human(0, "add a parser"), _text(1, "Parser added.")], "sess-42", cwd=str(folder)))
+           _common([_human(0, "add a parser"), _text(1, LONG_REPLY)], "sess-42", cwd=str(folder)))
     cfg = _config.Config(path=isolated_home / "config.yaml")
     cfg.remember_driven("sess-42", str(folder), "Parser work", "acceptEdits")
     _config.save(cfg)
@@ -1366,6 +1369,7 @@ def test_sessions_come_back_paused_with_their_conversation(projects, tmp_path, i
             [driven] = app.driven.values()
             assert driven.state == PAUSED and driven.resume == "sess-42" and driven.title == "Parser work"
             assert [e.text for e in driven.events] == ["add a parser", "Parser added."]
+            assert driven.events[-1].detail == LONG_REPLY  # all of it, as it read before you quit
             assert fakes == []  # not connected until you type
             assert "need you" in app.query_one("#summary").content.plain and app.query_one("#summary").content.plain.startswith("0")
             app._focus_key(driven.key)
