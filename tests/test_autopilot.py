@@ -5,13 +5,14 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import ResultMessage, UserMessage
 from rich.console import Console
 from rich.text import Text
 from conftest import at, common, human, text as said, write_jsonl
-from test_driver import app_with_session, done, make, settle, started, text, until
+from test_driver import (app_with_session, background_command, background_subagent, done, make, notified, partial,
+                         settle, started, task_done, text, until)
 
-from agentlens import autopilot, config as config_mod, tui as tui_mod
+from agentlens import autopilot, config as config_mod, driver as driver_mod, tui as tui_mod
 from agentlens.adapters.claude_transcripts import load_tail
 from agentlens.autopilot import NOTE, Decision
 from agentlens.driver import BACKGROUND, WAITING, WORKING
@@ -57,6 +58,13 @@ def test_the_prompt_has_the_levels_rules_your_messages_and_the_end_of_the_reply(
     autonomous = autopilot.prompt("autonomous", "", said, reply)
     assert autopilot.RULES["autonomous"] in autonomous and autopilot.ALWAYS_YOURS["autonomous"] in autonomous
     assert autopilot.RULES["balanced"] not in autonomous and autopilot.ALWAYS_YOURS["balanced"] not in autonomous
+
+
+def test_it_waits_only_on_work_the_session_started_itself():
+    asked = autopilot.prompt("autonomous", "", [], "The DJ side is watching it through to the published release.")
+    assert "work it started itself, with its own tools in this session" in asked
+    assert "a command or a build it runs in the background" in asked and "a test run, a build or" not in asked
+    assert "Never \"wait\" for anything else, like a CI run, a deploy, another session's work or a person" in asked
 
 
 def test_it_runs_your_claude_on_sonnet_at_medium_effort_with_no_tools_and_leaves_no_session():
@@ -335,17 +343,124 @@ def test_while_claude_waits_on_its_own_work_it_answers_nothing_and_doesnt_call_y
     decided = []
 
     async def go():
-        d, fakes = make({"run the tests": [text("They're running in the background; I'll report back."), done()]},
+        d, fakes = make({"run the tests": [*background_command(),
+                                           text("They're running in the background; I'll report back."), done()]},
                         autopilot="autonomous", decide=decide, on_pilot=decided.append)
         await d.start("run the tests")
         await settle(lambda: d.state == BACKGROUND)
         assert d.detail == "Claude is waiting on the test run" and fakes[0].sent == ["run the tests"]
         assert decided == []  # not an answer, nor one left for you
         # The run finishing starts Claude's next turn, which carries on the work: it reads that one.
-        await fakes[0]._play([text("All 40 pass. Shall I push?"), finished({"kind": "task-notification"})])
+        await fakes[0]._play([task_done("bt1"), text("All 40 pass. Shall I push?"),
+                              finished({"kind": "task-notification"})])
         await settle(lambda: len(fakes[0].sent) == 2)
         assert fakes[0].sent[1] == by_autopilot("Yes, push it.")
         assert "All 40 pass. Shall I push?" in asked[1][2]
+        await d.close()
+    asyncio.run(go())
+
+
+def test_waiting_with_nothing_of_its_own_going_is_yours():
+    """Claude says another session is seeing a release through: nothing it started brings it back, so the
+    wait autopilot read into the reply would never end. The turn is yours, saying what Claude said."""
+    reason = "Claude says the DJ side is watching the release through"
+    decide, _ = fake_check(Decision("", reason, waiting=True))
+    decided = []
+
+    async def go():
+        d, fakes = make({"coordinate": [text("The DJ side is watching it through to the published release."), done()]},
+                        autopilot="autonomous", decide=decide, on_pilot=decided.append)
+        await d.start("coordinate")
+        await settle(lambda: d.state == WAITING and d.detail == reason)
+        assert [(e.asked, e.said) for e in decided] == [(reason, "")]  # left to you
+        assert fakes[0].sent == ["coordinate"] and d.events[-1].kind == "claude"  # no note: the reply says it
+        await d.close()
+    asyncio.run(go())
+
+
+def test_waiting_on_a_background_subagent_ends_with_the_turn_its_notification_starts():
+    decide, asked = fake_check(Decision("", "Claude is waiting on its subagent", waiting=True),
+                               Decision("", "Claude found 3 callers"))
+
+    async def go():
+        d, fakes = make({"find the callers": [*background_subagent(), text("A subagent is looking."), done()]},
+                        autopilot="balanced", decide=decide)
+        await d.start("find the callers")
+        await settle(lambda: d.state == BACKGROUND)
+        assert d.work.outstanding() == ["Find the callers"]
+        await fakes[0]._play([notified("ag1"), text("Found 3 callers."), finished({"kind": "task-notification"})])
+        await settle(lambda: d.state == WAITING and d.detail == "Claude found 3 callers")
+        assert len(asked) == 2 and asked[1][2].endswith("Found 3 callers.") and d.work.outstanding() == []
+        await d.close()
+    asyncio.run(go())
+
+
+def test_a_wait_whose_work_ended_with_nothing_after_is_yours_after_a_while(monkeypatch):
+    monkeypatch.setattr(driver_mod, "QUIET_SECONDS", 0.1)
+    decide, _ = fake_check(Decision("", "Claude is waiting on the test run", waiting=True))
+
+    async def go():
+        d, fakes = make({"run the tests": [*background_command(), text("Running them."), done()]},
+                        autopilot="autonomous", decide=decide)
+        await d.start("run the tests")
+        await settle(lambda: d.state == BACKGROUND)
+        await asyncio.sleep(0.3)
+        assert d.state == BACKGROUND  # the run is still going: it brings Claude back
+        await fakes[0]._play([task_done("bt1")])  # it ended, but no turn follows
+        await asyncio.sleep(0.05)
+        assert d.state == BACKGROUND
+        await settle(lambda: d.state == WAITING)
+        assert d.detail == "Claude didn't carry on after the work it waited on"
+        assert d.events[-1].kind == "notice" and d.events[-1].text.endswith("so this one is yours.")
+        await d.close()
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("then", ["turn", "message", "close", "stop"])
+def test_the_wait_ending_otherwise_leaves_nothing_to_make_yours(monkeypatch, then):
+    monkeypatch.setattr(driver_mod, "QUIET_SECONDS", 0.1)
+    decide, _ = fake_check(Decision("", "Claude is waiting on the test run", waiting=True), Decision("", "done"))
+
+    async def go():
+        d, fakes = make({"run the tests": [*background_command(), text("Running them."), done()],
+                         "and the docs": [("pause", 0.5)]}, autopilot="autonomous", decide=decide)
+        await d.start("run the tests")
+        await settle(lambda: d.state == BACKGROUND)
+        await fakes[0]._play([task_done("bt1")])
+        if then == "turn":  # its next turn begins
+            await fakes[0]._play([partial("All")])
+        elif then == "message":
+            await d.send("and the docs")
+        elif then == "close":
+            await d.close()
+        else:  # Claude Code stops
+            await fakes[0].queue.put(None)
+            await settle(lambda: d.state == driver_mod.PAUSED)
+        await asyncio.sleep(0.3)
+        assert not any(e.text.endswith("so this one is yours.") for e in d.events)
+        assert d.state == {"close": driver_mod.ENDED, "stop": driver_mod.PAUSED}.get(then, WORKING)
+        await d.close()
+    asyncio.run(go())
+
+
+def test_another_sessions_message_while_it_waits_is_still_theirs():
+    """A relayed message from another session starts a turn: that turn is yours, as it always is, and the
+    command Claude left running still counts."""
+    decide, asked = fake_check(Decision("", "Claude is waiting on the test run", waiting=True))
+    relayed = {"kind": "task-notification", "subkind": "peer-send-message", "name": "Release"}
+
+    async def go():
+        d, fakes = make({"run the tests": [*background_command(), text("Running them."), done()]},
+                        autopilot="autonomous", decide=decide)
+        await d.start("run the tests")
+        await settle(lambda: d.state == BACKGROUND)
+        await fakes[0]._play([UserMessage("Is main green?", origin=relayed), text("Not yet: tests are running."),
+                              finished(relayed)])
+        await settle(lambda: d.state == WAITING and d.events[-1].text.startswith("Not yet"))
+        await asyncio.sleep(0.1)
+        assert len(asked) == 1 and d.detail == "turn finished"
+        assert [e.text for e in d.events if e.kind == "notice"] == ["From Release: Is main green?"]
+        assert d.work.outstanding() == ["Run the tests"]
         await d.close()
     asyncio.run(go())
 

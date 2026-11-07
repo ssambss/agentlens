@@ -46,6 +46,7 @@ from agentlens.adapters.claude_transcripts import (
     questions_of,
     tool_summary,
 )
+from agentlens.background import FINISHED, BackgroundWork
 from agentlens.clipboard import PastedImage
 from agentlens.coordinator import ASK_YOU_TOOL
 from agentlens.commands import Catalog
@@ -70,6 +71,12 @@ PAUSED = "paused"  # not running Claude Code (restored, or it stopped); connects
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
 PERMISSION_MODES = ("default", "acceptEdits", "plan", "auto")
+
+# How long a session autopilot left waiting on Claude's own work stays waiting on agents once none of
+# that work is left and Claude Code has sent nothing, before it's yours after all. Work that ends
+# starts Claude's next turn within seconds, and a retried model call shows in the stream meanwhile,
+# so five quiet minutes means no turn is coming; any longer only keeps you from a turn that's yours.
+QUIET_SECONDS = 5 * 60
 
 # What Claude Code last wrote to stderr, kept to explain a failure. Its terminal codes are
 # dropped: one it writes on exit is "show the cursor".
@@ -262,6 +269,12 @@ class DrivenSession:
         self.decide = decide or self._decide
         self._piloting: asyncio.Task | None = None  # autopilot reading the turn that just ended
         self._interrupted = False  # you stopped the turn under way: autopilot leaves it to you
+        # What Claude has left going that brings it back by itself (a command or subagent in the
+        # background, a monitor, a wakeup), and whether it waits on agents because autopilot said it waits
+        # on that, with the timer that makes it yours if nothing comes (QUIET_SECONDS).
+        self.work = BackgroundWork()
+        self._awaiting = False
+        self._quiet: asyncio.TimerHandle | None = None
         # Whether agentlens sent a message (yours or autopilot's) since the last turn ended, and so
         # whether that turn was ours. Claude Code starts turns of its own too: another session's
         # message, a background task finishing. Your messages don't say what another session's are
@@ -475,6 +488,7 @@ class DrivenSession:
                 self._note(f"interrupt failed: {e}", kind="error")
 
     async def close(self) -> None:
+        self._stop_waiting()
         for task in (self._reader, self._naming, self._renaming, self._piloting):
             if task is not None:
                 task.cancel()
@@ -609,9 +623,12 @@ class DrivenSession:
             self.on_pilot(self._entry(decision.reason, decision.send))
             await self.send(decision.send, autopilot_mod.NOTE, by_autopilot=True)
             return
-        if decision is not None and decision.waiting:
-            # Nothing to answer, nor yours yet: what Claude waits on starts its next turn.
+        if decision is not None and decision.waiting and self.work.outstanding():
+            # Nothing to answer, nor yours yet: what Claude waits on starts its next turn. With none of its
+            # work left going, nothing would (a CI run, another session's work): then the turn is yours.
             self._set(BACKGROUND, decision.reason[:200] or "Claude is waiting on work it started")
+            self._awaiting = True
+            self._time_the_quiet()
             return
         if decision is not None:
             self.on_pilot(self._entry(decision.reason))  # left to you
@@ -627,6 +644,37 @@ class DrivenSession:
         if note:
             self._note(note)
         self._set(WAITING, detail[:200])
+
+    def _time_the_quiet(self) -> None:
+        """While it waits on Claude's work, (re)start the wait that makes the turn yours: QUIET_SECONDS
+        from now once none of that work is left, or from when what's left lapses by its time (a wakeup,
+        say). Work that only its end can finish, like a background command, holds it off until then."""
+        if self._quiet is not None:
+            self._quiet.cancel()
+            self._quiet = None
+        lapses = self.work.lapses_in() if self._awaiting else None
+        if lapses is None:
+            return
+        try:
+            self._quiet = asyncio.get_running_loop().call_later(lapses + QUIET_SECONDS, self._quiet_too_long)
+        except RuntimeError:
+            pass  # no loop running: nothing would come either
+
+    def _quiet_too_long(self) -> None:
+        self._quiet = None
+        if not self._awaiting or self.state != BACKGROUND:
+            return
+        if self.work.outstanding():
+            self._time_the_quiet()  # it went on with more meanwhile
+            return
+        self._note("The work Claude was waiting on has ended and Claude hasn't carried on, so this one is yours.")
+        self._set(WAITING, "Claude didn't carry on after the work it waited on")
+
+    def _stop_waiting(self) -> None:
+        self._awaiting = False
+        if self._quiet is not None:
+            self._quiet.cancel()
+            self._quiet = None
 
     def _entry(self, asked: str, said: str = "") -> autopilot_mod.Entry:
         # As its pane says it: the worktree, then the repository ("linux-build · Tubeless"), not the
@@ -710,6 +758,7 @@ class DrivenSession:
             return  # already handled, or a client this session has since replaced
         self._client = None
         self._cancel_pilot()
+        self.work.clear()  # what it had going stopped with it
         if self.pending and self.pending.future and not self.pending.future.done():
             self.pending.future.cancel()
         self.pending = None
@@ -728,6 +777,11 @@ class DrivenSession:
 
     def handle(self, message) -> None:
         """Fold one SDK message into the feed and state. Public for tests."""
+        self._fold(message)
+        if self._awaiting:
+            self._time_the_quiet()  # anything from Claude Code starts the quiet over
+
+    def _fold(self, message) -> None:
         kind = type(message).__name__
         now = datetime.now(timezone.utc)
         if kind in ("StreamEvent", "AssistantMessage") and self.state in (WAITING, BACKGROUND):
@@ -771,6 +825,7 @@ class DrivenSession:
                     first = next((ln for ln in block.text.splitlines() if ln.strip()), "")
                     self.events.append(Event(now, "claude", first[:240], block.text, tag=tag))
                 elif block_kind == "ToolUseBlock":
+                    self.work.called(block.id, block.name, block.input or {})
                     summary = tool_summary(block.input or {}, self.cwd)
                     if block.name == QUESTION_TOOL:  # what it asked you, not a tool call
                         self._asked[block.id] = questions_of(block.input or {})
@@ -791,6 +846,11 @@ class DrivenSession:
                 name, body = said
                 first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
                 self.events.append(Event(now, "notice", f"From {name}: {first}"[:240], body[:4000]))
+            elif getattr(message, "parent_tool_use_id", None) is None:
+                # Claude Code's own messages to Claude: a task's notification, an idle notice.
+                content = getattr(message, "content", None)
+                self.work.told(content if isinstance(content, str) else "\n".join(
+                    getattr(b, "text", "") for b in content or [] if isinstance(getattr(b, "text", None), str)))
             for block in getattr(message, "content", None) or []:
                 if type(block).__name__ != "ToolResultBlock":
                     continue
@@ -798,6 +858,8 @@ class DrivenSession:
                     self.detail = "thinking"  # over what the tool gave back, until its next reply starts
                 content = block.content if isinstance(block.content, str) else " ".join(
                     c.get("text", "") for c in block.content or [] if isinstance(c, dict))
+                self.work.answered(block.tool_use_id, bool(getattr(block, "is_error", False)),
+                                   getattr(message, "tool_use_result", None), content)
                 questions = self._asked.pop(block.tool_use_id, None)
                 if questions is not None:
                     self.events.append(answer_event(now, questions, getattr(message, "tool_use_result", None),
@@ -810,8 +872,17 @@ class DrivenSession:
             self.on_change(self)
             return
         if kind == "TaskNotificationMessage":
+            self.work.ended(getattr(message, "task_id", None))
             self.events.append(Event(now, "notice", getattr(message, "summary", "") or "background task update"))
             self.on_change(self)
+            return
+        if kind == "TaskStartedMessage":
+            self.work.started(getattr(message, "task_id", None), getattr(message, "task_type", None),
+                              getattr(message, "description", "") or "", getattr(message, "tool_use_id", None))
+            return
+        if kind == "TaskUpdatedMessage":
+            if getattr(message, "status", None) in FINISHED:  # some tasks end saying only this
+                self.work.ended(getattr(message, "task_id", None))
             return
         if kind == "SystemMessage":
             data = getattr(message, "data", {}) or {}
@@ -857,6 +928,7 @@ class DrivenSession:
                 failed = str(errors[0])[:240]
                 self.events.append(Event(now, "error", failed, "\n".join(map(str, errors))))
             self._cancel_pilot()  # another turn ended meanwhile (another session's message started it)
+            self.work.turn_ended(getattr(message, "origin", None), ours=self._sent)
             self._turn_ours, self._sent = self._sent or _started_by_its_own_work(message), False
             yours, self._yours_sent = self._yours_sent, False
             instead = None
@@ -880,6 +952,7 @@ class DrivenSession:
         self.on_change(self)
 
     def _set(self, state: str, detail: str) -> None:
+        self._stop_waiting()  # a new turn, your message, closing or stopping: whatever it is, it's not that wait
         now = datetime.now(timezone.utc)
         if state != self.state:
             self.since = now

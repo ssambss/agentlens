@@ -2363,3 +2363,179 @@ def test_a_line_above_the_box_shows_claude_working_on_your_message(projects, tmp
             await until(pilot, lambda: not status.display)
 
     asyncio.run(go())
+
+
+# What Claude has left going, that brings it back by itself ----------------------------------
+
+from claude_agent_sdk import TaskNotificationMessage, TaskStartedMessage, TaskUpdatedMessage  # noqa: E402
+
+from agentlens import background  # noqa: E402
+from agentlens import driver as driver_mod  # noqa: E402
+
+
+def background_command(call="b1", task="bt1", command="uv run pytest"):
+    """Claude running a command in the background, as Claude Code's stream has it: the call, the task it
+    starts, and the call's result with the task's id."""
+    return [AssistantMessage([ToolUseBlock(call, "Bash", {"command": command, "description": "Run the tests",
+                                                          "run_in_background": True})], "claude-opus-5-5"),
+            TaskStartedMessage("task_started", {}, task, "Run the tests", "u1", "sess-42", tool_use_id=call,
+                               task_type="local_bash"),
+            UserMessage([ToolResultBlock(call, f"Command running in background with ID: {task}.")],
+                        tool_use_result={"stdout": "", "backgroundTaskId": task})]
+
+
+def background_subagent(call="a1", agent="ag1"):
+    """A subagent in the background, from the call and its result alone (no task_started)."""
+    return [AssistantMessage([ToolUseBlock(call, "Agent", {"description": "Find the callers", "prompt": "...",
+                                                           "run_in_background": True})], "claude-opus-5-5"),
+            UserMessage([ToolResultBlock(call, "Async agent launched successfully.")],
+                        tool_use_result={"isAsync": True, "status": "async_launched", "agentId": agent})]
+
+
+def task_done(task="bt1", status="completed"):
+    return TaskNotificationMessage("task_notification", {}, task, status, "", "Background command finished",
+                                   "u2", "sess-42")
+
+
+def notified(task, status="completed"):
+    """The notification Claude Code gives Claude when a task ends, which starts its next turn."""
+    return UserMessage(f"<task-notification>\n<task-id>{task}</task-id>\n<tool-use-id>x</tool-use-id>\n"
+                       f"<status>{status}</status>\n<summary>Agent finished</summary>\n</task-notification>",
+                       origin={"kind": "task-notification", "producer": "session-task"})
+
+
+def called(d, call, tool, tool_input, result=None, is_error=False, said="ok"):
+    """A tool call in the main conversation and its result."""
+    d.handle(AssistantMessage([ToolUseBlock(call, tool, tool_input)], "claude-opus-5-5"))
+    d.handle(UserMessage([ToolResultBlock(call, said, is_error=is_error)], tool_use_result=result))
+
+
+def test_background_commands_and_subagents_are_outstanding_until_they_end():
+    d, _ = make({})
+    for message in background_command():
+        d.handle(message)
+    assert d.work.outstanding() == ["Run the tests"]
+    for message in background_subagent():
+        d.handle(message)
+    assert d.work.outstanding() == ["Run the tests", "Find the callers"]
+    d.handle(task_done("bt1"))
+    d.handle(notified("ag1"))  # the subagent's end, from the notification Claude reads
+    assert d.work.outstanding() == []
+    for message in background_command(call="b2", task="bt2"):
+        d.handle(message)
+    d.handle(TaskUpdatedMessage("task_updated", {}, "bt2", {"status": "killed"}, status="killed"))
+    assert d.work.outstanding() == []  # stopped, with no notification
+
+
+def test_a_monitor_goes_on_through_its_events_and_ends_with_its_stream_or_taskstop():
+    d, _ = make({})
+    called(d, "m1", "Monitor", {"description": "CI run", "command": "gh run watch"},
+           {"taskId": "mt1", "timeoutMs": 600000, "persistent": False})
+    d.handle(UserMessage("<task-notification>\n<task-id>mt1</task-id>\n<summary>Monitor event: \"CI run\"</summary>\n"
+                         "<event>build started</event>\n</task-notification>",
+                         origin={"kind": "task-notification", "producer": "session-task"}))
+    assert d.work.outstanding() == ["CI run"]  # an event: it watches on
+    called(d, "s1", "TaskStop", {"task_id": "mt1"}, {"message": "Successfully stopped task: mt1"})
+    assert d.work.outstanding() == []
+    called(d, "m2", "Monitor", {"description": "log"}, {"taskId": "mt2"})
+    d.handle(notified("mt2"))  # its stream ended
+    assert d.work.outstanding() == []
+
+
+def test_a_call_that_failed_or_a_task_that_doesnt_bring_claude_back_isnt_outstanding():
+    d, _ = make({})
+    called(d, "b1", "Bash", {"command": "nope", "run_in_background": True}, is_error=True, said="denied")
+    d.handle(TaskStartedMessage("task_started", {}, "dr1", "Memory upkeep", "u", "sess-42", task_type="dream"))
+    assert d.work.outstanding() == []
+    d.handle(task_done("bt9"))  # ended before its call's result was read: that doesn't bring it back
+    called(d, "b9", "Bash", {"command": "echo hi", "run_in_background": True}, {"backgroundTaskId": "bt9"})
+    assert d.work.outstanding() == []
+    # A subagent that ran in the call: its result says it's over, even if no end of its task came.
+    d.handle(AssistantMessage([ToolUseBlock("a1", "Agent", {"description": "Explore", "prompt": "..."})],
+                              "claude-opus-5-5"))
+    d.handle(TaskStartedMessage("task_started", {}, "fg1", "Explore", "u", "sess-42", tool_use_id="a1",
+                                task_type="local_agent"))
+    assert d.work.outstanding() == ["Explore"]
+    d.handle(UserMessage([ToolResultBlock("a1", "Found 3 callers.")], tool_use_result={"status": "completed"}))
+    assert d.work.outstanding() == []
+
+
+def test_a_wakeup_is_outstanding_until_its_time_or_until_its_cancelled():
+    d, _ = make({})
+    soon = time.time() + 600
+    called(d, "w1", "ScheduleWakeup", {"delaySeconds": 600, "prompt": "check"},
+           {"scheduledFor": soon * 1000, "clampedDelaySeconds": 600, "wasClamped": False})
+    assert d.work.outstanding() == ["a wakeup"]
+    assert 595 < d.work.lapses_in() <= 600
+    assert d.work.outstanding(now=soon + 1) == []  # its time came: it starts a turn then, or nothing will
+    called(d, "w2", "ScheduleWakeup", {"delaySeconds": 600}, {"scheduledFor": soon * 1000})
+    called(d, "w3", "ScheduleWakeup", {"stop": True}, {"scheduledFor": 0, "stopped": True, "cancelledWakeups": 1})
+    assert d.work.outstanding() == []
+
+
+def test_a_cron_is_outstanding_until_its_deleted_and_a_one_off_until_it_fires():
+    d, _ = make({})
+    called(d, "c1", "CronCreate", {"cron": "*/5 * * * *", "prompt": "check CI"},
+           {"id": "job1", "humanSchedule": "every 5 minutes", "recurring": True,
+            "nextFireAt": (time.time() + 300) * 1000})
+    assert d.work.outstanding() == ["a scheduled prompt"] and d.work.lapses_in() is None
+    called(d, "c2", "CronDelete", {"id": "job1"}, {"id": "job1"})
+    assert d.work.outstanding() == []
+    called(d, "c3", "CronCreate", {"cron": "0 9 * * *", "prompt": "standup", "recurring": False},
+           {"id": "job2", "humanSchedule": "at 9:00", "recurring": False})
+    assert d.work.outstanding() == ["a scheduled prompt"]
+    d.handle(ResultMessage("success", 10, 10, False, 1, "sess-42",
+                           origin={"kind": "task-notification", "subkind": "scheduled-trigger"}))
+    assert d.work.outstanding() == []  # it fired
+
+
+def test_waiting_for_another_session_to_be_idle_lasts_until_its_notice():
+    d, _ = make({})
+    called(d, "s1", "SendMessage", {"to": "tubeless-95", "notify_when_idle": True, "message": ""},
+           {"success": True, "message": "Subscribed: you will get one notice here when \"tubeless-95\" is next idle"})
+    called(d, "s2", "SendMessage", {"to": "DJ build", "notify_when_idle": True, "message": ""},
+           {"success": True, "message": "Subscribed"})
+    called(d, "s3", "SendMessage", {"to": "Docs", "message": "rebased"}, {"success": True, "message": "delivered"})
+    assert d.work.outstanding() == ["waiting for tubeless-95 to be idle", "waiting for DJ build to be idle"]
+    d.handle(UserMessage("[Cross-session idle notice] \"DJ build\", which you asked to be notified about, is idle "
+                         "now, it finished a turn at 16:19."))
+    assert d.work.outstanding() == ["waiting for tubeless-95 to be idle"]
+    d.handle(done())  # the turn that notice started, which agentlens didn't: that one is its own
+    assert d.work.outstanding() == ["waiting for tubeless-95 to be idle"]
+    # A turn nothing says began, and no notice showed: the notice that likely started it was folded in.
+    d.handle(done())
+    assert d.work.outstanding() == []
+
+
+def test_waiting_for_a_session_lapses_if_its_notice_never_shows():
+    d, _ = make({})
+    called(d, "s1", "SendMessage", {"to": "tubeless-95", "notify_when_idle": True}, {"success": True})
+    assert 0 < d.work.lapses_in() <= background.SUBSCRIPTION_LIFE
+    assert d.work.outstanding(now=time.time() + background.SUBSCRIPTION_LIFE) == []
+
+
+def test_what_it_had_going_stops_with_claude_code():
+    async def go():
+        d, fakes = make({"go": [*background_command(), text("Running."), done()]})
+        await d.start("go")
+        await settle(lambda: d.state == WAITING and d.events[-1].kind == "claude")
+        assert d.work.outstanding() == ["Run the tests"]
+        await fakes[0].queue.put(None)  # Claude Code exits
+        await settle(lambda: d.state == driver_mod.PAUSED)
+        assert d.work.outstanding() == []
+        await d.close()
+    asyncio.run(go())
+
+
+def test_the_coordinators_quiet_wait_isnt_made_yours(monkeypatch):
+    monkeypatch.setattr(driver_mod, "QUIET_SECONDS", 0.05)
+
+    async def go():
+        d, _ = make({"go": [text("Done."), done()]})
+        d.on_turn_end = lambda session, yours, reply, failed: (True, "the coordinator is reading this")
+        await d.start("go")
+        await settle(lambda: d.state == driver_mod.BACKGROUND)
+        await asyncio.sleep(0.2)
+        assert d.state == driver_mod.BACKGROUND and d.detail == "the coordinator is reading this"
+        await d.close()
+    asyncio.run(go())

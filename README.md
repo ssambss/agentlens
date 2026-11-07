@@ -282,10 +282,14 @@ answers it the way you would, or leaves it for you:
   - finished work that's checked and delivered: pushed, or sent for review
   - a session that's stuck or isn't sure what you meant
 
-When Claude only says it's waiting on something it started, like a test run, autopilot
-answers nothing and the session doesn't ring. It shows as waiting on agents until that work
-finishes and Claude carries on, and autopilot reads that turn too. A turn another session's
-message starts is always yours.
+When Claude only says it's waiting on work it started in the session, like a test run in
+the background, a subagent, a monitor or a wakeup it scheduled, autopilot answers nothing and
+the session doesn't ring. It shows as waiting on agents until that work finishes and Claude
+carries on, and autopilot reads that turn too. agentlens checks that some of that work is
+still going: with none, the turn is yours. A CI run, a deploy, or another session's or
+person's work doesn't bring Claude back, so a turn waiting on those is yours too. If the work
+ends and Claude doesn't carry on within five minutes, the session rings after all. A turn
+another session's message starts is always yours.
 
 What it leaves for you rings as it would without autopilot, and the line under its title says
 what it needs, like "Claude wants you to pick: Redis or in-memory". Questions, permission

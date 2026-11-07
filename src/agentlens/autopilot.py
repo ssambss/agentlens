@@ -5,8 +5,11 @@ you the big decisions. Anything it doesn't answer it leaves for you, with a line
 
 Through your own `claude`, with no tools, so it can't read or change anything: it only answers. It
 runs in an empty folder of its own, so no project's CLAUDE.md or memory comes with what it reads.
-When Claude is only waiting on work it started, such as a test run, it answers nothing and the
-session doesn't call you: the work brings Claude back by itself.
+When Claude is only waiting on work it started in the session, such as a test run in the
+background, it answers nothing and the session doesn't call you: the work brings Claude back by
+itself. The session checks that some of that work is still going (agentlens.background): with none,
+the turn is yours, and so is one where nothing comes back for a while once the work has ended.
+A CI run, a deploy or another session's work doesn't bring Claude back, so it never waits on those.
 Questions, permission prompts and plans come in the middle of a turn, as requests the pane
 answers, so it never sees them: those are always yours.
 
@@ -125,8 +128,8 @@ SCHEMA = {
 class Decision:
     send: str  # what to send the session; empty leaves it for you
     reason: str  # one line: what it told the session and why, or what the session needs from you
-    # Nothing to answer, and nothing for you yet: Claude is waiting on work it started, which brings
-    # it back by itself.
+    # Nothing to answer, and nothing for you yet: Claude says it's waiting on work it started, which
+    # brings it back by itself. The session waits only while some of that work is still going.
     waiting: bool = False
 
 
@@ -247,9 +250,11 @@ rest. Say only what their messages and the reply show. Never say you've looked a
 "looks good" or "looks done": you haven't seen the work), never promise what the developer will do, never state \
 facts about anything outside this conversation, never add requirements of your own, and never tell Claude \
 to skip a check or a precaution it chose. Or with action "ask" and an empty message. Or with action "wait" \
-and an empty message when the reply asks nothing and only says Claude is waiting on something it already \
-started, like a test run, a build or a background task, that brings it back by itself when it's done: then \
-there's nothing to answer, and the developer isn't called yet.
+and an empty message when the reply asks nothing and only says Claude is waiting on work it started itself, \
+with its own tools in this session: a command or a build it runs in the background, a background subagent, a \
+monitor, or a wakeup it scheduled. That work brings it back by itself when it's done: then there's nothing to \
+answer, and the developer isn't called yet. Never "wait" for anything else, like a CI run, a deploy, another \
+session's work or a person: those don't bring Claude back, so "ask".
 reason: one short line the developer reads on the wall, under the session's title. Write it to them, as \
 "you", the way a colleague would: what Claude's reply needs from them, or else what it says, like \
 "Claude wants you to pick: Redis or in-memory", "Claude fixed the parser and asks if you want it committed" or \
