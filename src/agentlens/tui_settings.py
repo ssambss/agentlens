@@ -180,10 +180,10 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             yield row("Autopilot", Select([(label, level) for level, label in AUTOPILOT_LEVELS.items()], value=pilot,
                                           allow_blank=False, compact=True, id="set-autopilot"))
             yield Static("For every session agentlens runs, from its next turn. When a turn ends, Sonnet reads "
-                         "Claude's reply with your last few messages and answers it the way you would, or leaves it "
+                         "Claude's reply with the session before it and answers it the way you would, or leaves it "
                          "for you, saying what it needs. Questions, permission prompts and plans are always yours. "
                          f"{keys_mod.name('autopilot')} gives the session you're on its own, and its border says so. "
-                         "Each check sends that reply and those messages to Claude, through your own claude.",
+                         "Each check sends that reply and the session to Claude, through your own claude.",
                          classes="settings-note")
             yield row("Goals", Checkbox("Coordinator", cfg.coordinator, compact=True, id="set-coordinator"))
             yield Static(f"{keys_mod.name('new-goal')} starts a goal: a lead Claude plans it, starts a session for "

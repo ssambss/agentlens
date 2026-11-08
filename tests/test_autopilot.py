@@ -27,10 +27,12 @@ def border(app, driven):
 
 
 def fake_check(*answers):
-    """Autopilot's call to Sonnet, giving `answers` in turn (the last one again after that), and what it was asked."""
+    """Autopilot's call to Sonnet, giving `answers` in turn (the last one again after that), and what it was asked:
+    the level, your messages in the session, each with whether autopilot sent it, and the reply."""
     asked = []
 
-    async def decide(level, title, said, reply):
+    async def decide(level, title, events, reply):
+        said = [(e.detail or e.text, e.tag == AUTOPILOT) for e in events if e.kind == "you"]
         asked.append((level, said, reply))
         answer = answers[min(len(asked), len(answers)) - 1]
         if isinstance(answer, Exception):
@@ -46,18 +48,67 @@ def by_autopilot(message):
 
 # What it asks Sonnet -----------------------------------------------------------------------
 
-def test_the_prompt_has_the_levels_rules_your_messages_and_the_end_of_the_reply():
-    said = [("fix the null handling", False), ("go ahead", True)]
+def ev(kind, text, tag=""):
+    return Event(datetime(2026, 11, 8, tzinfo=timezone.utc), kind, (text.splitlines() or [""])[0][:240], text, tag=tag)
+
+
+def test_the_prompt_has_the_levels_rules_the_session_and_the_end_of_the_reply():
     reply = "x" * 9000 + "Should I update the call sites too?"
-    asked = autopilot.prompt("balanced", "Null handling", said, reply)
+    events = [ev("you", "fix the null handling"), ev("tool", "Edit: src/parser.py"),
+              ev("claude", "Fixed the parser. Shall I go on?"), ev("you", "go ahead", AUTOPILOT),
+              ev("tool", "Edit: src/cli.py"), ev("claude", reply)]
+    asked = autopilot.prompt("balanced", "Null handling", events, reply)
     assert autopilot.RULES["balanced"] in asked and autopilot.RULES["autonomous"] not in asked
     assert autopilot.ALWAYS_YOURS["balanced"] in asked and autopilot.ALWAYS_YOURS["autonomous"] not in asked
     assert "Session: Null handling" in asked
-    assert "fix the null handling\n---\n(autopilot) go ahead" in asked
+    assert ("---\nYou: fix the null handling\nClaude ran: Edit: src/parser.py\n"
+            "Claude: Fixed the parser. Shall I go on?\n---") in asked  # the session before this turn
+    assert ("This turn, the developer's message:\n---\nYou (autopilot): go ahead\n---\n"
+            "Claude ran: Edit: src/cli.py\n\nClaude's reply this turn:") in asked
     assert "Should I update the call sites too?" in asked and "x" * 9000 not in asked  # the reply's end
-    autonomous = autopilot.prompt("autonomous", "", said, reply)
+    autonomous = autopilot.prompt("autonomous", "", events, reply)
     assert autopilot.RULES["autonomous"] in autonomous and autopilot.ALWAYS_YOURS["autonomous"] in autonomous
     assert autopilot.RULES["balanced"] not in autonomous and autopilot.ALWAYS_YOURS["balanced"] not in autonomous
+    first = autopilot.prompt("balanced", "", events[:3], "Fixed the parser. Shall I go on?")
+    assert "---\n(none: this is its first turn)\n---" in first and "Claude ran: Edit: src/parser.py\n\n" in first
+
+
+def test_it_reads_how_the_session_began_and_as_much_of_its_end_as_fits(monkeypatch):
+    """A session that only talked the weekend's changes over, then said a fix was in: with only your last
+    few messages, that read as work done and not delivered."""
+    monkeypatch.setattr(autopilot, "EARLIER_CHARS", 400)
+    events = [ev("you", "what did we change this weekend? give me bullet points"), ev("tool", "Bash: git log"),
+              ev("claude", "Here's what changed.")]
+    for n in range(10):
+        events += [ev("you", f"and what does point {n} mean?"), ev("claude", f"Point {n} means this. " * 3)]
+    events += [ev("you", "ok now it works")]
+    asked = autopilot.prompt("autonomous", "", events, "Good, that's the fix.")
+    session = asked.split("The session before this turn", 1)[1].split("This turn,", 1)[0]
+    assert session.index("You: what did we change this weekend?") < session.index("Claude ran: Bash: git log")
+    assert "turns left out)\n\nYou: and what does point" in session
+    assert "point 9 mean?" in session and "point 0 mean?" not in session  # the newest, as many as fit
+    assert len(session) < 400 + 300
+
+
+def test_it_reads_the_tools_claude_ran_the_last_ones_and_each_one_short(monkeypatch):
+    monkeypatch.setattr(autopilot, "TOOLS", 2)
+    events = [ev("you", "push it"), ev("tool", "Bash: git status"), ev("tool", "Bash: git commit -m fix"),
+              ev("tool", "Bash: git push origin " + "x" * 300), ev("claude", "Pushed.")]
+    asked = autopilot.prompt("autonomous", "", events, "Pushed.")
+    ran = next(line for line in asked.splitlines() if line.startswith("Claude ran:"))
+    assert ran.startswith("Claude ran: (1 more before) Bash: git commit -m fix; Bash: git push origin x")
+    assert len(ran) < 30 + 2 * autopilot.TOOL_CHARS
+
+
+def test_it_reads_your_answers_and_shortens_a_long_reply_from_both_ends():
+    long = "It starts here. " + "y" * 5000 + " It ends here: shall I go on?"
+    events = [ev("you", "plan the cache"), ev("plan", "# Cache\nUse Redis."), ev("answer", "", "approved"),
+              ev("question", "**Which TTL?**\n- 1h\n- 1d"), ev("answer", "1d"), ev("claude", long),
+              ev("you", "go on")]
+    asked = autopilot.prompt("autonomous", "", events, "Done.")
+    assert "Claude's plan: # Cache\nUse Redis.\nYou approved the plan\nClaude asked you: **Which TTL?**" in asked
+    assert "You answered: 1d\nClaude: It starts here." in asked and "It ends here: shall I go on?" in asked
+    assert "y" * 2000 not in asked and " [...] " in asked
 
 
 def test_it_waits_only_on_work_the_session_started_itself():
@@ -533,7 +584,7 @@ def test_it_runs_in_a_folder_of_its_own_so_no_projects_notes_come_with_it(isolat
         return Done()
 
     monkeypatch.setattr(autopilot.subprocess, "run", run)
-    decision = autopilot.decide("autonomous", "Build", [("build it", False)], "Building…", cli_path="claude")
+    decision = autopilot.decide("autonomous", "Build", [ev("you", "build it")], "Building…", cli_path="claude")
     assert decision == Decision("", "Claude is waiting on the build", waiting=True)
     assert ran["cwd"] == isolated_home / "autopilot" and ran["cwd"].is_dir() and not any(ran["cwd"].iterdir())
 

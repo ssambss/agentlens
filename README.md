@@ -259,8 +259,9 @@ not Claude Code's interface, so a few things work differently; they're in the li
 ### Autopilot
 
 If you'd rather let sessions run than steer each turn, autopilot answers what you'd only
-nod along to. When a turn ends, Sonnet reads Claude's reply with your last few messages and
-answers it the way you would, or leaves it for you:
+nod along to. When a turn ends, Sonnet reads Claude's reply with the session before it, so it
+knows what you came to the session for and what Claude has done there. It answers the way you
+would, or leaves it for you:
 
 - **Balanced** gives the go-aheads: the "shall I go on with the rest?" in the middle of
   what you asked for.
@@ -418,8 +419,10 @@ agentlens reads your sessions on your machine. The sessions you start in it are 
   how much of your plan's limits you've used. Nothing from your sessions is sent. Turn it
   off in the settings.
 - **Autopilot**, in a session you've turned it on for, sends Claude's reply when a turn
-  ends, your last four messages to that session and its title, to Sonnet. That's
-  conversation text, the session's own, which it sent when it ran. Off unless you turn it on.
+  ends, the session before it and its title, to Sonnet: your messages, Claude's replies
+  (shortened), and the tools it ran (one short line each). It sends the session's start and
+  as much of its end as fits in about 24,000 characters. That's conversation text, the
+  session's own, which it sent when it ran. Off unless you turn it on.
 - **The coordinator**'s lead and its sessions are sessions like the others. What agentlens
   passes between them is the sessions' own replies. Off unless you turn it on.
 

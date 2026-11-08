@@ -1,5 +1,5 @@
 """Experimental: autopilot, for the sessions agentlens runs. When one finishes a turn, Sonnet reads
-Claude's reply with your last few messages and says what you would. Balanced only gives the
+Claude's reply with the session before it and says what you would. Balanced only gives the
 go-aheads. Autonomous runs the session for you, through checking and delivering the work, and leaves
 you the big decisions. Anything it doesn't answer it leaves for you, with a line on what it needs.
 
@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from agentlens.model import APPROVED, AUTOPILOT, DECLINED, SENT_BACK, Event
 from agentlens.preferences import home
 from agentlens.terminal import claude_env
 
@@ -44,9 +45,15 @@ EFFORT = "medium"
 # Autonomous runs whole tasks, which can take many turns.
 IN_A_ROW = {"balanced": 5, "autonomous": 12}
 TIMEOUT = 120
-SAID = 4  # your last messages it reads
-CHARS = 2000  # of each of them
-REPLY_CHARS = 8000  # of Claude's reply, from its end
+CHARS = 2000  # of each of your messages
+REPLY_CHARS = 8000  # of Claude's reply this turn, from its end
+# The session before this turn: its first turn, which says what you set out to do, then as many of the
+# newest as fit. With only your last few messages, a session that only talked things over read as work
+# done and not yet delivered.
+EARLIER_CHARS = 24_000
+EARLIER_REPLY_CHARS = 1500  # of what Claude said in each earlier turn, its start and its end
+TOOLS = 15  # of the tools Claude ran in a turn, the last ones: what it changed, committed or pushed
+TOOL_CHARS = 120  # of each
 KEPT = 500  # decisions the log keeps, the newest
 TRIM_BYTES = 400_000  # past this, the log is cut back to KEPT
 
@@ -107,7 +114,9 @@ their own files, uncommitted work, branches with unmerged commits, data
 like restarting an app, signing in or a device in their hands; or how something looks or feels, once \
 Claude has checked what it can
 - the work they asked for is done, checked and delivered: pushed, or sent for review (or has nothing to \
-deliver); or the reply only answers their question
+deliver)
+- they asked a question rather than for work, and the reply answers it: if it offers to do more, that's \
+theirs to take up
 - it's stuck: going round in circles, or still failing after you've answered it
 - it isn't sure what they meant, or you'd be guessing at what they want
 - the reply is cut off""",
@@ -219,34 +228,124 @@ def said_by_it(text: str) -> str | None:
     return body[:-len(note)].rstrip() if note else None
 
 
-def prompt(level: str, title: str, said: list[tuple[str, bool]], reply: str) -> str:
-    """`said`: your last messages, oldest first, each with whether autopilot sent it."""
-    messages = "\n---\n".join(("(autopilot) " if by_autopilot else "") + text[:CHARS]
-                              for text, by_autopilot in said[-SAID:]) or "(none)"
+def _clip(text: str, chars: int) -> str:
+    """`text`, or its start and its end with what's between left out."""
+    text = text.strip()
+    if len(text) <= chars:
+        return text
+    head = chars // 3
+    return f"{text[:head].rstrip()} [...] {text[len(text) - (chars - head):].lstrip()}"
+
+
+def _turns(events: list[Event]) -> list[list[Event]]:
+    """The session in turns, each from one of your messages to the next. What came before the first is one too."""
+    turns: list[list[Event]] = []
+    for e in events:
+        if e.kind == "you" or not turns:
+            turns.append([])
+        turns[-1].append(e)
+    return turns
+
+
+def _you(e: Event) -> str:
+    return ("You (autopilot): " if e.tag == AUTOPILOT else "You: ") + _clip(e.detail or e.text, CHARS)
+
+
+def _ran(turn: list[Event]) -> str:
+    tools = [e.text[:TOOL_CHARS] for e in turn if e.kind == "tool"]
+    if not tools:
+        return ""
+    before = f"({len(tools) - TOOLS} more before) " if len(tools) > TOOLS else ""
+    return "Claude ran: " + before + "; ".join(tools[-TOOLS:])
+
+
+def _answered(e: Event) -> str:
+    said = _clip(e.detail or e.text, 600)
+    if e.tag == APPROVED:
+        return "You approved the plan"
+    if e.tag == SENT_BACK:
+        return f"You sent the plan back: {said}"
+    if e.tag == DECLINED:
+        return "You didn't answer" + (f": {said}" if said else "")
+    return f"You answered: {said}"
+
+
+def _turn(turn: list[Event]) -> str:
+    """An earlier turn as autopilot reads it: your message, the tools Claude ran, what it asked you and
+    what you answered, and what it said."""
+    lines = [_you(turn[0])] if turn[0].kind == "you" else []
+    if ran := _ran(turn):
+        lines.append(ran)
+    for e in turn:
+        if e.kind == "question":
+            lines.append("Claude asked you: " + _clip(e.detail or e.text, 600))
+        elif e.kind == "plan":
+            lines.append("Claude's plan: " + _clip(e.detail or e.text, 1000))
+        elif e.kind == "answer":
+            lines.append(_answered(e))
+    said = "\n\n".join(e.detail or e.text for e in turn if e.kind == "claude" and e.tag != "command")
+    if said.strip():
+        lines.append("Claude: " + _clip(said, EARLIER_REPLY_CHARS))
+    return "\n".join(lines)
+
+
+def earlier(events: list[Event]) -> str:
+    """The session before this turn, oldest first: its first turn, then as many of the newest as fit in
+    EARLIER_CHARS, saying how many were left out between."""
+    turns = [text for text in map(_turn, _turns(events)) if text]
+    if not turns:
+        return ""
+    first, rest = turns[0], turns[1:]
+    kept: list[str] = []
+    size = len(first)
+    for text in reversed(rest):
+        if size + len(text) > EARLIER_CHARS:
+            break
+        kept.append(text)
+        size += len(text)
+    gap = [f"({len(rest) - len(kept)} turns left out)"] if len(kept) < len(rest) else []
+    return "\n\n".join([first, *gap, *reversed(kept)])
+
+
+def prompt(level: str, title: str, events: list[Event], reply: str) -> str:
+    """`events`: the session's, oldest first, to the end of this turn; `reply`: what Claude said in it."""
+    last = max((i for i, e in enumerate(events) if e.kind == "you"), default=len(events))
+    this_turn = events[last:]
+    ran = _ran(this_turn)
+    # The rules come after the session, which can be long, so they're what it reads last.
     return f"""Session: {title or "(untitled)"}
 
-{RULES[level]}
-
-{ALWAYS_YOURS[level]}
-
-The developer's last messages to it, oldest first ("(autopilot)" marks the ones you sent):
+The session before this turn, oldest first. "You" is the developer, "You (autopilot)" a message you sent \
+for them, and "Claude ran" the tools Claude used:
 ---
-{messages}
+{earlier(events[:last]) or "(none: this is its first turn)"}
 ---
 
+This turn, the developer's message:
+---
+{_you(this_turn[0]) if this_turn else "(none)"}
+---
+{ran + chr(10) if ran else ""}
 Claude's reply this turn:
 ---
 {reply[-REPLY_CHARS:] or "(no text)"}
 ---
 
+Decide on this turn with the whole session in mind: what the developer came to it for, and what Claude has \
+done in it.
+
+{RULES[level]}
+
+{ALWAYS_YOURS[level]}
+
 Answer with action "continue" and the message to send it, short and in the developer's own words, like \
-the ones they typed above. Those marked "(autopilot)" were yours: don't reuse their wording. Send an \
+the ones they typed above. Those marked "You (autopilot)" were yours: don't reuse their wording. Send an \
 answer, a go-ahead or a pick that moves the work on, never only thanks, an \
 acknowledgement or small talk (if that's all you'd say, "ask"). Write only what they would type, often a \
 word or two, like "yes", "go on" or "sure, both". Don't repeat Claude's question back, or anything from \
 these instructions, and don't say how to do it: Claude knows its repo, its skills and its rules. When the reply asks more than one thing, \
 continue only if you can answer every one of them: if any is the developer's, "ask", and don't answer the \
-rest. Say only what their messages and the reply show. Never say you've looked at or tried something (no \
+rest. Say only what the session shows. Never say you've looked at or tried something (no \
 "looks good" or "looks done": you haven't seen the work), never promise what the developer will do, never state \
 facts about anything outside this conversation, never add requirements of your own, and never tell Claude \
 to skip a check or a precaution it chose. Or with action "ask" and an empty message. Or with action "wait" \
@@ -284,14 +383,14 @@ def parse(output: str) -> Decision:
     return Decision(message, reason, waiting=answer.get("action") == "wait")
 
 
-def decide(level: str, title: str, said: list[tuple[str, bool]], reply: str, cli_path: str | None = None,
+def decide(level: str, title: str, events: list[Event], reply: str, cli_path: str | None = None,
            timeout: int = TIMEOUT) -> Decision:
     """Ask your own `claude` (Sonnet, no tools) what you'd say to this reply. Blocking: run it in a thread."""
     claude = cli_path or shutil.which("claude")
     if not claude:
         raise RuntimeError("`claude` CLI not found on PATH")
     try:
-        done = subprocess.run(command(claude), input=prompt(level, title, said, reply), capture_output=True,
+        done = subprocess.run(command(claude), input=prompt(level, title, events, reply), capture_output=True,
                               text=True, encoding="utf-8", errors="replace", timeout=timeout, env=claude_env(),
                               cwd=workdir())
     except subprocess.TimeoutExpired:

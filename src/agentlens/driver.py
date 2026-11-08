@@ -606,11 +606,6 @@ class DrivenSession:
         task.cancel()
         return True
 
-    def _said(self) -> list[tuple[str, bool]]:
-        """Your last messages, oldest first, each with whether autopilot sent it."""
-        said = [(e.detail or e.text, e.tag == AUTOPILOT) for e in self.events if e.kind == "you"]
-        return said[-autopilot_mod.SAID:]
-
     def _reply(self) -> str:
         """What Claude has said since your last message: the turn autopilot reads. Nothing after a
         slash command, whose output is Claude Code's."""
@@ -624,13 +619,14 @@ class DrivenSession:
                 texts.append(e.detail or e.text)
         return "\n\n".join(reversed(texts))
 
-    async def _decide(self, level: str, title: str, said: list[tuple[str, bool]], reply: str):
-        return await asyncio.to_thread(autopilot_mod.decide, level, title, said, reply, self.cli_path)
+    async def _decide(self, level: str, title: str, events: list[Event], reply: str):
+        return await asyncio.to_thread(autopilot_mod.decide, level, title, events, reply, self.cli_path)
 
     async def _pilot(self) -> None:
-        """Have autopilot answer the turn that has just ended, or leave it for you saying why."""
+        """Have autopilot answer the turn that has just ended, or leave it for you saying why. It reads the
+        whole session, as it is now: what comes in meanwhile isn't this turn's."""
         try:
-            decision = await self.decide(self.autopilot, self.title, self._said(), self._reply())
+            decision = await self.decide(self.autopilot, self.title, list(self.events), self._reply())
             failed = ""
         except asyncio.CancelledError:
             raise
