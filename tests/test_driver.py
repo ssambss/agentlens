@@ -650,23 +650,21 @@ def test_a_session_started_in_a_repositorys_space_goes_by_its_folder(projects, t
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            await app.workers.wait_for_complete()
-            await pilot.pause(0.2)
+            await until(pilot, lambda: app._restored and not app._listing, steps=300)  # the first listing is in
             assert app.current_space == "lens"
             await pilot.press("n")
-            await pilot.pause(0.2)
-            assert isinstance(app.screen, NewSessionScreen)
+            await until(pilot, lambda: isinstance(app.screen, NewSessionScreen) and app.screen.query("#new-space"))
             box, space = app.screen.query_one("#new-folder"), lambda: str(app.screen.query_one("#new-space").render())
-            assert box.value == str(repo) and space() == "Opens in the lens space"
+            await until(pilot, lambda: box.value == str(repo) and space() == "Opens in the lens space")
             box.value = str(acme)
-            await pilot.pause(0.1)
-            assert space() == "Opens in the acme space"
+            await until(pilot, lambda: space() == "Opens in the acme space")
             await pilot.press(*"hi", "enter")
             # Waits long enough for a full test run's load: the session's id comes from Claude Code.
             await settle(lambda: app.driven and all(d.session_id for d in app.driven.values()), steps=1000)
             driven = next(iter(app.driven.values()))
             app.action_refresh()
-            await settle(lambda: driven.key in app.space_of, steps=1000)
+            # The listing it starts applied, not one from before: one still going as the app closes fails there.
+            await settle(lambda: driven.key in app.space_of and not app._listing and not app._refresh_due, steps=1000)
             assert app.space_of[driven.key] == "acme"
             assert app.config.spaces[0].sessions == ["moved-1"]
 
@@ -815,28 +813,41 @@ def test_with_many_replies_streaming_the_pane_you_are_on_repaints_most(projects,
 
     monkeypatch.setattr(DrivenPane, "show", counting_show)
 
-    async def stream(sessions, words):
+    async def stream_until(sessions, condition, words=500):
+        """Replies streaming in, word by word, until `condition`: as many words as the machine takes."""
         for i in range(words):
             for d in sessions:
                 d.handle(partial(f"w{i} "))
             await asyncio.sleep(0.01)
+            if condition():
+                return
+        raise AssertionError("condition never became true")
 
     async def go():
         async with app.run_test(size=(200, 50)) as pilot:
             sessions = [await started(app, pilot, folder) for _ in range(6)]
             mine, *others = sessions
             app._focus_key(mine.key)
-            await pilot.pause(0.3)
+            await until(pilot, lambda: app._last_key == mine.key and not app._dirty)  # on it, and all shown
             painted.clear()
-            await stream(sessions, 60)
-            await pilot.pause(0.3)
-            assert painted[mine.key] > max(painted.get(d.key, 0) for d in others)
+            # Counted while they stream: once they stop, the others' last repaints catch up with yours.
+            await stream_until(sessions, lambda: painted.get(mine.key, 0) >= 2 + max(painted.get(d.key, 0)
+                                                                                 for d in others))
             # A permission prompt in a pane you're not on shows with the next repaint, not a later one.
             asking = others[2]
+            shown = []  # at each repaint once it asks: whether its pane says so
+            flush = app._flush_driven
+
+            def flushing():
+                asked = asking.state == PERMISSION
+                flush()
+                if asked:
+                    shown.append(app.query_one(f"#s-{asking.key}").has_class("st-question"))
+
+            app._flush_driven = flushing
             app.run_worker(asking.send("slow"))
-            await stream(sessions, 15)
-            assert asking.state == PERMISSION
-            assert app.query_one(f"#s-{asking.key}").has_class("st-question")
+            await stream_until(sessions, lambda: shown)
+            assert shown[0]
 
     asyncio.run(go())
 
@@ -1916,13 +1927,21 @@ def test_usage_and_exit_are_done_by_agentlens(projects, tmp_path, server_info):
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
             driven = await started(app, pilot, folder)
-            app._focus_key(driven.key)
-            await pilot.press("i", *"/cost", "enter")
+
+            async def typed_in_its_box(command):
+                app._focus_key(driven.key)
+                await until(pilot, lambda: getattr(app.focused, "session_id", None) == driven.key)
+                await pilot.press("i")
+                await until(pilot, lambda: isinstance(app.focused, ComposerInput))  # in its box, not on the wall
+                await pilot.press(*command)
+                await until(pilot, lambda: getattr(app.focused, "value", None) == command)
+                await pilot.press("enter")
+
+            await typed_in_its_box("/cost")
             await until(pilot, lambda: isinstance(app.screen, UsageScreen))
             await pilot.press("escape")
-            await pilot.pause(0.1)
-            app._focus_key(driven.key)
-            await pilot.press("i", *"/exit", "enter")
+            await until(pilot, lambda: not isinstance(app.screen, UsageScreen))  # back on the wall, where its pane is
+            await typed_in_its_box("/exit")
             await until(pilot, lambda: not app.driven)
             assert fakes[0].sent == []  # neither went to Claude Code
 
@@ -1992,11 +2011,14 @@ def test_sessions_keep_the_usage_meter_current(projects, tmp_path):
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
+            # The launch's /usage check first: it keeps only the windows /usage lists, and the fake one lists
+            # none, so answering after the session's event it would take that window off the meter again.
+            await until(pilot, lambda: app.usage.checked is not None, steps=300)
             await started(app, pilot, folder, prompt="hi")
             await until(pilot, lambda: "five_hour" in app.usage.windows)
             assert app.usage.windows["five_hour"].used == 0.42
-            meter = str(app.query_one("#usage-meter").content)
-            assert "Session" in meter and "42%" in meter
+            await until(pilot, lambda: "Session" in str(app.query_one("#usage-meter").content)
+                        and "42%" in str(app.query_one("#usage-meter").content))
 
     asyncio.run(go())
 

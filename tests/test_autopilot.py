@@ -596,19 +596,20 @@ def test_p_gives_a_pane_its_own_autopilot_until_it_comes_round_to_your_setting(p
             driven = await started(app, pilot, folder, "go")
             assert (driven.autopilot, driven.own_autopilot) == ("off", False) and "autopilot" not in border(app, driven)
             app._focus_key(driven.key)
+            # p acts on the pane with focus, as the wall shows it.
+            await until(pilot, lambda: getattr(app.focused, "session_id", None) == driven.key
+                        and driven.key in app.sessions)
             await pilot.press("p")
             assert (driven.autopilot, driven.own_autopilot) == ("balanced", True)
             await pilot.press("p")
             assert (driven.autopilot, driven.own_autopilot) == ("autonomous", True)
             await until(pilot, lambda: driven.remembered)
             assert saved() == [("sess-42", "autonomous")]
-            await pilot.pause(0.1)
-            assert "autopilot autonomous, this pane" in border(app, driven)
+            await until(pilot, lambda: "autopilot autonomous, this pane" in border(app, driven))  # once repainted
             assert "autopilot autonomous for this pane, p changes it" in placeholder(driven)
             await pilot.press("p")  # round to your setting's, off: it follows your setting again
             assert (driven.autopilot, driven.own_autopilot) == ("off", False) and saved() == [("sess-42", "")]
-            await pilot.pause(0.1)
-            assert "autopilot" not in border(app, driven)
+            await until(pilot, lambda: "autopilot" not in border(app, driven))
 
     asyncio.run(go())
 
