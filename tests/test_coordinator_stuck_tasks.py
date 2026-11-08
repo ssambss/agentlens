@@ -9,15 +9,18 @@ written for what should happen: strict, so the fix that makes it pass says so. I
 reach() and given(), which raise Setup, not an AssertionError: a scene that didn't come about fails the test
 rather than passing for the failure the xfail expects.
 
-What these take Claude Code to do, which no test here checks against a real one:
-- A turn you stop (x) ends with a ResultMessage, as any turn does (test_autopilot assumes so too).
-- Exiting or crashing mid-turn, it sends no ResultMessage: its stream ends, or reading it fails.
+What these take Claude Code to do. Checked by hand against Claude Code 2.1.318 (haiku, no tools or settings):
+- A turn you stop (x) ends at once with "[Request interrupted by user]" and a ResultMessage that's an error
+  (error_during_execution): stopped(), played here.
+- Killed mid-turn, it sends no ResultMessage, and reading it fails (ProcessError, exit code 1): "breaks" here.
+  Its stream ending ("exits") is played too.
+- Resumed, it's the same session, starts nothing by itself, and has none of the reply it was cut off in.
+Not checked:
 - A turn it starts itself (a background task ending, another session's message) ends with a ResultMessage
   whose origin says what began it: a background task's as test_driver's notified() gives it, a peer's here
   the same as the peer's message.
 - A message sent to it mid-turn is read at a step of that turn (one ResultMessage), or as the next turn (one
   each): both are played here.
-- Restored at launch, a session is parked, with no Claude Code running, until a message for it starts it.
 """
 
 import asyncio
@@ -86,6 +89,12 @@ def ended(origin=None, error=""):
                          total_cost_usd=0.01, errors=[error] if error else None, origin=origin)
 
 
+def stopped():
+    """What Claude Code sends as a turn you stopped ends, as Claude Code 2.1.318 does."""
+    return [UserMessage("[Request interrupted by user]"),
+            ended(error="[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null")]
+
+
 async def goal_with(app, pilot, folder, *titles):
     """A goal's lead, its first turn over, and a session started for each task, as its tools would."""
     lead = app.start_goal(str(folder), "Split the parser", "acceptEdits", "")
@@ -116,15 +125,6 @@ async def lead_quiet_on(app, pilot, folder, fakes):
     given(lead.detail == "coordinating: 1 running, 0 of 1 done", "the lead waits on the task")
     await reach(pilot, lambda: app.query(f"#s-{worker.key}"), "the task's pane on the wall")
     return lead, goal, worker
-
-
-async def lead_hears_or_calls_you(app, pilot, lead, fakes, before):
-    """What should follow anything that takes a task out of the lead's count of sessions at work without its
-    turn reaching the lead: the lead hears of it (a message), or it waits on you. Not left waiting on agents."""
-    try:
-        await until(pilot, lambda: len(sent_to(fakes, lead)) > before or rings(app, lead), steps=40)
-    except AssertionError:
-        raise AssertionError(f"the lead was left {lead.state!r} ({lead.detail!r}) and told nothing") from None
 
 
 async def close_with_w(app, pilot, d):
@@ -294,7 +294,7 @@ def test_stopping_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tmp_
             await until(pilot, lambda: getattr(app.focused, "session_id", None) == worker.key)
             await pilot.press("x")
             await until(pilot, lambda: worker._interrupted)
-            await fake_of(fakes, worker)._play([done()])  # Claude Code ends the stopped turn (assumed: see the top)
+            await fake_of(fakes, worker)._play(stopped())  # Claude Code ends the stopped turn (see the top)
             await until(pilot, lambda: worker.state == WAITING and rings(app, worker) and rings(app, lead))
             assert worker.detail == "turn finished"
             assert lead.detail == "Parser is yours now; none of its sessions is at work"
@@ -563,7 +563,7 @@ def test_after_a_restart_the_lead_doesnt_wait_quietly_on_a_task_still_paused(pro
     """The lead answers Docs, whose reply then wakes the lead: Parser, paused since the restart, won't end a turn
     by itself, so it isn't at work, and the lead's turn calls you. It had gone quiet, waiting on Parser."""
     restored(tmp_path, isolated_home)
-    app, _, fakes = app_for(projects, tmp_path, {"Go on.": [text("Docs done."), done()],
+    app, _, _ = app_for(projects, tmp_path, {"Go on.": [text("Docs done."), done()],
                                                  "Docs (task 2) ended a turn": [text("Good."), done()]})
 
     async def go():

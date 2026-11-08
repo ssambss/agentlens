@@ -8,7 +8,8 @@ turn played by the test, and a stuck case a strict xfail for what should happen,
 and given(). The cases where the lead goes quiet and then each of its tasks leaves without reporting (you stop
 one, its Claude Code stops, you close it or write to it) are there.
 
-What these take Claude Code to do, as well as what that file says:
+What these take Claude Code to do, as well as what that file says (checked by hand there: a stopped turn, a
+crash and a resume), and not checked:
 - A message sent to the lead while it works is read at a step of that turn (one ResultMessage), or as the next
   turn (one each): both are played here. Several sent at once are all read, in one turn or one each.
 - ask_you's PostToolUse hook stopping the turn ends it with a ResultMessage, as any turn's end.
@@ -20,7 +21,8 @@ import pytest
 from claude_agent_sdk import AssistantMessage, ToolUseBlock
 from test_coordinator import Prefixes, said
 from test_coordinator_stuck_tasks import (
-    back, close_with_w, ended, fake_of, given, goal_with, lead_hears_or_calls_you, reach, restored, rings, sent_to)
+    back, close_with_w, ended, fake_of, given, goal_with, reach, restored, rings, sent_to,
+    stopped)
 from test_driver import app_with_session, done, text, until
 
 from agentlens.coordinator import ASK_YOU_TOOL
@@ -184,7 +186,7 @@ def test_a_report_after_you_stop_the_lead_starts_its_next_turn_which_the_coordin
             await pilot.pause(0.1)
             await pilot.press("x")
             await until(pilot, lambda: lead._interrupted)
-            await fake_of(fakes, lead)._play([done()])  # Claude Code ends the stopped turn
+            await fake_of(fakes, lead)._play(stopped())  # Claude Code ends the stopped turn
             await until(pilot, lambda: rings(app, lead) and lead.detail == "turn finished")
             await reports(fakes, docs)
             await until(pilot, lambda: len(sent_to(fakes, lead)) == 3 and lead.state == WORKING)
