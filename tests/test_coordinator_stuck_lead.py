@@ -299,24 +299,46 @@ def test_with_the_leads_pane_closed_a_tasks_next_turn_is_yours(projects, tmp_pat
     asyncio.run(go())
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: closing the lead (TUI._end_driven) tells the coordinator nothing, so a task already waiting on it "
-    "keeps waiting quietly ('the coordinator is reading this') with no lead to answer it"))
 def test_closing_the_leads_pane_leaves_a_task_waiting_on_it_to_you(projects, tmp_path):
+    """It's yours now, calling you, and waits on you, not on a lead that's gone: it had kept waiting quietly, "the
+    coordinator is reading this", with no lead to answer it."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            lead, _, [parser] = await goal_at_work(app, pilot, folder, "Parser")
+            lead, goal, [parser] = await goal_at_work(app, pilot, folder, "Parser")
             await reports(fakes, parser)
-            await reach(pilot, lambda: len(sent_to(fakes, lead)) == 2, "Parser's reply sent to the lead")
+            await until(pilot, lambda: len(sent_to(fakes, lead)) == 2)
             await lead_says(fakes, lead, "The parser is split. Shall it add tests?")
-            await reach(pilot, lambda: rings(app, lead) and parser.state == BACKGROUND, "the lead calling you")
+            await until(pilot, lambda: rings(app, lead) and parser.state == BACKGROUND)
             await close_with_w(app, pilot, lead)
-            try:
-                await until(pilot, lambda: rings(app, parser), steps=40)
-            except AssertionError:
-                raise AssertionError(f"Parser was left {parser.state!r} ({parser.detail!r})") from None
+            await until(pilot, lambda: rings(app, parser))
+            assert parser.detail == "its coordinator was closed: this one is yours now"
+            assert not goal.task(1).waiting_on_lead
+
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("closes", ["finish_task", "goal_done"])
+def test_the_coordinators_own_closes_leave_its_lead_as_it_is(projects, tmp_path, closes):
+    """What finishes a task or the goal is the lead's own turn, whose end says what it says: closing their sessions
+    for it is nothing its lead is called for. Here the lead waits quietly on Docs, mid-turn, which closes as that
+    turn ends, and Parser, waiting on the lead, which closes at once."""
+    app, folder, fakes = app_for(projects, tmp_path)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            lead, goal, [parser, docs] = await lead_quiet(app, pilot, folder, fakes, "Parser", "Docs")
+            if closes == "finish_task":
+                app.coordinator.finish_task(goal, 1, "split")
+                app.coordinator.finish_task(goal, 2, "written")
+            else:
+                app.coordinator.goal_done(goal, "Parser split, docs written")
+            await until(pilot, lambda: parser.key not in app.driven)
+            await reports(fakes, docs)
+            await until(pilot, lambda: docs.key not in app.driven)  # the hook, as it closes, would have called by now
+            assert lead.state == BACKGROUND and lead.detail == "coordinating: 2 running, 0 of 2 done"
+            assert len(sent_to(fakes, lead)) == 2  # nor did Docs' reply go to it
 
     asyncio.run(go())
 

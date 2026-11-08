@@ -281,11 +281,9 @@ def test_the_leads_message_to_a_task_mid_turn_is_answered_to_the_lead(projects, 
 
 # Stopped, cut off, closed ---------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: x sets _interrupted, so the turn's end skips on_turn_end (driver.py, ResultMessage). The task is "
-    "yours, but it still counts as at work (Coordinator.under_way), so the lead, quiet on it, waits on agents "
-    "for good"))
 def test_stopping_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tmp_path):
+    """The stopped turn is yours, so the task waits on you, and with nothing else at work the quiet lead calls
+    you, not told (as you chose). It had waited on agents for good."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
@@ -293,12 +291,14 @@ def test_stopping_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tmp_
             lead, _, worker = await lead_quiet_on(app, pilot, folder, fakes)
             before = len(sent_to(fakes, lead))
             app._focus_key(worker.key)
-            await pilot.pause(0.1)
+            await until(pilot, lambda: getattr(app.focused, "session_id", None) == worker.key)
             await pilot.press("x")
-            await reach(pilot, lambda: worker._interrupted, "x stopped the task's turn")
+            await until(pilot, lambda: worker._interrupted)
             await fake_of(fakes, worker)._play([done()])  # Claude Code ends the stopped turn (assumed: see the top)
-            await reach(pilot, lambda: worker.state == WAITING and rings(app, worker), "the stopped turn is yours")
-            await lead_hears_or_calls_you(app, pilot, lead, fakes, before)
+            await until(pilot, lambda: worker.state == WAITING and rings(app, worker) and rings(app, lead))
+            assert worker.detail == "turn finished"
+            assert lead.detail == "Parser is yours now; none of its sessions is at work"
+            assert len(sent_to(fakes, lead)) == before
 
     asyncio.run(go())
 
@@ -364,10 +364,9 @@ def test_a_task_whose_claude_code_stopped_starts_again_when_the_lead_answers_it(
     asyncio.run(go())
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: closing a task (TUI._end_driven) tells the coordinator nothing; it drops out of under_way, but the "
-    "lead, quiet on it, isn't told or looked at again, so it waits on agents for good"))
 def test_closing_a_task_mid_turn_leaves_the_lead_to_you(projects, tmp_path):
+    """With nothing else at work, the quiet lead calls you, not told (as you chose). It had waited on agents for
+    good, its board alone saying you'd closed the task."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
@@ -375,21 +374,24 @@ def test_closing_a_task_mid_turn_leaves_the_lead_to_you(projects, tmp_path):
             lead, goal, worker = await lead_quiet_on(app, pilot, folder, fakes)
             before = len(sent_to(fakes, lead))
             await close_with_w(app, pilot, worker)
-            given("1. Parser [closed by the user]" in app.coordinator.board(goal), "the board says you closed it")
-            await lead_hears_or_calls_you(app, pilot, lead, fakes, before)
+            assert "1. Parser [closed by the user]" in app.coordinator.board(goal)
+            await until(pilot, lambda: rings(app, lead))
+            assert lead.detail == "Parser was closed; none of its sessions is at work"
+            assert len(sent_to(fakes, lead)) == before
 
     asyncio.run(go())
 
 
 def test_closing_a_task_that_waits_on_the_lead_leaves_the_leads_turn_to_you(projects, tmp_path):
     """Closed while the lead reads its reply: the lead's tools say it's closed, and with nothing else at work the
-    lead's turn is yours."""
+    lead's turn is yours. Mid-turn, the lead is left as it is until then."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
             lead, goal, worker = await reading_its_reply(app, pilot, folder)
             await close_with_w(app, pilot, worker)
+            assert lead.state == WORKING and lead.detail != "Parser was closed; none of its sessions is at work"
             assert said(app.coordinator.message_task(goal, 1, "Add tests.")) == "Task 1's session is closed."
             assert "1. Parser [closed by the user]" in app.coordinator.board(goal)
             await fake_of(fakes, lead)._play([done()])
@@ -399,15 +401,12 @@ def test_closing_a_task_that_waits_on_the_lead_leaves_the_leads_turn_to_you(proj
     asyncio.run(go())
 
 
-@pytest.mark.parametrize("when", [
-    pytest.param("mid-turn", marks=pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-        "stuck: the task waits on you now, not at work (Coordinator.under_way), but the lead was quiet on it "
-        "already, and nothing looks at the lead again, so it waits on agents for good"))),
-    "waiting-on-the-lead"])
+@pytest.mark.parametrize("when", ["mid-turn", "waiting-on-the-lead"])
 def test_writing_to_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tmp_path, when):
     """You write to a task while it works on the lead's answer (the lead quiet on it), or while it waits on the
     lead (the lead mid-turn on its reply, which it then leaves): its reply is yours, and it waits on you, not at
-    work for the goal. It had counted as at work, so the lead's turn went quiet."""
+    work for the goal, so the lead calls you, not told (as you chose). It had counted as at work, and the lead
+    waited on agents for good. Mid-turn, the lead is left as it is until its turn ends."""
     app, folder, fakes = app_for(projects, tmp_path, {"keep the old names": []})  # the test plays its answer
 
     async def go():
@@ -416,18 +415,21 @@ def test_writing_to_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tm
                 lead, _, worker = await lead_quiet_on(app, pilot, folder, fakes)
                 before = len(sent_to(fakes, lead))
                 await worker.send("keep the old names")
-                given(worker.events[-1].tag == "queued", "yours, sent while it works")
+                assert worker.events[-1].tag == "queued"  # yours, sent while it works
                 await fake_of(fakes, worker)._play([text("Added them, and kept the old names."), done()])
-                await reach(pilot, lambda: worker.state == WAITING and rings(app, worker), "its turn is yours")
+                await until(pilot, lambda: worker.state == WAITING and rings(app, worker) and rings(app, lead))
+                assert lead.detail == "Parser is yours now; none of its sessions is at work"
             else:
                 lead, _, worker = await reading_its_reply(app, pilot, folder)
                 await worker.send("keep the old names")
                 await fake_of(fakes, worker)._play([text("Kept them."), done()])
-                await reach(pilot, lambda: worker.state == WAITING and rings(app, worker), "its turn is yours")
+                await until(pilot, lambda: worker.state == WAITING and rings(app, worker))
+                assert lead.state == WORKING  # left as it is, mid-turn
                 before = len(sent_to(fakes, lead))
                 await fake_of(fakes, lead)._play([done()])  # the lead's turn on its reply ends, answering nothing
-                await reach(pilot, lambda: lead.state != WORKING, "the lead's turn ended")
-            await lead_hears_or_calls_you(app, pilot, lead, fakes, before)
+                await until(pilot, lambda: lead.state != WORKING and rings(app, lead))
+                assert lead.detail == "Telling it to add tests."  # what its turn said
+            assert len(sent_to(fakes, lead)) == before
 
     asyncio.run(go())
 

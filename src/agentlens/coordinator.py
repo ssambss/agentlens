@@ -249,11 +249,14 @@ class Coordinator:
                  yours_since: Callable[[str, str], bool], level: Callable[[], str],
                  usage: Callable[[], float | None],
                  close: Callable[[str, str], bool | None] = lambda key, why: None,
-                 at_work: Callable[[str], bool] | None = None, file: Path | None = None) -> None:
-        """`at_work`: whether an open session is running Claude Code, not paused (as alive, if not given)."""
+                 at_work: Callable[[str], bool] | None = None,
+                 call_you: Callable[[str, str], None] = lambda key, why: None, file: Path | None = None) -> None:
+        """`at_work`: whether an open session is running Claude Code, not paused (as alive, if not given).
+        `call_you`: has the session at `key` call you, saying why, if it waits quietly or is paused: one
+        mid-turn is left as it is, as that turn's end says what it says."""
         self.open_task, self.send, self.alive, self.yours_since = open_task, send, alive, yours_since
         self.level, self.usage, self.close, self.file = level, usage, close, file
-        self.at_work = at_work or alive
+        self.at_work, self.call_you = at_work or alive, call_you
         self.goals = load(file)
         self.keys: dict[str, tuple[str, int | None]] = {}  # pane key -> (goal, task); no task: the lead
         self.lead_keys: dict[str, str] = {}  # goal -> its lead's pane key
@@ -388,6 +391,33 @@ class Coordinator:
             return False, goal.asking
         return False, f"stopped mid-turn ({why.rstrip('.')}) · type to carry on"
 
+    def left(self, key: str, why: str) -> None:
+        """The task session at `key` stopped being at work for its goal without its turn reaching the lead, as
+        `why` says: it's yours now (you wrote to it or stopped it), you closed it, or its Claude Code stopped
+        between turns. With none of the goal's sessions at work then, none will bring the lead back: it calls
+        you. Not for the coordinator's own closes (finish_task, goal_done), which its turn is under way for."""
+        found = self.role(key)
+        if found is None or found[1] is None:
+            return
+        goal, task = found
+        if goal.done or self.under_way(goal):
+            return
+        self.call_you(self.lead_keys.get(goal.id, ""), f"{task.title} {why}; none of its sessions is at work"[:200])
+
+    def lead_closed(self, key: str) -> None:
+        """You closed a goal's lead: the tasks waiting on it to answer what they said are yours now."""
+        found = self.role(key)
+        if found is None or found[1] is not None:
+            return
+        goal = found[0]
+        for task in goal.tasks:
+            task_key = self.key_of(goal, task)
+            if task.waiting_on_lead and self.alive(task_key):
+                task.waiting_on_lead = False
+                self._yours.add((goal.id, task.id))
+                self.call_you(task_key, "its coordinator was closed: this one is yours now")
+        self.save()
+
     def under_way(self, goal: Goal) -> list[Task]:
         """Its sessions at work: running Claude Code, and waiting neither on the lead to answer what they last
         said nor on you (you wrote to it or stopped it). Only these bring the lead back by themselves."""
@@ -424,6 +454,8 @@ class Coordinator:
             task.waiting_on_lead = False
             self._yours.add((goal.id, task.id))  # it waits on you now, not at work for the goal
             self.save()
+            if task.status == RUNNING:
+                self.left(self.key_of(goal, task), "is yours now")
             return None
         self._yours.discard((goal.id, task.id))
         with_goal = task.id in self.goal_closed.get(goal.id, ())

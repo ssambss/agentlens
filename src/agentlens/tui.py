@@ -1675,7 +1675,7 @@ class AgentlensApp(App):
         self.coordinator = coordinator_mod.Coordinator(
             open_task=self._open_task, send=self._send_from, alive=lambda key: key in self.driven,
             yours_since=self._yours_since, level=lambda: self.config.autopilot, usage=self._five_hour_used,
-            close=self._close_task,
+            close=self._close_task, call_you=self._call_you_if_quiet,
             at_work=lambda key: key in self.driven and self.driven[key].state not in (PAUSED, FAILED, ENDED))
         self._kept_yours: set[str] = set()  # a goal's sessions it kept open, as you'd written to them: told once
         self.meter_colors = ("#0178D4", "#FEA62B", "#B93C5B")  # normal, nearly full, full; set from the theme
@@ -2505,7 +2505,9 @@ class AgentlensApp(App):
         self._apply(self._monitored, datetime.now(timezone.utc))
         self.notify(f"{count} hidden session{'s' if count != 1 else ''} back on the wall", timeout=3)
 
-    async def _end_driven(self, driven: DrivenSession, quiet: bool = False) -> None:
+    async def _end_driven(self, driven: DrivenSession, quiet: bool = False, by_coordinator: bool = False) -> None:
+        """`by_coordinator`: the coordinator closes it, its purpose served, which its lead's turn is under way for.
+        Any other close (yours, or a detach) of one of a goal's sessions, it hears of."""
         if isinstance(self.screen, ZoomScreen) and self.screen.session_id == driven.key:
             self.pop_screen()
         # Off the wall right away: Claude Code can take a moment to shut down.
@@ -2516,6 +2518,9 @@ class AgentlensApp(App):
         self._painted.pop(driven.key, None)
         self.config.forget_driven(session_id)
         self._save_config()
+        if not by_coordinator:
+            self.coordinator.left(driven.key, "was closed")
+            self.coordinator.lead_closed(driven.key)
         self._apply(self._monitored, datetime.now(timezone.utc))
         if not quiet:
             self.notify(f"It's in History: {continue_keys()}.", title="Session closed", timeout=5)
@@ -2720,12 +2725,21 @@ class AgentlensApp(App):
 
     def _claude_code_stopped(self, driven: DrivenSession, cut_off: bool, yours: bool, reply: str, why: str) -> None:
         """Claude Code stopped under one of a goal's sessions, which is paused now. A turn that cut off ends as a
-        failed one: a task's goes to the lead, which can start it again, and the lead's calls you."""
+        failed one: a task's goes to the lead, which can start it again, and the lead's calls you. A task stopped
+        between turns isn't at work any more, which its lead hears of."""
         if not cut_off:
+            self.coordinator.left(driven.key, "is paused: its Claude Code stopped")
             return
         said = self.coordinator.turn_ended(driven.key, yours, reply, why, cut_off=True)
         if said is not None and not said[0]:
             driven.call_you(said[1])
+
+    def _call_you_if_quiet(self, key: str, why: str) -> None:
+        """The coordinator's: the session at `key` calls you, saying why, if it waits quietly or is paused. One
+        mid-turn is left as it is: what that turn's end says stands."""
+        driven = self.driven.get(key)
+        if driven is not None and driven.state in (BACKGROUND, PAUSED):
+            driven.call_you(why)
 
     def _back_from_last_time(self, driven: DrivenSession) -> None:
         """A goal's lead, back paused at launch: one still waiting on your answer calls you with its question,
@@ -2774,7 +2788,7 @@ class AgentlensApp(App):
             if not looked_again:
                 self.call_later(self._close_task, key, why, True)
             return True
-        self.run_worker(self._end_driven(driven, quiet=True), group="driven", exclusive=False)
+        self.run_worker(self._end_driven(driven, quiet=True, by_coordinator=True), group="driven", exclusive=False)
         self.notify(f"{why[0].upper()}{why[1:]}. Its conversation is in History: {continue_keys()}.",
                     title=f"The coordinator closed {name}", timeout=6)
         return True
