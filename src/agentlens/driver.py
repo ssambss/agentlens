@@ -262,6 +262,7 @@ class DrivenSession:
         self._naming: asyncio.Task | None = None  # asking Claude Code for its title
         self._renaming: asyncio.Task | None = None  # a resumed session taking its name back
         self._connecting: asyncio.Future | None = None  # a paused session starting Claude Code
+        self._stopping: asyncio.Future | None = None  # Claude Code shutting down under it, once it stopped
         self._stderr: deque[str] = deque(maxlen=STDERR_LINES)
         self.autopilot = autopilot  # one of autopilot.LEVELS
         self.own_autopilot = False  # its level is this session's own, set with p, rather than your setting's
@@ -393,6 +394,10 @@ class DrivenSession:
         `by_autopilot`: autopilot's message, which the pane shows as its own. `by`: another sender's
         tag, the coordinator's (coordinator.COORDINATOR, coordinator.BOARD), shown as theirs."""
         text = text.strip()
+        if self._stopping is not None:
+            # Claude Code stopped and is still shutting down: once it has, the session is paused, and this starts
+            # it again. Sent meanwhile, it went nowhere.
+            await asyncio.shield(self._stopping)
         starting = self._connecting is not None and not self._connecting.done()
         images = [] if text.startswith("/") else self.images  # a command leaves them for the next message
         if not (text or images) or (self._client is None and not self.parked and not starting):
@@ -762,24 +767,30 @@ class DrivenSession:
         if client is not self._client:
             return  # already handled, or a client this session has since replaced
         self._client = None
-        self._cancel_pilot()
-        self._in_turn = self._interrupted = False  # a turn it was in, stopped or not, ended with it
-        self.work.clear()  # what it had going stopped with it
-        if self.pending and self.pending.future and not self.pending.future.done():
-            self.pending.future.cancel()
-        self.pending = None
-        self.partial = ""
-        if client is not None:
-            try:
-                await client.disconnect()  # it may still be running: one client at a time on a session
-            except Exception:  # noqa: BLE001 - stopping anyway
-                pass
-        if not self.session_id:
-            self._fail(why)  # it never started a conversation to come back to
-            return
-        self.resume, self.parked, self.error = self.session_id, True, why
-        self.events.append(Event(datetime.now(timezone.utc), "error", why[:240], why))
-        self._set(PAUSED, "Claude Code stopped · type to continue")
+        # A message for it while Claude Code shuts down waits for that (see send), then starts it again.
+        stopping = self._stopping = asyncio.get_running_loop().create_future()
+        try:
+            self._cancel_pilot()
+            self._in_turn = self._interrupted = False  # a turn it was in, stopped or not, ended with it
+            self.work.clear()  # what it had going stopped with it
+            if self.pending and self.pending.future and not self.pending.future.done():
+                self.pending.future.cancel()
+            self.pending = None
+            self.partial = ""
+            if client is not None:
+                try:
+                    await client.disconnect()  # it may still be running: one client at a time on a session
+                except Exception:  # noqa: BLE001 - stopping anyway
+                    pass
+            if not self.session_id:
+                self._fail(why)  # it never started a conversation to come back to
+                return
+            self.resume, self.parked, self.error = self.session_id, True, why
+            self.events.append(Event(datetime.now(timezone.utc), "error", why[:240], why))
+            self._set(PAUSED, "Claude Code stopped · type to continue")
+        finally:
+            self._stopping = None
+            stopping.set_result(None)
 
     def handle(self, message) -> None:
         """Fold one SDK message into the feed and state. Public for tests."""

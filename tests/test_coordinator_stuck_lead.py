@@ -24,7 +24,7 @@ from test_coordinator_stuck_tasks import (
 from test_driver import app_with_session, done, text, until
 
 from agentlens.coordinator import ASK_YOU_TOOL
-from agentlens.driver import BACKGROUND, PAUSED, WORKING
+from agentlens.driver import BACKGROUND, FAILED, PAUSED, WORKING
 
 SCRIPTS = {
     "Split the parser": [text("I'll plan it."), done()],  # your goal, to the lead
@@ -238,12 +238,9 @@ def test_the_leads_claude_code_stopping_mid_turn_with_every_task_waiting_on_it_c
     asyncio.run(go())
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: while _stopped waits for Claude Code to shut down, the lead has no client and isn't parked yet, so "
-    "DrivenSession.send drops a report silently, and TUI._send_from has said it went: the task waits on the lead "
-    "for good, and the paused lead hears nothing"))
 def test_a_report_while_the_leads_claude_code_shuts_down_isnt_lost(projects, tmp_path):
-    """Claude Code takes a moment to exit (the SDK's disconnect waits for it): a task reporting then."""
+    """Claude Code takes a moment to exit (the SDK's disconnect waits for it): a task reporting then waits for that,
+    and starts the lead's Claude Code again, as a report to a paused lead does. It had gone nowhere."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
@@ -257,16 +254,32 @@ def test_a_report_while_the_leads_claude_code_shuts_down_isnt_lost(projects, tmp
 
             stopping.disconnect = slow_disconnect
             await stopping.queue.put(None)
-            await reach(pilot, lambda: lead._client is None and not lead.parked, "the lead's Claude Code shutting down")
+            await until(pilot, lambda: lead._client is None and not lead.parked)  # shutting down
             await reports(fakes, docs)
-            await reach(pilot, lambda: docs.state == BACKGROUND and goal.task(2).waiting_on_lead,
-                        "Docs' reply sent to the lead")
-            await reach(pilot, lambda: lead.state == PAUSED, "the lead paused")
-            try:
-                await until(pilot, lambda: any(m.startswith("Docs (task 2) ended a turn") for m in told(fakes, lead))
-                            or rings(app, lead) or rings(app, docs), steps=40)
-            except AssertionError:
-                raise AssertionError(f"Docs' reply went nowhere: the lead {lead.state!r}, Docs {docs.detail!r}") from None
+            await until(pilot, lambda: fake_of(fakes, lead) is not stopping and len(sent_to(fakes, lead)) == 1)
+            assert stopping.closed  # the new one started once the old one had exited
+            assert sent_to(fakes, lead)[0].startswith("Docs (task 2) ended a turn") and goal.task(2).waiting_on_lead
+            assert told(fakes, lead).count(sent_to(fakes, lead)[0]) == 1
+
+    asyncio.run(go())
+
+
+def test_a_message_to_a_task_whose_claude_code_never_started_is_refused_not_dropped(projects, tmp_path):
+    app, folder, fakes = app_for(projects, tmp_path)
+    fake = app.client_factory
+
+    def none_for_tasks(options):
+        if fakes:  # the lead's started: its tasks' can't
+            raise RuntimeError("claude not found")
+        return fake(options)
+
+    app.client_factory = none_for_tasks
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            _, goal, [parser] = await goal_with(app, pilot, folder, "Parser")
+            await until(pilot, lambda: parser.state == FAILED)
+            assert said(app.coordinator.message_task(goal, 1, "Add tests.")) == "Task 1's session is closed."
 
     asyncio.run(go())
 

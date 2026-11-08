@@ -2746,9 +2746,10 @@ class AgentlensApp(App):
                     title=f"The coordinator closed {name}", timeout=6)
 
     def _send_from(self, key: str, text: str, note: str, by: str) -> bool:
-        """The coordinator's message to the session at `key`, or agentlens's to a lead. Whether it's open."""
+        """The coordinator's message to the session at `key`, or agentlens's to a lead. Whether it's open and
+        can take it: one whose Claude Code never started (failed) drops what it's sent."""
         driven = self.driven.get(key)
-        if driven is None:
+        if driven is None or driven.state in (FAILED, ENDED):
             return False
         self.run_worker(driven.send(text, note, by=by), group="driven", exclusive=False)
         return True
