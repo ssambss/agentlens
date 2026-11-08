@@ -1676,6 +1676,7 @@ class AgentlensApp(App):
             open_task=self._open_task, send=self._send_from, alive=lambda key: key in self.driven,
             yours_since=self._yours_since, level=lambda: self.config.autopilot, usage=self._five_hour_used,
             close=self._close_task)
+        self._kept_yours: set[str] = set()  # a goal's sessions it kept open, as you'd written to them: told once
         self.meter_colors = ("#0178D4", "#FEA62B", "#B93C5B")  # normal, nearly full, full; set from the theme
         self.catalog = commands_mod.load_cached()  # slash commands for boxes whose session hasn't started
         self._summary_text: Text | None = None
@@ -2721,29 +2722,33 @@ class AgentlensApp(App):
                                   prepare=lambda d: self._coordinate(d, goal, task))
         return driven.key if driven is not None else None
 
-    def _close_task(self, key: str, why: str, looked_again: bool = False) -> None:
+    def _close_task(self, key: str, why: str, looked_again: bool = False) -> bool:
         """One of a goal's sessions has served its purpose (its task or its goal is done): closed, as w
         closes one, and its conversation kept in History. While it works, it waits for its turn to end
-        (the coordinator closes it then). One you've written to yourself is yours: it stays, saying why."""
+        (the coordinator closes it then). One you've written to yourself is yours: it stays, saying why
+        once, and this says False, so its later turns are yours too."""
         driven = self.driven.get(key)
         if driven is None:
-            return
+            return True
         name = driven.title or "a task's session"
         if driven.last_yours is not None:
             driven.say_quietly(f"{why}; you've written to it, so it's yours to close")
-            self.notify(f"You've written to it, so it stays open: {keys_mod.name('close')} closes it.",
-                        title=f"{name}: {why}", timeout=6)
-            return
+            if key not in self._kept_yours:
+                self._kept_yours.add(key)
+                self.notify(f"You've written to it, so it stays open: {keys_mod.name('close')} closes it.",
+                            title=f"{name}: {why}", timeout=6)
+            return False
         if driven.state in (WORKING, STARTING):
             # Asked from the end of its turn (where the coordinator hears of it), its state is still the turn's:
             # it looks again once that has settled. Still at work then, it's on another turn, and the
             # coordinator asks again when that one ends.
             if not looked_again:
                 self.call_later(self._close_task, key, why, True)
-            return
+            return True
         self.run_worker(self._end_driven(driven, quiet=True), group="driven", exclusive=False)
         self.notify(f"{why[0].upper()}{why[1:]}. Its conversation is in History: {continue_keys()}.",
                     title=f"The coordinator closed {name}", timeout=6)
+        return True
 
     def _send_from(self, key: str, text: str, note: str, by: str) -> bool:
         """The coordinator's message to the session at `key`, or agentlens's to a lead. Whether it's open and

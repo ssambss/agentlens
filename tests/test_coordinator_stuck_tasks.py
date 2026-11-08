@@ -466,13 +466,10 @@ def test_a_task_finished_while_it_asks_you_something_closes_once_that_turn_ends(
 
 
 @pytest.mark.parametrize("finished", ["task", "goal"])
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: _task_turn_ended takes any later turn that isn't yours as the end of a finished one, and answers "
-    "(True, 'task done'/'goal done'): _close_task keeps it open as you wrote to it, so it waits quietly on agents, "
-    "and what it said reaches neither you nor the lead"))
 def test_a_done_task_you_wrote_to_calls_you_for_a_turn_it_starts_itself(projects, tmp_path, finished):
     """You've written to it, so it stays when its task or goal is done. Its background tests finishing then start
-    a turn: that's yours, as the session is."""
+    a turn: that's yours, as the session is, and the coordinator says it stays only the once. It had waited
+    quietly, "task done", with what it said reaching no one."""
     app, folder, fakes = app_for(projects, tmp_path, {
         "Do Parser.": [*background_command(), text("Split it. The tests run in the background."), done()],
         "Parser (task 1) ended a turn": [text("Good."), done()],
@@ -493,12 +490,10 @@ def test_a_done_task_you_wrote_to_calls_you_for_a_turn_it_starts_itself(projects
             given(worker.key in app.driven, "it stays: you've written to it")
             await fake_of(fakes, worker)._play([task_done("bt1"), notified("bt1"), text("The tests pass."),
                                                 ended(OWN_WORK)])
-            await reach(pilot, lambda: worker.events[-1].text == "The tests pass." and worker.state != WORKING,
-                        "the turn its tests started ended")
-            try:
-                await until(pilot, lambda: rings(app, worker), steps=40)
-            except AssertionError:
-                raise AssertionError(f"left {worker.state!r} ({worker.detail!r})") from None
+            await until(pilot, lambda: worker.events[-1].text == "The tests pass." and worker.state != WORKING)
+            await until(pilot, lambda: rings(app, worker))
+            assert worker.detail == "turn finished" and len(sent_to(fakes, lead)) == 2  # yours, not the lead's
+            assert len([n for n in app._notifications if "stays open" in n.message]) == 1
 
     asyncio.run(go())
 

@@ -241,12 +241,14 @@ class Coordinator:
     and says whether it could, `alive` says whether a session is still open, `yours_since` whether
     you've messaged one since a time, `level` your autopilot setting, `usage` how much of your
     five-hour window is used (None if it isn't known), `close` closes a session that has served its
-    purpose (its task is done, or its goal), saying why."""
+    purpose (its task is done, or its goal), saying why, and says False if it keeps it open instead (you've
+    written to it, so it's yours)."""
 
     def __init__(self, *, open_task: Callable[[Goal, Task, str], str | None],
                  send: Callable[[str, str, str, str], bool], alive: Callable[[str], bool],
                  yours_since: Callable[[str, str], bool], level: Callable[[], str],
-                 usage: Callable[[], float | None], close: Callable[[str, str], None] = lambda key, why: None,
+                 usage: Callable[[], float | None],
+                 close: Callable[[str, str], bool | None] = lambda key, why: None,
                  file: Path | None = None) -> None:
         self.open_task, self.send, self.alive, self.yours_since = open_task, send, alive, yours_since
         self.level, self.usage, self.close, self.file = level, usage, close, file
@@ -398,7 +400,8 @@ class Coordinator:
             # running in a goal that says it's done otherwise (kept so from before goals opened again for new
             # work) is the lead's.
             why = "goal done" if with_goal else "task done"
-            self.close(self.key_of(goal, task), why)
+            if self.close(self.key_of(goal, task), why) is False:
+                return None  # kept open, as you've written to it: its turns are yours, as any session's
             return True, why
         lead = self.lead_keys.get(goal.id, "")
         ended = f"ended a turn, with an error: {failed}" if failed else "ended a turn"
