@@ -448,12 +448,10 @@ PROMPTS = {  # what it asks you mid-turn, and your answer
 
 
 @pytest.mark.parametrize("state", list(PROMPTS), ids=["permission", "question", "plan"])
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "cut short, not stuck: TUI._close_task waits for a turn to end only in WORKING or STARTING; on a prompt it "
-    "closes at once, interrupting the turn and taking the prompt that called you off the wall"))
 def test_a_task_finished_while_it_asks_you_something_closes_once_that_turn_ends(projects, tmp_path, state):
     """As one finished while it works (test_a_session_finished_mid_turn_closes_once_that_turn_ends): a turn on a
-    permission prompt, a question or a plan is mid-turn too."""
+    permission prompt, a question or a plan is mid-turn too. It had closed at once, cutting the turn short and
+    taking the prompt that called you off the wall."""
     ask, answer = PROMPTS[state]
     app, folder, fakes = app_for(projects, tmp_path, {"Do Parser.": [text("Splitting it."), ask, text("Split it."),
                                                                      done()]})

@@ -2781,10 +2781,10 @@ class AgentlensApp(App):
                 self.notify(f"You've written to it, so it stays open: {keys_mod.name('close')} closes it.",
                             title=f"{name}: {why}", timeout=6)
             return False
-        if driven.state in (WORKING, STARTING):
-            # Asked from the end of its turn (where the coordinator hears of it), its state is still the turn's:
-            # it looks again once that has settled. Still at work then, it's on another turn, and the
-            # coordinator asks again when that one ends.
+        if driven.state in BUSY or driven.state == STARTING:
+            # Mid-turn, on a prompt for you too, it goes on: the coordinator asks again when the turn ends. Asked
+            # from the end of its turn (where the coordinator hears of it), its state is still the turn's: it
+            # looks again once that has settled. Still at work then, it's on another turn.
             if not looked_again:
                 self.call_later(self._close_task, key, why, True)
             return True
