@@ -2123,6 +2123,7 @@ class AgentlensApp(App):
                 driven.events = past
             else:
                 driven.park(past)
+                self._back_from_last_time(driven)
             self._remember(driven)
         self.config.last_folder = cwd
         self._save_config()
@@ -2713,6 +2714,16 @@ class AgentlensApp(App):
         if task is None:
             driven.options_extra = self.coordinator.lead_options(goal)
         driven.on_turn_end = lambda d, yours, reply, failed: self.coordinator.turn_ended(d.key, yours, reply, failed)
+
+    def _back_from_last_time(self, driven: DrivenSession) -> None:
+        """A goal's lead, back paused at launch: one still waiting on your answer calls you with its question,
+        as it did before you quit."""
+        found = self.coordinator.role(driven.key)
+        if found is None or found[1] is not None:
+            return
+        goal = found[0]
+        if goal.asking and not goal.done:
+            driven.call_you(goal.asking)
 
     def _open_task(self, goal: coordinator_mod.Goal, task: coordinator_mod.Task, first: str) -> str | None:
         """A session for one of a goal's tasks, beside its lead, with `first` as the lead's first message to it."""

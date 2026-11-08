@@ -102,7 +102,7 @@ class Goal:
     started: int = 0  # sessions started for it
     planned_at: str = ""  # when the plan last changed: on the careful levels, you OK it after that
     done: bool = False
-    asking: str = ""  # what the lead asked you this turn, for the line under its title
+    asking: str = ""  # what the lead asked you, until you answer: the line under its title, after a restart too
     finished: str = ""  # its summary, when it said the goal is done
     title: str = ""  # what its panes call it: your goal's first words, then its lead's title
 
@@ -257,6 +257,7 @@ class Coordinator:
         self.lead_keys: dict[str, str] = {}  # goal -> its lead's pane key
         # goal -> the tasks whose sessions goal_done closed: one that was mid-turn closes as that ends
         self.goal_closed: dict[str, set[int]] = {}
+        self._asked: set[str] = set()  # goals whose lead asked you in the turn under way
 
     def save(self) -> None:
         save(self.goals, self.file)
@@ -376,10 +377,15 @@ class Coordinator:
             finished, goal.finished = goal.finished, ""
             self.save()
             return False, f"Goal done: {finished}"
+        if goal.id in self._asked:  # it asked you in this turn
+            self._asked.discard(goal.id)
+            return False, goal.asking
         if goal.asking:
-            asking, goal.asking = goal.asking, ""
+            if not yours:
+                # Not answered yet: a turn something else started (a session's report) leaves it yours to answer.
+                return False, goal.asking
+            goal.asking = ""  # your message answers it
             self.save()
-            return False, asking
         if yours:
             return None  # it answered you
         if not self.under_way(goal):
@@ -523,12 +529,15 @@ class Coordinator:
 
     def ask_you(self, goal: Goal, question: str) -> dict:
         goal.asking = " ".join(str(question or "").split())[:200] or "The coordinator wants you"
+        self._asked.add(goal.id)
         self.save()
         return _text("The user has your question. Their answer comes as their next message.")
 
     def goal_done(self, goal: Goal, summary: str) -> dict:
         goal.done = True
         goal.finished = " ".join(str(summary or "").split())[:200] or "every task is done"
+        goal.asking = ""  # nothing left to ask about
+        self._asked.discard(goal.id)
         self.save()
         still_open = [t for t in goal.tasks if self.alive(self.key_of(goal, t))]
         self.goal_closed[goal.id] = {t.id for t in still_open}

@@ -325,11 +325,9 @@ def test_closing_the_leads_pane_leaves_a_task_waiting_on_it_to_you(projects, tmp
 
 # What the lead asked you -----------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "question lost: _lead_turn_ended clears goal.asking at the turn that asked, so the next turn, a report's, "
-    "goes quiet while a task is at work, and its pane no longer calls you or shows the question"))
 def test_the_leads_question_still_calls_you_after_a_report_comes_before_your_answer(projects, tmp_path):
-    """It asks you while reading Parser's reply; Docs reports before you answer, with CLI still at work."""
+    """It asks you while reading Parser's reply; Docs reports before you answer, with CLI still at work. The
+    question stays until you answer: it had gone, with the lead waiting quietly on CLI."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
@@ -341,19 +339,20 @@ def test_the_leads_question_still_calls_you_after_a_report_comes_before_your_ans
             await reports(fakes, docs)
             await reach(pilot, lambda: len(sent_to(fakes, lead)) == 3, "Docs' reply sent to the lead")
             await lead_says(fakes, lead, "The docs are written. Still waiting on your answer.")
-            await reach(pilot, lambda: lead.state != WORKING, "the lead's turn on Docs' reply ended")
-            try:
-                await until(pilot, lambda: rings(app, lead) and QUESTION in lead.detail, steps=40)
-            except AssertionError:
-                raise AssertionError(f"the question went: the lead is {lead.state!r} ({lead.detail!r})") from None
+            await until(pilot, lambda: lead.events[-1].text.startswith("The docs are written.") and rings(app, lead))
+            assert lead.detail == QUESTION
+            # Your answer is the end of it: the lead's turn on it is yours, as any.
+            await lead.send("Keep it for one release.")
+            await lead_says(fakes, lead, "Telling Parser to keep it.")
+            await until(pilot, lambda: lead.events[-1].text == "Telling Parser to keep it." and rings(app, lead))
+            assert lead.detail == "turn finished" and not goal.asking
 
     asyncio.run(go())
 
 
 def test_with_nothing_at_work_a_report_before_your_answer_still_calls_you(projects, tmp_path):
-    """As the one before, with no task at work when Docs reports: the lead's next turn calls you. Its line is that
-    turn's now, not the question (not asserted here, as it isn't what it should say); the question stays in its
-    conversation."""
+    """As the one before, with no task at work when Docs reports: the lead's next turn calls you, still with the
+    question, which is in its conversation too."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
@@ -366,6 +365,7 @@ def test_with_nothing_at_work_a_report_before_your_answer_still_calls_you(projec
             await until(pilot, lambda: len(sent_to(fakes, lead)) == 3)
             await lead_says(fakes, lead, "The docs are written. Still waiting on your answer.")
             await until(pilot, lambda: rings(app, lead) and lead.events[-1].text.startswith("The docs are written."))
+            assert lead.detail == QUESTION
             assert any(e.kind == "question" and e.detail == QUESTION for e in lead.events)
 
     asyncio.run(go())
@@ -417,11 +417,9 @@ def test_after_a_restart_a_goal_left_at_work_calls_you_or_carries_on(projects, t
     asyncio.run(go())
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "question lost: goal.asking is cleared once the question shows, so goals.json doesn't keep it, and the lead "
-    "comes back paused, not calling you, with nothing saying what it asked"))
 def test_after_a_restart_the_question_the_lead_asked_still_calls_you(projects, tmp_path):
-    """It asks you to look at the plan; you quit before answering, and open agentlens again."""
+    """It asks you to look at the plan; you quit before answering, and open agentlens again: it's back paused,
+    calling you with the question, where it had come back saying nothing of it."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def before_quitting():
@@ -430,7 +428,8 @@ def test_after_a_restart_the_question_the_lead_asked_still_calls_you(projects, t
             await reach(pilot, lambda: lead.state == WORKING and lead.events, "the lead at work on your goal")
             goal = app.coordinator.role(lead.key)[0]
             await asked(app, pilot, fakes, lead, goal)
-            await reach(pilot, lambda: lead.remembered and goal.lead_session_id, "the lead saved to come back")
+            await reach(pilot, lambda: lead.remembered and goal.lead_session_id and not app._listing,
+                        "the lead saved to come back")
 
     asyncio.run(before_quitting())
     again, _, _ = app_for(projects, tmp_path)
@@ -439,11 +438,10 @@ def test_after_a_restart_the_question_the_lead_asked_still_calls_you(projects, t
         async with again.run_test(size=(160, 44)) as pilot:
             await reach(pilot, lambda: len(again.driven) == 1, "the lead back")
             [lead] = again.driven.values()
-            given(again.coordinator.role(lead.key) is not None, "known as the goal's lead")
-            try:
-                await until(pilot, lambda: rings(again, lead) and QUESTION in lead.detail, steps=40)
-            except AssertionError:
-                raise AssertionError(f"the lead came back {lead.state!r} ({lead.detail!r})") from None
+            assert again.coordinator.role(lead.key) is not None  # known as the goal's lead
+            await until(pilot, lambda: rings(again, lead))
+            assert lead.detail == QUESTION and lead.parked and not lead.connected  # Claude Code starts as you answer
+            await until(pilot, lambda: not again._listing)  # the listing that brought it back done, before closing
 
     asyncio.run(after())
 

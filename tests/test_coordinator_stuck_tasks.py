@@ -518,8 +518,10 @@ def restored(tmp_path, isolated_home):
 
 
 async def back(app, pilot):
-    await reach(pilot, lambda: len(app.driven) == 3 and all(d.state == PAUSED for d in app.driven.values()),
-                "last time's sessions back, paused")
+    # Parked: not running Claude Code until a message starts it. The listing that brought them back is done, so
+    # none is still applying when a test that's done with them closes the app.
+    await reach(pilot, lambda: len(app.driven) == 3 and all(d.parked for d in app.driven.values())
+                and not app._listing, "last time's sessions back, parked")
     by_id = {d.resume: d for d in app.driven.values()}
     goal = app.coordinator.goals["g1"]
     lead, parser, docs = by_id["lead-1"], by_id["task-1"], by_id["task-2"]

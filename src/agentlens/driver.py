@@ -564,6 +564,11 @@ class DrivenSession:
         if self.state == BACKGROUND:
             self._set(BACKGROUND, detail[:200])
 
+    def call_you(self, detail: str) -> None:
+        """Have it wait on you, with `detail` under its title: the coordinator's, for one of a goal's sessions
+        that nothing else would bring back. One that's paused stays so, and starts Claude Code when you type."""
+        self._set(WAITING, detail[:200])
+
     # Autopilot --------------------------------------------------------------------------
 
     def set_autopilot(self, level: str, read_now: bool = True) -> None:

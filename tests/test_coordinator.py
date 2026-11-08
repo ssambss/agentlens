@@ -224,10 +224,12 @@ def test_a_goals_panes_are_named_after_it(tmp_path):
 def test_what_the_lead_asks_you_or_finishing_the_goal_calls_you(tmp_path):
     c, goal = Panes().coordinator(tmp_path)
     c.ask_you(goal, "Should the parser keep the old API?")
-    assert c.turn_ended("lead", False, "") == (False, "Should the parser keep the old API?")
-    # Asked once. With nothing of its goal at work, its next turn is for you too, whatever it said.
-    assert c.turn_ended("lead", False, "") == (False, "the coordinator is waiting on you")
-    assert c.turn_ended("lead", True, "") is None  # it answered you: as any session would
+    assert c.turn_ended("lead", True, "") == (False, "Should the parser keep the old API?")  # in your turn too
+    # Until you answer, a turn something else starts (a session's report) still calls you with it.
+    assert c.turn_ended("lead", False, "Docs are written.") == (False, "Should the parser keep the old API?")
+    assert coordinator.load(tmp_path / "goals.json")[goal.id].asking  # kept, for after a restart
+    assert c.turn_ended("lead", True, "") is None  # you answered it: as any session would
+    assert c.turn_ended("lead", False, "") == (False, "the coordinator is waiting on you")  # asked once
     c.goal_done(goal, "Parser split and merged")
     assert goal.done and c.turn_ended("lead", False, "") == (False, "Goal done: Parser split and merged")
 
