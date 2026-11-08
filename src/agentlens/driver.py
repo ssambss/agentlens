@@ -968,7 +968,9 @@ class DrivenSession:
             self.session_id = getattr(message, "session_id", None) or self.session_id
             self.cost_usd += getattr(message, "total_cost_usd", None) or 0.0
             failed = ""
-            if getattr(message, "is_error", False):
+            # A turn you stopped ends as an error too (Claude Code 2.1.318: error_during_execution, with its own
+            # diagnostic): it didn't fail, so it shows none.
+            if getattr(message, "is_error", False) and not self._interrupted:
                 errors = getattr(message, "errors", None) or [getattr(message, "result", "") or "the turn failed"]
                 failed = str(errors[0])[:240]
                 self.events.append(Event(now, "error", failed, "\n".join(map(str, errors))))

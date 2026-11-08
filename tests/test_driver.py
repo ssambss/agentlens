@@ -2606,3 +2606,26 @@ def test_stopping_with_no_turn_under_way_leaves_the_next_turn_as_it_would_be():
         assert ends == ["A subagent is looking.", "Docs done."]
         await d.close()
     asyncio.run(go())
+
+
+def test_a_turn_you_stop_shows_no_error_though_claude_code_ends_it_as_one():
+    """As Claude Code 2.1.318 ends a turn you stop: "[Request interrupted by user]", then a result that's an error
+    with a diagnostic of its own. The turn didn't fail: its pane had an error line in it at each x. One that fails
+    still shows its error."""
+    def result(error):
+        return ResultMessage("error_during_execution", 10, 10, True, 1, "sess-42", errors=[error])
+
+    async def go():
+        d, fakes = make({"count": [text("1, 2, 3")], "again": [text("Hi."), result("API Error: 529 Overloaded")]})
+        await d.start("count")
+        await settle(lambda: d.events[-1].text == "1, 2, 3")
+        await d.interrupt()
+        await fakes[0]._play([UserMessage("[Request interrupted by user]"),
+                              result("[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null")])
+        await settle(lambda: d.state == WAITING)
+        assert d.detail == "turn finished" and not [e for e in d.events if e.kind == "error"]
+        await d.send("again")
+        await settle(lambda: d.state == WAITING and d.events[-1].kind == "error")
+        assert d.events[-1].text == "API Error: 529 Overloaded"
+        await d.close()
+    asyncio.run(go())

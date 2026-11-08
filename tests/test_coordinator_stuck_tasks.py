@@ -296,7 +296,7 @@ def test_stopping_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tmp_
             await until(pilot, lambda: worker._interrupted)
             await fake_of(fakes, worker)._play(stopped())  # Claude Code ends the stopped turn (see the top)
             await until(pilot, lambda: worker.state == WAITING and rings(app, worker) and rings(app, lead))
-            assert worker.detail == "turn finished"
+            assert worker.detail == "turn finished" and not [e for e in worker.events if e.kind == "error"]
             assert lead.detail == "Parser is yours now; none of its sessions is at work"
             assert len(sent_to(fakes, lead)) == before
 
