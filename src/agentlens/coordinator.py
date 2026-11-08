@@ -249,15 +249,20 @@ class Coordinator:
                  yours_since: Callable[[str, str], bool], level: Callable[[], str],
                  usage: Callable[[], float | None],
                  close: Callable[[str, str], bool | None] = lambda key, why: None,
-                 file: Path | None = None) -> None:
+                 at_work: Callable[[str], bool] | None = None, file: Path | None = None) -> None:
+        """`at_work`: whether an open session is running Claude Code, not paused (as alive, if not given)."""
         self.open_task, self.send, self.alive, self.yours_since = open_task, send, alive, yours_since
         self.level, self.usage, self.close, self.file = level, usage, close, file
+        self.at_work = at_work or alive
         self.goals = load(file)
         self.keys: dict[str, tuple[str, int | None]] = {}  # pane key -> (goal, task); no task: the lead
         self.lead_keys: dict[str, str] = {}  # goal -> its lead's pane key
         # goal -> the tasks whose sessions goal_done closed: one that was mid-turn closes as that ends
         self.goal_closed: dict[str, set[int]] = {}
         self._asked: set[str] = set()  # goals whose lead asked you in the turn under way
+        # (goal, task): those whose last turn was yours, as you wrote to it or stopped it. They wait on you, not
+        # at work for the goal, until the lead writes to them or a turn of theirs reaches it.
+        self._yours: set[tuple[str, int]] = set()
 
     def save(self) -> None:
         save(self.goals, self.file)
@@ -358,21 +363,25 @@ class Coordinator:
 
     # When a turn ends: (quiet, the line under its title), or None as without it ---------------
 
-    def turn_ended(self, key: str, yours: bool, reply: str, failed: str = "") -> tuple[bool, str] | None:
-        """`yours`: you sent a message in that turn. Quiet, the session waits without calling you."""
+    def turn_ended(self, key: str, yours: bool, reply: str, failed: str = "",
+                   interrupted: bool = False) -> tuple[bool, str] | None:
+        """`yours`: you sent a message in that turn. `interrupted`: you stopped it, which makes it yours too.
+        Quiet, the session waits without calling you."""
         found = self.role(key)
         if found is None:
             return None
         goal, task = found
-        return self._lead_turn_ended(goal, yours, reply) if task is None else self._task_turn_ended(
-            goal, task, yours, reply, failed)
+        return self._lead_turn_ended(goal, yours, reply, interrupted) if task is None else self._task_turn_ended(
+            goal, task, yours or interrupted, reply, failed)
 
     def under_way(self, goal: Goal) -> list[Task]:
-        """Its sessions at work: running, and not waiting on the lead to answer what they last said. Only
-        these bring the lead back by themselves."""
-        return [t for t in self.running(goal) if not t.waiting_on_lead]
+        """Its sessions at work: running Claude Code, and waiting neither on the lead to answer what they last
+        said nor on you (you wrote to it or stopped it). Only these bring the lead back by themselves."""
+        return [t for t in self.running(goal) if not t.waiting_on_lead and (goal.id, t.id) not in self._yours
+                and self.at_work(self.key_of(goal, t))]
 
-    def _lead_turn_ended(self, goal: Goal, yours: bool, reply: str = "") -> tuple[bool, str] | None:
+    def _lead_turn_ended(self, goal: Goal, yours: bool, reply: str = "",
+                         interrupted: bool = False) -> tuple[bool, str] | None:
         if goal.finished:
             finished, goal.finished = goal.finished, ""
             self.save()
@@ -386,8 +395,8 @@ class Coordinator:
                 return False, goal.asking
             goal.asking = ""  # your message answers it
             self.save()
-        if yours:
-            return None  # it answered you
+        if yours or interrupted:
+            return None  # it answered you, or you stopped it: yours, as any session's
         if not self.under_way(goal):
             # None of its sessions is at work, so none will bring it back: what it said is for you, even
             # without ask_you.
@@ -398,8 +407,10 @@ class Coordinator:
         if yours:
             task.in_a_row = 0  # you spoke to it: its reply is for you, and the lead counts again from here
             task.waiting_on_lead = False
+            self._yours.add((goal.id, task.id))  # it waits on you now, not at work for the goal
             self.save()
             return None
+        self._yours.discard((goal.id, task.id))
         with_goal = task.id in self.goal_closed.get(goal.id, ())
         if with_goal or task.status == DONE:
             # Finished while it was mid-turn: it has served its purpose, now that the turn is over. One still
@@ -429,6 +440,10 @@ class Coordinator:
         running = {t.id for t in self.running(goal)}
         for t in goal.tasks:
             status = t.status if t.status != RUNNING or t.id in running else "closed by the user"
+            if t.id in running and not self.at_work(self.key_of(goal, t)):
+                status = "running, paused: its Claude Code isn't running, and message_task starts it again"
+            elif t.id in running and (goal.id, t.id) in self._yours:
+                status = "running, the user's: they wrote to it or stopped it, and its replies go to them"
             after = f", after {', '.join(map(str, t.after))}" if t.after else ""
             lines.append(f"{t.id}. {t.title} [{status}{after}]" + (f" Done: {t.report}" if t.report else ""))
         if not goal.tasks:
@@ -512,6 +527,7 @@ class Coordinator:
             return _text(f"Task {task.id}'s session is closed.", error=True)
         task.in_a_row += 1
         task.waiting_on_lead = False
+        self._yours.discard((goal.id, task.id))  # at work for the goal again
         self.save()
         return _text(f"Sent to task {task.id}.")
 

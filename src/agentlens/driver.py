@@ -292,7 +292,7 @@ class DrivenSession:
         # Claude Code's own (the lead's instructions and tools), and what a turn ending does instead of
         # autopilot. That's given whether you sent a message in the turn, Claude's reply, and its error if
         # it failed, and says whether the session waits quietly and the line under its title, or None for
-        # what it would do without it.
+        # what it would do without it. A turn you stopped is given too: stopped_by_you says so.
         self.options_extra: dict = {}
         self.on_turn_end: Callable[[DrivenSession, bool, str, str], tuple[bool, str] | None] | None = None
 
@@ -302,6 +302,11 @@ class DrivenSession:
     def connected(self) -> bool:
         """Claude Code is running for it, so closing waits for that to exit."""
         return self._client is not None
+
+    @property
+    def stopped_by_you(self) -> bool:
+        """The turn ending now (as on_turn_end hears of it) is one you stopped."""
+        return self._interrupted
 
     @property
     def tokens(self) -> int:
@@ -961,7 +966,7 @@ class DrivenSession:
             self._turn_ours, self._sent = self._sent or _started_by_its_own_work(message), False
             yours, self._yours_sent = self._yours_sent, False
             instead = None
-            if self.on_turn_end is not None and not self._interrupted:
+            if self.on_turn_end is not None:  # one you stopped too (stopped_by_you): it's yours, and it hears so
                 try:
                     instead = self.on_turn_end(self, yours, self._reply(), failed)
                 except Exception as e:  # noqa: BLE001 - it's yours, as it would be without the coordinator

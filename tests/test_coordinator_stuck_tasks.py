@@ -322,19 +322,19 @@ def test_a_tasks_claude_code_stopping_mid_turn_leaves_the_lead_to_you(projects, 
     asyncio.run(go())
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: Coordinator.running counts any task whose pane is open (alive: key in app.driven), so a task paused "
-    "mid-turn is 'running' on the board and at work for under_way, though nothing will make it report"))
 def test_a_task_whose_claude_code_stopped_mid_turn_isnt_taken_for_one_at_work(projects, tmp_path):
+    """Paused, nothing will make it report: it isn't at work for the goal, and the lead's board says how it is,
+    where it said "running" as of one at work."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
             _, goal, worker = await lead_quiet_on(app, pilot, folder, fakes)
             await fake_of(fakes, worker).queue.put(None)
-            await reach(pilot, lambda: worker.state == PAUSED, "the task paused")
+            await until(pilot, lambda: worker.state == PAUSED)
             assert goal.task(1) not in app.coordinator.under_way(goal)
-            assert "1. Parser [running]" not in app.coordinator.board(goal)
+            assert "1. Parser [running, paused: its Claude Code isn't running, and message_task starts it again]" \
+                in app.coordinator.board(goal)
 
     asyncio.run(go())
 
@@ -396,13 +396,15 @@ def test_closing_a_task_that_waits_on_the_lead_leaves_the_leads_turn_to_you(proj
     asyncio.run(go())
 
 
-@pytest.mark.parametrize("when", ["mid-turn", "waiting-on-the-lead"])
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: a turn you wrote in is yours (_task_turn_ended returns None and clears waiting_on_lead), yet the task "
-    "counts as at work (under_way) though it waits on you; it won't report, and the lead waits on agents for good"))
+@pytest.mark.parametrize("when", [
+    pytest.param("mid-turn", marks=pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
+        "stuck: the task waits on you now, not at work (Coordinator.under_way), but the lead was quiet on it "
+        "already, and nothing looks at the lead again, so it waits on agents for good"))),
+    "waiting-on-the-lead"])
 def test_writing_to_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tmp_path, when):
     """You write to a task while it works on the lead's answer (the lead quiet on it), or while it waits on the
-    lead (the lead mid-turn on its reply, which it then leaves): its reply is yours."""
+    lead (the lead mid-turn on its reply, which it then leaves): its reply is yours, and it waits on you, not at
+    work for the goal. It had counted as at work, so the lead's turn went quiet."""
     app, folder, fakes = app_for(projects, tmp_path, {"keep the old names": []})  # the test plays its answer
 
     async def go():
@@ -554,12 +556,9 @@ def test_after_a_restart_a_tasks_next_turn_reaches_the_lead(projects, tmp_path, 
     asyncio.run(go())
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: a task restored paused counts as at work (Coordinator.running: its pane is open), so the lead's next "
-    "turn, with only that one 'under way', ends quietly, and the paused task never reports"))
 def test_after_a_restart_the_lead_doesnt_wait_quietly_on_a_task_still_paused(projects, tmp_path, isolated_home):
     """The lead answers Docs, whose reply then wakes the lead: Parser, paused since the restart, won't end a turn
-    by itself, so nothing would bring the lead back."""
+    by itself, so it isn't at work, and the lead's turn calls you. It had gone quiet, waiting on Parser."""
     restored(tmp_path, isolated_home)
     app, _, fakes = app_for(projects, tmp_path, {"Go on.": [text("Docs done."), done()],
                                                  "Docs (task 2) ended a turn": [text("Good."), done()]})
@@ -570,7 +569,8 @@ def test_after_a_restart_the_lead_doesnt_wait_quietly_on_a_task_still_paused(pro
             given(said(app.coordinator.message_task(goal, 2, "Go on.")) == "Sent to task 2.", "the lead answered Docs")
             await reach(pilot, lambda: lead.events and lead.events[-1].text == "Good." and lead.state != WORKING,
                         "the lead's turn on Docs' reply ended")
-            given(parser.state == PAUSED, "Parser still paused")
-            await lead_hears_or_calls_you(app, pilot, lead, fakes, len(sent_to(fakes, lead)))
+            assert parser.state == PAUSED and app.coordinator.under_way(goal) == []
+            await until(pilot, lambda: rings(app, lead))
+            assert lead.detail == "Good."
 
     asyncio.run(go())

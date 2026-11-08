@@ -1675,7 +1675,8 @@ class AgentlensApp(App):
         self.coordinator = coordinator_mod.Coordinator(
             open_task=self._open_task, send=self._send_from, alive=lambda key: key in self.driven,
             yours_since=self._yours_since, level=lambda: self.config.autopilot, usage=self._five_hour_used,
-            close=self._close_task)
+            close=self._close_task,
+            at_work=lambda key: key in self.driven and self.driven[key].state not in (PAUSED, FAILED, ENDED))
         self._kept_yours: set[str] = set()  # a goal's sessions it kept open, as you'd written to them: told once
         self.meter_colors = ("#0178D4", "#FEA62B", "#B93C5B")  # normal, nearly full, full; set from the theme
         self.catalog = commands_mod.load_cached()  # slash commands for boxes whose session hasn't started
@@ -2713,7 +2714,8 @@ class AgentlensApp(App):
         goal, task = found
         if task is None:
             driven.options_extra = self.coordinator.lead_options(goal)
-        driven.on_turn_end = lambda d, yours, reply, failed: self.coordinator.turn_ended(d.key, yours, reply, failed)
+        driven.on_turn_end = lambda d, yours, reply, failed: self.coordinator.turn_ended(
+            d.key, yours, reply, failed, interrupted=d.stopped_by_you)
 
     def _back_from_last_time(self, driven: DrivenSession) -> None:
         """A goal's lead, back paused at launch: one still waiting on your answer calls you with its question,
