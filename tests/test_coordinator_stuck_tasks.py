@@ -304,20 +304,23 @@ def test_stopping_a_task_the_lead_waits_on_leaves_the_lead_to_you(projects, tmp_
 
 
 @pytest.mark.parametrize("how", ["exits", "breaks"])
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: with no ResultMessage, DrivenSession._stopped parks the task (PAUSED, which doesn't call you) and "
-    "never calls on_turn_end; the lead isn't told, and still counts it as at work, so it waits on agents for good"))
 def test_a_tasks_claude_code_stopping_mid_turn_leaves_the_lead_to_you(projects, tmp_path, how):
+    """The turn it cut off goes to the lead, as a failed one, saying how to start it again: the lead had waited on
+    it quietly, told nothing."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            lead, _, worker = await lead_quiet_on(app, pilot, folder, fakes)
+            lead, goal, worker = await lead_quiet_on(app, pilot, folder, fakes)
             before = len(sent_to(fakes, lead))
             # No ResultMessage: its stream ends (Claude Code exited), or reading it fails.
             await fake_of(fakes, worker).queue.put(None if how == "exits" else RuntimeError("the pipe broke"))
-            await reach(pilot, lambda: worker.state == PAUSED, "the task paused")
-            await lead_hears_or_calls_you(app, pilot, lead, fakes, before)
+            await until(pilot, lambda: worker.state == PAUSED and len(sent_to(fakes, lead)) == before + 1)
+            why = "Claude Code exited" if how == "exits" else "Claude Code stopped: the pipe broke"
+            told = sent_to(fakes, lead)[-1]
+            assert told.startswith(f"Parser (task 1) stopped mid-turn: {why}. Its session is paused, and "
+                                   "message_task starts it again on its conversation.")
+            assert "Adding them." in told and goal.task(1).waiting_on_lead
 
     asyncio.run(go())
 

@@ -2716,16 +2716,32 @@ class AgentlensApp(App):
             driven.options_extra = self.coordinator.lead_options(goal)
         driven.on_turn_end = lambda d, yours, reply, failed: self.coordinator.turn_ended(
             d.key, yours, reply, failed, interrupted=d.stopped_by_you)
+        driven.on_stop = self._claude_code_stopped
+
+    def _claude_code_stopped(self, driven: DrivenSession, cut_off: bool, yours: bool, reply: str, why: str) -> None:
+        """Claude Code stopped under one of a goal's sessions, which is paused now. A turn that cut off ends as a
+        failed one: a task's goes to the lead, which can start it again, and the lead's calls you."""
+        if not cut_off:
+            return
+        said = self.coordinator.turn_ended(driven.key, yours, reply, why, cut_off=True)
+        if said is not None and not said[0]:
+            driven.call_you(said[1])
 
     def _back_from_last_time(self, driven: DrivenSession) -> None:
         """A goal's lead, back paused at launch: one still waiting on your answer calls you with its question,
-        as it did before you quit."""
+        as it did before you quit, and one whose goal has tasks running calls you too, as they're paused like it
+        and none will report: they carry on as you tell it to."""
         found = self.coordinator.role(driven.key)
         if found is None or found[1] is not None:
             return
         goal = found[0]
-        if goal.asking and not goal.done:
+        running = [t for t in goal.tasks if t.status == coordinator_mod.RUNNING]
+        if goal.done:
+            return
+        if goal.asking:
             driven.call_you(goal.asking)
+        elif running:
+            driven.call_you(f"from last time, with {counted(len(running), 'task')} running · type to carry on")
 
     def _open_task(self, goal: coordinator_mod.Goal, task: coordinator_mod.Task, first: str) -> str | None:
         """A session for one of a goal's tasks, beside its lead, with `first` as the lead's first message to it."""

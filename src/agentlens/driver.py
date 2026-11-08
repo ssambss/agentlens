@@ -295,6 +295,9 @@ class DrivenSession:
         # what it would do without it. A turn you stopped is given too: stopped_by_you says so.
         self.options_extra: dict = {}
         self.on_turn_end: Callable[[DrivenSession, bool, str, str], tuple[bool, str] | None] | None = None
+        # And what it does when Claude Code stops under it, paused now: given whether that cut off a turn (one you
+        # hadn't stopped, so no result comes for it), whether that turn was yours, Claude's reply so far, and why.
+        self.on_stop: Callable[[DrivenSession, bool, bool, str, str], None] | None = None
 
     # Lifecycle --------------------------------------------------------------------------
 
@@ -781,7 +784,10 @@ class DrivenSession:
         stopping = self._stopping = asyncio.get_running_loop().create_future()
         try:
             self._cancel_pilot()
+            # A turn under way that you hadn't stopped is cut off: no result will come for it.
+            cut_off, yours, reply = self._in_turn and not self._interrupted, self._yours_sent, self._reply()
             self._in_turn = self._interrupted = False  # a turn it was in, stopped or not, ended with it
+            self._sent = self._yours_sent = False
             self.work.clear()  # what it had going stopped with it
             if self.pending and self.pending.future and not self.pending.future.done():
                 self.pending.future.cancel()
@@ -798,6 +804,11 @@ class DrivenSession:
             self.resume, self.parked, self.error = self.session_id, True, why
             self.events.append(Event(datetime.now(timezone.utc), "error", why[:240], why))
             self._set(PAUSED, "Claude Code stopped · type to continue")
+            if self.on_stop is not None:
+                try:
+                    self.on_stop(self, cut_off, yours, reply, why)
+                except Exception as e:  # noqa: BLE001 - it's paused, as it would be without the coordinator
+                    self._note(f"The coordinator couldn't take Claude Code stopping: {e}", kind="error")
         finally:
             self._stopping = None
             stopping.set_result(None)

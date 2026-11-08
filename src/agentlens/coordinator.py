@@ -363,16 +363,30 @@ class Coordinator:
 
     # When a turn ends: (quiet, the line under its title), or None as without it ---------------
 
-    def turn_ended(self, key: str, yours: bool, reply: str, failed: str = "",
-                   interrupted: bool = False) -> tuple[bool, str] | None:
+    def turn_ended(self, key: str, yours: bool, reply: str, failed: str = "", interrupted: bool = False,
+                   cut_off: bool = False) -> tuple[bool, str] | None:
         """`yours`: you sent a message in that turn. `interrupted`: you stopped it, which makes it yours too.
-        Quiet, the session waits without calling you."""
+        `cut_off`: Claude Code stopped under it, with `failed` saying how, and the session is paused. Quiet,
+        the session waits without calling you."""
         found = self.role(key)
         if found is None:
             return None
         goal, task = found
-        return self._lead_turn_ended(goal, yours, reply, interrupted) if task is None else self._task_turn_ended(
-            goal, task, yours or interrupted, reply, failed)
+        if task is None:
+            return self._lead_cut_off(goal, failed) if cut_off else self._lead_turn_ended(goal, yours, reply, interrupted)
+        return self._task_turn_ended(goal, task, yours or interrupted, reply, failed, cut_off)
+
+    def _lead_cut_off(self, goal: Goal, why: str) -> tuple[bool, str]:
+        """Its Claude Code stopped mid-turn: it calls you, whatever its sessions are doing, as the turn didn't end.
+        What it asked you, or the goal done, is still what it says."""
+        self._asked.discard(goal.id)
+        if goal.finished:
+            finished, goal.finished = goal.finished, ""
+            self.save()
+            return False, f"Goal done: {finished}"
+        if goal.asking:
+            return False, goal.asking
+        return False, f"stopped mid-turn ({why.rstrip('.')}) · type to carry on"
 
     def under_way(self, goal: Goal) -> list[Task]:
         """Its sessions at work: running Claude Code, and waiting neither on the lead to answer what they last
@@ -403,7 +417,8 @@ class Coordinator:
             return False, _first_sentence(reply) or "the coordinator is waiting on you"
         return True, f"coordinating: {self.summary(goal)}"
 
-    def _task_turn_ended(self, goal: Goal, task: Task, yours: bool, reply: str, failed: str) -> tuple[bool, str] | None:
+    def _task_turn_ended(self, goal: Goal, task: Task, yours: bool, reply: str, failed: str,
+                         cut_off: bool = False) -> tuple[bool, str] | None:
         if yours:
             task.in_a_row = 0  # you spoke to it: its reply is for you, and the lead counts again from here
             task.waiting_on_lead = False
@@ -421,7 +436,11 @@ class Coordinator:
                 return None  # kept open, as you've written to it: its turns are yours, as any session's
             return True, why
         lead = self.lead_keys.get(goal.id, "")
-        ended = f"ended a turn, with an error: {failed}" if failed else "ended a turn"
+        if cut_off:
+            ended = (f"stopped mid-turn: {failed.rstrip('.')}. Its session is paused, and message_task starts it "
+                     "again on its conversation")
+        else:
+            ended = f"ended a turn, with an error: {failed}" if failed else "ended a turn"
         text = (f"{task.title} (task {task.id}) {ended}. The user's autopilot level: {self.level()}.\n\n"
                 f"Its reply{', the end of it' if len(reply) > REPLY_CHARS else ''}:\n---\n"
                 f"{reply[-REPLY_CHARS:] or '(no text)'}\n---")

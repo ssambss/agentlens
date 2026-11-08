@@ -215,25 +215,23 @@ def test_reports_after_the_leads_claude_code_stopped_start_it_again_and_reach_it
     asyncio.run(go())
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: DrivenSession._stopped parks the lead (PAUSED, which doesn't call you) and never ends its turn; with "
-    "every task waiting on it, no report will start it again"))
-def test_the_leads_claude_code_stopping_mid_turn_with_every_task_waiting_on_it_calls_you(projects, tmp_path):
+@pytest.mark.parametrize("others", ["every-task-waiting-on-it", "a-task-at-work"])
+def test_the_leads_claude_code_stopping_mid_turn_with_every_task_waiting_on_it_calls_you(projects, tmp_path, others):
+    """Its turn cut off, it calls you, paused, whatever its tasks are doing. It had paused without calling you, and
+    with every task waiting on it no report would start it again."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            lead, goal, [parser] = await goal_at_work(app, pilot, folder, "Parser")
+            titles = ("Parser",) if others == "every-task-waiting-on-it" else ("Parser", "Docs")
+            lead, goal, [parser, *_] = await goal_at_work(app, pilot, folder, *titles)
             await reports(fakes, parser)
-            await reach(pilot, lambda: len(sent_to(fakes, lead)) == 2 and goal.task(1).waiting_on_lead,
-                        "Parser's reply sent to the lead")
+            await until(pilot, lambda: len(sent_to(fakes, lead)) == 2 and goal.task(1).waiting_on_lead)
             await fake_of(fakes, lead)._play([text("Reading Parser's reply.")])
             await fake_of(fakes, lead).queue.put(None)  # its Claude Code exits: no ResultMessage
-            await reach(pilot, lambda: lead.state == PAUSED, "the lead paused")
-            try:
-                await until(pilot, lambda: rings(app, lead), steps=40)
-            except AssertionError:
-                raise AssertionError(f"the lead was left {lead.state!r} ({lead.detail!r})") from None
+            await until(pilot, lambda: rings(app, lead))
+            assert lead.detail == "stopped mid-turn (Claude Code exited) · type to carry on"
+            assert lead.parked and not lead.connected  # Claude Code starts again as you type
 
     asyncio.run(go())
 
@@ -401,18 +399,18 @@ def test_goal_done_closes_its_tasks_and_one_mid_turn_closes_as_that_turn_ends(pr
 
 # After a restart -------------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "stuck: last time's sessions come back paused (PAUSED, which doesn't call you), the tasks that were at work "
-    "included, so none will report: nothing wakes the lead or calls you until you type in one"))
 def test_after_a_restart_a_goal_left_at_work_calls_you_or_carries_on(projects, tmp_path, isolated_home):
-    """Parser was at work and Docs waiting on the lead when you quit: the lead was waiting quietly on Parser."""
+    """Parser was at work and Docs waiting on the lead when you quit: the lead was waiting quietly on Parser. All
+    three come back paused, so none will report: the lead calls you, to tell it to carry on. Nothing had."""
     restored(tmp_path, isolated_home)
     app, _, fakes = app_for(projects, tmp_path)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            _, lead, _, _ = await back(app, pilot)
-            await lead_hears_or_calls_you(app, pilot, lead, fakes, 0)
+            _, lead, parser, docs = await back(app, pilot)
+            await until(pilot, lambda: rings(app, lead))
+            assert lead.detail == "from last time, with 2 tasks running · type to carry on"
+            assert sent_to(fakes, lead) == [] and not rings(app, parser) and not rings(app, docs)  # it waits on you
 
     asyncio.run(go())
 
