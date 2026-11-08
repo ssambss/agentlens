@@ -376,7 +376,9 @@ class Coordinator:
             return None
         goal, task = found
         if task is None:
-            return self._lead_cut_off(goal, failed) if cut_off else self._lead_turn_ended(goal, yours, reply, interrupted)
+            if cut_off:
+                return self._lead_cut_off(goal, failed)
+            return self._lead_turn_ended(goal, yours, reply, interrupted, failed)
         return self._task_turn_ended(goal, task, yours or interrupted, reply, failed, cut_off)
 
     def _lead_cut_off(self, goal: Goal, why: str) -> tuple[bool, str]:
@@ -424,8 +426,8 @@ class Coordinator:
         return [t for t in self.running(goal) if not t.waiting_on_lead and (goal.id, t.id) not in self._yours
                 and self.at_work(self.key_of(goal, t))]
 
-    def _lead_turn_ended(self, goal: Goal, yours: bool, reply: str = "",
-                         interrupted: bool = False) -> tuple[bool, str] | None:
+    def _lead_turn_ended(self, goal: Goal, yours: bool, reply: str = "", interrupted: bool = False,
+                         failed: str = "") -> tuple[bool, str] | None:
         if goal.finished:
             finished, goal.finished = goal.finished, ""
             self.save()
@@ -441,6 +443,10 @@ class Coordinator:
             self.save()
         if yours or interrupted:
             return None  # it answered you, or you stopped it: yours, as any session's
+        if failed:
+            # Its turn failed (an API error, say): what it set out to do, a report's answer, may not be done, and
+            # one of its sessions at work bringing it back later wouldn't say so. It's yours.
+            return False, f"its turn failed: {failed}"[:200]
         if not self.under_way(goal):
             # None of its sessions is at work, so none will bring it back: what it said is for you, even
             # without ask_you.

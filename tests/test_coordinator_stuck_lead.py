@@ -147,25 +147,23 @@ def test_reports_that_come_together_all_reach_the_lead_and_none_is_left_unread(p
 
 # The lead's own turn: failed, stopped, cut off -----------------------------------------------
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "hides a failure, not stuck: Coordinator.turn_ended passes the error to _task_turn_ended only, and "
-    "_lead_turn_ended goes quiet while a task is at work; the error sits in the lead's feed, and the report the "
-    "failed turn was on waits until another task's wakes the lead"))
 def test_a_lead_turn_that_fails_while_a_task_is_at_work_calls_you(projects, tmp_path):
+    """Its turn on Parser's reply fails, with Docs still at work: it calls you with the error, where it went quiet
+    on Docs, the error only in its feed and Parser's reply unanswered until Docs' woke it."""
     app, folder, fakes = app_for(projects, tmp_path)
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
-            lead, _, [parser, _] = await goal_at_work(app, pilot, folder, "Parser", "Docs")
+            lead, goal, [parser, docs] = await goal_at_work(app, pilot, folder, "Parser", "Docs")
             await reports(fakes, parser)
-            await reach(pilot, lambda: len(sent_to(fakes, lead)) == 2, "Parser's reply sent to the lead")
+            await until(pilot, lambda: len(sent_to(fakes, lead)) == 2)
             await lead_says(fakes, lead, "Telling Parser to add tests.", error="API Error: 500 Internal server error")
-            await reach(pilot, lambda: lead.state != WORKING, "the lead's turn ended")
-            given(any(e.kind == "error" and "API Error: 500" in e.text for e in lead.events), "the error in its feed")
-            try:
-                await until(pilot, lambda: rings(app, lead), steps=40)
-            except AssertionError:
-                raise AssertionError(f"the lead's failed turn left it {lead.state!r} ({lead.detail!r})") from None
+            await until(pilot, lambda: lead.state != WORKING and rings(app, lead))
+            assert lead.detail == "its turn failed: API Error: 500 Internal server error"
+            assert any(e.kind == "error" and "API Error: 500" in e.text for e in lead.events)
+            assert app.coordinator.under_way(goal) == [goal.task(2)]  # Docs works on: its reply still reaches the lead
+            await reports(fakes, docs)
+            await until(pilot, lambda: len(sent_to(fakes, lead)) == 3)
 
     asyncio.run(go())
 
