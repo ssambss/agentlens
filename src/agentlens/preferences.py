@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -63,6 +65,24 @@ def home() -> Path:
     path = Path.home() / ".agentlens"
     _carry_over(Path.home() / ".panopsis", path)
     return path
+
+
+def write_whole(path: Path, text: str) -> None:
+    """Write `text` to `path` in one piece: to a file beside it, then into its place. An agentlens
+    ended mid-write (Stop-Process -Force, a power cut) leaves the old file, never the start of the
+    new one, which reads as none at all: no goals, the default settings."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        for wait in (0.02, 0.05, 0.1, 0.2):
+            try:
+                os.replace(temporary, path)
+                return
+            except PermissionError:  # Windows: something has it open a moment, another agentlens or a scanner
+                time.sleep(wait)
+    finally:
+        temporary.unlink(missing_ok=True)
+    path.write_text(text, encoding="utf-8")  # still held: in place, as before
 
 
 _carried = False  # looked for the old folder this run
@@ -210,4 +230,4 @@ def _write_entry(path: Path, key: str, value: str) -> None:
             break
     else:
         lines.append(entry)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_whole(path, "\n".join(lines) + "\n")

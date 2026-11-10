@@ -17,7 +17,7 @@ import yaml
 
 from agentlens import keys as keys_mod
 from agentlens.autopilot import LEVELS as AUTOPILOT_LEVELS
-from agentlens.preferences import home
+from agentlens.preferences import home, write_whole
 
 PANE_KEY = re.compile(r"d-[0-9a-f]{10}")  # DrivenSession.key: a pane's own id, not Claude Code's
 
@@ -333,7 +333,7 @@ def save(config: Config) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = asdict(config)
     data.pop("path")
-    path.write_text(HEADER + yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    write_whole(path, HEADER + yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
     return path
 
 

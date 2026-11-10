@@ -103,3 +103,31 @@ def test_what_panopsis_kept_takes_the_place_of_what_agentlens_kept_before_it(tmp
     monkeypatch.setattr(preferences, "_carried", False)  # the next launch
     preferences.home()
     assert (tmp_path / ".agentlens" / "config.yaml").read_text(encoding="utf-8") == "theme: ember\n"
+
+
+def test_a_file_is_written_whole_or_left_as_it_was(tmp_path, monkeypatch):
+    path = tmp_path / "goals.json"
+    preferences.write_whole(path, "new")
+    assert path.read_text(encoding="utf-8") == "new" and [p.name for p in tmp_path.iterdir()] == ["goals.json"]
+
+    def cut_off(self, text, encoding=None):  # ended partway, as Stop-Process -Force would
+        with self.open("w", encoding=encoding) as f:
+            f.write(text[:2])
+        raise OSError("ended")
+    monkeypatch.setattr(type(path), "write_text", cut_off)
+    with pytest.raises(OSError):
+        preferences.write_whole(path, "newer")
+    monkeypatch.undo()
+    assert path.read_text(encoding="utf-8") == "new" and [p.name for p in tmp_path.iterdir()] == ["goals.json"]
+
+
+def test_a_file_held_open_elsewhere_is_written_in_place(tmp_path, monkeypatch):
+    path = tmp_path / "config.yaml"
+    path.write_text("old", encoding="utf-8")
+
+    def held(source, target):
+        raise PermissionError("in use")
+    monkeypatch.setattr(preferences.os, "replace", held)
+    monkeypatch.setattr(preferences.time, "sleep", lambda s: None)
+    preferences.write_whole(path, "new")
+    assert path.read_text(encoding="utf-8") == "new" and [p.name for p in tmp_path.iterdir()] == ["config.yaml"]

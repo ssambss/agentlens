@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agentlens.preferences import home
+from agentlens.preferences import home, write_whole
 
 
 def read_path() -> Path:
@@ -51,7 +51,6 @@ class ReadSessions:
     def _save(self) -> None:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({sid: since.isoformat() for sid, since in self._since.items()}, indent=1),
-                                 encoding="utf-8")
+            write_whole(self.path, json.dumps({sid: since.isoformat() for sid, since in self._since.items()}, indent=1))
         except OSError:
             pass  # only so a restart remembers

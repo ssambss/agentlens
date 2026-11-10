@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from agentlens import autopilot
-from agentlens.preferences import home
+from agentlens.preferences import home, write_whole
 
 AT_ONCE = 3  # its sessions running at once
 PER_GOAL = 6  # sessions it starts for one goal
@@ -137,7 +137,7 @@ def load(file: Path | None = None) -> dict[str, Goal]:
 def save(goals: dict[str, Goal], file: Path | None = None) -> None:
     file = file or path()
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(json.dumps([asdict(g) for g in goals.values()], indent=1), encoding="utf-8")
+    write_whole(file, json.dumps([asdict(g) for g in goals.values()], indent=1))
 
 
 def _now() -> str:

@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agentlens.model import APPROVED, AUTOPILOT, DECLINED, SENT_BACK, Event
-from agentlens.preferences import home
+from agentlens.preferences import home, write_whole
 from agentlens.terminal import claude_env
 
 # off, then what each level answers for you, as the settings and the p key say it.
@@ -180,7 +180,7 @@ def record(entry: Entry, path: Path | None = None) -> None:
             f.write(line + "\n")
         if path.stat().st_size > TRIM_BYTES:
             kept = path.read_text(encoding="utf-8").splitlines()[-KEPT:]
-            path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+            write_whole(path, "\n".join(kept) + "\n")
     except OSError:
         pass  # only the list of its answers goes without it
 
