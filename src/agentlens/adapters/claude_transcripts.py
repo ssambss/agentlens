@@ -367,23 +367,36 @@ def _build_run(
     return run
 
 
+MODEL_SET = re.compile(r"Set model to `([^`\n]+)`")  # what Claude Code answers /model with
+
+
+def model_set_to(text: str) -> str:
+    """The model a /model command's answer says the session runs on now, as Claude Code names it
+    ("Sonnet 5.5"); empty if it isn't that answer."""
+    found = MODEL_SET.search(text or "")
+    return found[1].strip() if found else ""
+
+
 def _context(records: list[dict]) -> tuple[int | None, str, str]:
     """How full the context window is at the end of these records, the model that call asked for, and
-    the model that answered it. A model call's context is its whole input: new, cache-written and
-    cache-read tokens alike, as Claude Code counts it. A compaction after the last call leaves what it kept."""
-    tokens = None
+    the model the session runs on: the one that answered it, or one /model set since. A model call's
+    context is its whole input: new, cache-written and cache-read tokens alike, as Claude Code counts it.
+    A compaction after the last call leaves what it kept."""
+    tokens, switched = None, ""
     for r in reversed(records):
         if tokens is None and r.get("subtype") == "compact_boundary":
             kept = (r.get("compactMetadata") or {}).get("postTokens")
             tokens = kept if isinstance(kept, int) else None
+        if not switched and r.get("subtype") == "local_command" and (r.get("commandRun") or {}).get("command") == "model":
+            switched = model_set_to(str(r.get("content") or ""))  # after the newest reply: it runs on this now
         message = r.get("message") or {}
         usage = message.get("usage")
         if r.get("type") != "assistant" or not isinstance(usage, dict) or message.get("model") in (None, "<synthetic>"):
             continue
         if tokens is None and any(k in usage for k in INPUT_TOKENS):
             tokens = sum(usage.get(k) or 0 for k in INPUT_TOKENS)
-        return tokens, str(r.get("requestedModel") or message["model"]), str(message["model"])
-    return tokens, "", ""
+        return tokens, str(r.get("requestedModel") or message["model"]), switched or str(message["model"])
+    return tokens, "", switched
 
 
 def _record_change(run: AgentRun, path: str, result_record: dict) -> None:

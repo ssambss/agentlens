@@ -2632,7 +2632,9 @@ def test_a_turn_you_stop_shows_no_error_though_claude_code_ends_it_as_one():
 
 
 def test_zoom_says_which_model_a_session_here_runs_on(projects, tmp_path):
-    app, folder, _ = app_with_session(projects, tmp_path, {"hi": [text("Hello."), done()]})
+    switched = AssistantMessage([TextBlock("Set model to `Sonnet 5.5` for this session only")], "<synthetic>")
+    app, folder, _ = app_with_session(projects, tmp_path, {"hi": [text("Hello."), done()],
+                                                           "/model sonnet": [switched, done()]})
 
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
@@ -2642,6 +2644,10 @@ def test_zoom_says_which_model_a_session_here_runs_on(projects, tmp_path):
             app._focus_key(driven.key)
             app.action_zoom()
             await pilot.pause(0.2)
-            assert app.screen.query_one("#zoom-context").content.plain == "Model Opus 5.5"
+            meter = app.screen.query_one("#zoom-context")
+            assert meter.content.plain == "Model Opus 5.5"
+            # /model changes it at once, from Claude Code's answer: no reply from the model says so until the next turn.
+            await driven.send("/model sonnet")
+            await until(pilot, lambda: meter.content.plain == "Model Sonnet 5.5")
 
     asyncio.run(go())

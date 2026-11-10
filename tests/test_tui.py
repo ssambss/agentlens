@@ -803,6 +803,21 @@ def test_zoom_says_which_model_answered_even_when_another_was_asked_for(projects
     run_app(app, steps)
 
 
+def test_zoom_says_the_model_set_with_model_before_any_reply_says_so(projects):
+    switched = {"type": "system", "subtype": "local_command", "timestamp": at(2), "commandRun": {"command": "model",
+                "args": "sonnet"}, "content": "<local-command-stdout>Set model to `Sonnet 5.5` for this session only"
+                "</local-command-stdout>"}
+    write_jsonl(projects / "demo" / "waiting.jsonl", common([human(0), text(1), switched], "waiting"))
+    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
+
+    async def steps(app, pilot):
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert app.screen.query_one("#zoom-context", Static).content.plain == "Model Sonnet 5.5"
+
+    run_app(app, steps)
+
+
 def test_model_names_read_the_way_people_say_them():
     ids = ["claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-opus-4-20250514", "claude-3-7-sonnet-20250219",
            "claude-sonnet-4-5[1m]", "us.anthropic.claude-opus-4-5-20251101-v1:0", "claude-fable-5-1", "gpt-5"]

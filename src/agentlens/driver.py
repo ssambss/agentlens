@@ -40,6 +40,7 @@ from agentlens.adapters.claude_transcripts import (
     answer_event,
     ask_you_event,
     image_marks,
+    model_set_to,
     plan_answer_event,
     plan_event,
     question_event,
@@ -870,6 +871,9 @@ class DrivenSession:
                     self.partial = ""
                     first = next((ln for ln in block.text.splitlines() if ln.strip()), "")
                     self.events.append(Event(now, "claude", first[:240], block.text, tag=tag))
+                    if tag and (switched := model_set_to(block.text)):
+                        self.running_model = switched  # /model: what it runs on from now, before a reply says
+
                 elif block_kind == "ToolUseBlock":
                     self.work.called(block.id, block.name, block.input or {})
                     summary = tool_summary(block.input or {}, self.cwd)

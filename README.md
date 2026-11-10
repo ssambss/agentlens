@@ -71,9 +71,10 @@ nearly full. It's the last model call's whole input, as Claude Code counts it, a
 model's window: 1M tokens, or 200K for models older than the 4.6 generation unless you
 picked their 1M variant. Zoomed in, it's a meter with the tokens, after the model the
 session runs on (`Model Opus 5.5   Context ███▍░░░░ 42% 420K of 1M`). That's the model
-its newest reply came from, which isn't always the one asked for, or for a session
-agentlens runs that hasn't replied yet, the one Claude Code started it on. Subagents have
-their own context windows, not counted here.
+its newest reply came from, which isn't always the one asked for. After `/model`, it's the
+one Claude Code says it set, straight away. A session agentlens runs that hasn't replied
+yet shows the one Claude Code started it on. Subagents have their own context windows, not
+counted here.
 
 When a session starts needing you, you get a notification and a terminal bell. Its Open
 button, or `j` from anywhere, takes you there; `j` again goes to the next one.
