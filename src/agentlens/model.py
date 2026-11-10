@@ -89,6 +89,7 @@ class AgentRun:
     pending_tools: list[tuple[str, datetime]] = field(default_factory=list)  # (tool, called at), no result yet
     context_tokens: int | None = None  # how much of its context window its last model call filled, when known
     context_model: str = ""  # the model that call asked for: "claude-opus-5-5", "claude-sonnet-4-5[1m]"
+    last_model: str = ""  # the model that answered it, which can differ from the one asked for
 
     def minutes(self, *kinds: str) -> float:
         return sum(s.minutes for s in self.spans if s.kind in kinds)

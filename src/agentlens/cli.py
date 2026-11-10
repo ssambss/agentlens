@@ -13,7 +13,8 @@ from pathlib import Path
 
 from rich.console import Console
 
-from agentlens import __version__, advise, curate, live, preferences, settings_file, timings
+from agentlens import advise, curate, live, preferences, settings_file, timings
+from agentlens import version as version_mod
 from agentlens import config as config_mod, profile as profile_mod, trend as trend_mod
 from agentlens.adapters.claude_transcripts import DEFAULT_ROOT, SessionCache, load_sessions
 from agentlens.metrics import all_entities, baselines
@@ -61,12 +62,25 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
 
+class _Version(argparse.Action):
+    """--version: which agentlens this is, with the commit it's from and how old that is. Asked only
+    when you ask: it runs git, which every launch needn't wait for."""
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS,
+                 help="show which agentlens this is, and how old, and exit"):
+        super().__init__(option_strings, dest=dest, default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(version_mod.describe())  # to stdout, as argparse's own version action does
+        parser.exit()
+
+
 def _parser() -> argparse.ArgumentParser:
     # Findings and advice are early versions, hidden until you turn them on: so are their commands in
     # the help, though one you run still says how to turn them on.
     findings_and_advice = config_mod.load().findings_and_advice
     parser = argparse.ArgumentParser(prog="agentlens", description=__doc__)
-    parser.add_argument("--version", action="version", version=f"agentlens {__version__}")
+    parser.add_argument("--version", action=_Version)
     sub = parser.add_subparsers(required=False, metavar="command")
 
     def add(name: str, func, help: str, data: bool = True, experimental: bool = False) -> argparse.ArgumentParser:

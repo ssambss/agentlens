@@ -2,11 +2,13 @@
 No real CLI: the lead's tool calls are made here, as it would make them."""
 
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from rich.text import Text
 from test_driver import app_with_session, done, text, until
+from textual.color import Color
 
 from agentlens import coordinator, tui as tui_mod
 from agentlens.coordinator import BOARD, BOARD_NOTE, COORDINATOR, DONE, NOTE, PLANNED, RUNNING, Coordinator
@@ -722,6 +724,86 @@ def test_a_goals_panes_offer_no_autopilot_as_the_coordinator_answers_there(proje
             await until(pilot, lambda: worker.state == BACKGROUND and box(worker).startswith("Message Claude…"))
             assert "autopilot" not in box(worker)
             await pressing_p_on(pilot, worker)
+
+    asyncio.run(go())
+
+
+def test_each_coordinator_has_a_colour_and_an_entry_of_its_own_under_the_spaces(projects, tmp_path):
+    scripts = Prefixes({
+        "Split the parser": [text("I'll plan it."), done()],
+        "Do Parser.": [text("Split it."), done()],
+        "Parser (task 1) ended a turn": [text("Good."), done()],
+        "Something else": [text("Hi."), done()],
+    })
+    app, folder, _ = app_with_session(projects, tmp_path, scripts)
+    app.config.coordinator, app.config.autopilot = True, "autonomous"
+
+    def pane(d):
+        return app.query_one(f"#s-{d.key}", tui_mod.SessionPane)
+
+    def rows():
+        """The spaces list's lines, without how many need you: that comes and goes as the lead calls you."""
+        return [re.sub(r"  ●\d+$", "", node.label.plain) for node in app.query_one(tui_mod.SpacesTree).root.children]
+
+    def shown():
+        return {p.session_id for p in app.query(tui_mod.SessionPane) if p.display}
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            other = app.open_driven(str(folder), prompt="Something else")
+            lead = app.start_goal(str(folder), "Split the parser", "acceptEdits", "")
+            await until(pilot, lambda: lead.state == WAITING and other.state == WAITING)
+            goal = app.coordinator.role(lead.key)[0]
+            app.coordinator.add_tasks(goal, tasks("Parser"))
+            app.coordinator.start_task(goal, 1)
+            worker = next(d for d in app.driven.values() if d not in (lead, other))
+            # Its turn on what that session said answered nothing, so it calls you with what it said.
+            await until(pilot, lambda: worker.state == BACKGROUND and lead.state == WAITING and lead.detail == "Good.")
+
+            # Its lead's border has the coordinator's colour, its sessions' their state's, unless it needs you.
+            variables = app.get_css_variables()
+            app._focus_key(other.key)
+
+            def read_and_shown(d, color: str) -> bool:
+                """Once you've read them all (the lead may call you again meanwhile), `d`'s border is `color`."""
+                for each in (lead, worker, other):
+                    app.mark_read(app.sessions[each.key])
+                return pane(d).styles.border_top[1] == Color.parse(variables[color])
+
+            await until(pilot, lambda: read_and_shown(lead, "al-coordinator"))
+            await until(pilot, lambda: read_and_shown(worker, "al-background"))
+            assert pane(lead).has_class("lead") and not pane(worker).has_class("lead")
+            # Needing you, it's in that colour, like any session.
+            app.read._since.pop(lead.key, None)
+            lead_pane = pane(lead)
+            lead_pane.paint()
+            await until(pilot, lambda: lead_pane.styles.border_top[1] == Color.parse(variables["al-waiting"]))
+            # And the goal's name on both is in it.
+            for d in (lead, worker):
+                name = next(span for span in pane(d)._shown["title"].spans if span.start == 0)  # as painted
+                assert name.style == app.coordinator_color == variables["al-coordinator"]
+
+            # Under the spaces, one entry for each coordinator: its lead and its sessions, from wherever they are.
+            assert rows() == ["▶ All sessions  3", "  repo  3", " ", "COORDINATORS", "  ◆ Split the parser  2"]
+            await pilot.press("right_square_bracket", "right_square_bracket")
+            assert app.current_space == f"{tui_mod.GOAL_VIEW}{goal.id}"
+            assert shown() == {lead.key, worker.key}
+            assert app.query_one(tui_mod.SpacesTree).cursor_line == 4
+            assert app.query_one("#where").content.plain == "coordinator: ◆ Split the parser"
+            assert rows()[4] == "▶ ◆ Split the parser  2"
+
+            # A session you start from there shows where it goes.
+            started = app.open_driven(str(folder), prompt="Something else")
+            await pilot.pause(0.1)
+            assert app.current_space == "repo" and started.key in shown()
+
+            # Once its panes are closed, it's gone from the list.
+            app.coordinator.finish_task(goal, 1, "split")
+            await until(pilot, lambda: worker.key not in app.driven)
+            await app._end_driven(lead, quiet=True)
+            app.action_refresh()
+            await until(pilot, lambda: "COORDINATORS" not in rows())
+            assert app.goal_views() == []
 
     asyncio.run(go())
 

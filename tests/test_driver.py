@@ -2629,3 +2629,19 @@ def test_a_turn_you_stop_shows_no_error_though_claude_code_ends_it_as_one():
         assert d.events[-1].text == "API Error: 529 Overloaded"
         await d.close()
     asyncio.run(go())
+
+
+def test_zoom_says_which_model_a_session_here_runs_on(projects, tmp_path):
+    app, folder, _ = app_with_session(projects, tmp_path, {"hi": [text("Hello."), done()]})
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            driven = await started(app, pilot, folder, prompt="hi")
+            await until(pilot, lambda: driven.state == WAITING and driven.events[-1].kind == "claude")
+            assert driven.running_model == "claude-opus-5-5"  # what its reply came from
+            app._focus_key(driven.key)
+            app.action_zoom()
+            await pilot.pause(0.2)
+            assert app.screen.query_one("#zoom-context").content.plain == "Model Opus 5.5"
+
+    asyncio.run(go())

@@ -64,6 +64,8 @@ STATE_STYLE = {
 SMALL_WINDOW = 200_000
 LARGE_WINDOW = 1_000_000
 MODEL_VERSION = re.compile(r"claude-(?:[a-z]+-)?(\d+)(?:[-.](\d)(?!\d))?")  # opus-4-5, 3-7-sonnet, opus-4-20250514
+# A model's family and version, in both of the orders its ids have had: opus-4-5, 3-7-sonnet.
+MODEL_NAME = re.compile(r"claude-(?:([a-z]+)-(\d+)(?:-(\d{1,2}))?|(\d+)(?:-(\d))?-([a-z]+))(?![\d.])")
 BUSY_STATUSES = {"busy", "working", "running"}
 IDLE_STATUSES = {"idle", "waiting", "needs_input", "needs-input"}
 
@@ -104,6 +106,7 @@ class LiveSession:
     changes: list[FileChange] = field(default_factory=list)  # files it changed, most recent first
     context_tokens: int | None = None  # how full its context window is, when a model call has said
     context_window: int = 0  # how many tokens that window holds
+    model: str = ""  # the model it runs on: the one that gave its newest reply, as Claude Code names it
     # When its newest message came through the Agent SDK, the times of those that did: a program runs it,
     # agentlens or another. by_program: another one, like a Claude's test script (see run_by_program).
     via_sdk: frozenset[datetime] = frozenset()
@@ -299,6 +302,19 @@ def set_context(live: LiveSession, session: Session | None) -> None:
     if run is not None and run.context_tokens is not None:
         live.context_tokens = run.context_tokens
         live.context_window = context_window(run.context_model, run.context_tokens)
+    if run is not None and not live.model:  # one agentlens runs knows its own, newer than the transcript's
+        live.model = run.last_model
+
+
+def model_name(model: str) -> str:
+    """A model as people call it: claude-opus-5-5 is Opus 5.5, claude-3-7-sonnet-20250219 Sonnet 3.7,
+    and its 1M context variant says so. One that isn't Claude's is as Claude Code names it."""
+    found = MODEL_NAME.search(model.lower())
+    if found is None:
+        return model
+    family, major, minor = (found[1], found[2], found[3]) if found[1] else (found[6], found[4], found[5])
+    name = f"{family.capitalize()} {major}{'.' + minor if minor else ''}"
+    return name + (" 1M" if "[1m]" in model.lower() else "")
 
 
 def subagent_lists(session: Session | None, now: datetime) -> tuple[list[LiveSubagent], list[LiveSubagent]]:

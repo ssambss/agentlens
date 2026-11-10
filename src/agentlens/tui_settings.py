@@ -1,9 +1,10 @@
 """The settings screen (,): the look and the defaults, picked in the app instead of the file.
 
 Every change shows on the wall behind it straight away and is saved as you make it, to
-~/.agentlens/config.yaml, and your goals and style to ~/.agentlens/profile.yaml. Spaces and
-colours of your own stay in the file; the screen has buttons that open it. Export and Import
-take the settings to another PC (settings_file).
+~/.agentlens/config.yaml, and your goals and style to ~/.agentlens/profile.yaml. Colours
+come as presets, and the colours list (tui_colors) changes any one of them. Spaces stay in the
+file; the screen has buttons that open it. Export and Import take the settings to another PC
+(settings_file).
 """
 
 from __future__ import annotations
@@ -21,14 +22,16 @@ from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Input, Label, Select, Static
 
 from agentlens import config as config_mod, editor as editor_mod, keys as keys_mod, preferences, settings_file
+from agentlens import version as version_mod
 from agentlens.frames import PacedScreen
 from agentlens.textbox import TextInput
 from agentlens import coordinator as coordinator_mod
 from agentlens.autopilot import LEVELS as AUTOPILOT_LEVELS
+from agentlens.tui_colors import ColorsScreen
 from agentlens.tui_driven import MODE_LABELS, FolderPickerScreen
 from agentlens.tui_keys import KeysScreen
 
-OWN_COLORS = "own"  # the colours option for colours set in the file
+OWN_COLORS = "own"  # the colours option for colours you picked one by one, or set in the file
 OWN_KEYS = "own"  # the keys option for keys you changed one by one
 AUTO_EDITOR = ""  # the editor option for $VISUAL, $EDITOR or the first one installed
 OWN_EDITOR = "own"  # the editor option for a command of your own
@@ -88,9 +91,6 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
         preset = config_mod.color_preset(cfg.colors)
         self._own_colors = None if preset else dict(cfg.colors)  # to go back to after trying a preset
         self._own_keys = None if keys_mod.preset_of(cfg.keys) else dict(cfg.keys)  # likewise
-        colors = [(label, key) for key, (label, _) in config_mod.COLOR_PRESETS.items()]
-        if preset is None:
-            colors.append(("Your own, from the settings file", OWN_COLORS))
         usage = list(USAGE_CHOICES)
         if cfg.usage_minutes not in [minutes for _, minutes in usage]:
             usage.append((f"Every {cfg.usage_minutes:g} minutes", cfg.usage_minutes))
@@ -109,11 +109,14 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             yield Label(Text("Settings", style="bold"))
             yield Static(Text(f"Saved as you change them, in {tilde(cfg.path or config_mod.config_path())}",
                               style="dim"))
+            # Which agentlens this is, and how old: its version number alone doesn't change between commits.
+            yield Static(Text(version_mod.describe(), style="dim"), id="set-version")
 
             yield Label("Look", classes="settings-section")
             yield row("Theme", Select(themes, value=app.theme, allow_blank=False, compact=True, id="set-theme"))
-            yield row("Colours", Select(colors, value=preset or OWN_COLORS, allow_blank=False, compact=True,
-                                        id="set-colors"))
+            yield row("Colours", Select(self._color_choices(), value=preset or OWN_COLORS, allow_blank=False,
+                                        compact=True, id="set-colors"),
+                      Button("Change a colour…", compact=True, id="set-colors-list"))
             yield Static(id="set-sample", classes="settings-note")
             looks = list(config_mod.LOOKS.values())
             yield Static(f"{looks[0].name} to {looks[-1].name} are themes too, for the background and panels. "
@@ -225,8 +228,7 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
                 prefs_file = Button("Open the preferences file", compact=True, id="set-prefs-file", classes="aims")
                 prefs_file.display = cfg.findings_and_advice
                 yield prefs_file
-            yield Static(Text("Spaces, colours of your own and rule thresholds are in the files. Esc closes.",
-                              style="dim"))
+            yield Static(Text("Spaces and rule thresholds are in the files. Esc closes.", style="dim"))
 
     def on_mount(self) -> None:
         self._paint_sample()
@@ -246,6 +248,7 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
         text.append(" you ", style=f"bold {variables.get('al-you', '')} on {variables.get('al-card', '')}")
         for name, label in CHAT_SAMPLE:
             text.append("  " + label, style=variables.get(f"al-{name}", ""))
+        text.append("  ◆ coordinator", style=variables.get("al-coordinator", ""))  # on this line: there's room
         self.query_one("#set-sample", Static).update(text)
 
     # Select posts Changed when it first shows its value too, so each of these checks it's a change.
@@ -266,6 +269,26 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
         if colors is not None and colors != current:
             self._set("colors", colors)
             self._paint_sample()
+
+    def _color_choices(self) -> list[tuple[str, str]]:
+        choices = [(label, key) for key, (label, _) in config_mod.COLOR_PRESETS.items()]
+        if self._own_colors is not None:
+            choices.append(("Your own, from the colours list", OWN_COLORS))
+        return choices
+
+    @on(Button.Pressed, "#set-colors-list")
+    def _open_colors_list(self) -> None:
+        def closed(_: None) -> None:
+            preset = config_mod.color_preset(self._app.config.colors)
+            if preset is None:
+                self._own_colors = dict(self._app.config.colors)  # what you picked there
+            select = self.query_one("#set-colors", Select)
+            with select.prevent(Select.Changed):  # showing them changes nothing
+                select.set_options(self._color_choices())
+                select.value = preset or OWN_COLORS
+            self._paint_sample()
+
+        self.app.push_screen(ColorsScreen(), closed)
 
     def _key_choices(self) -> list[tuple[str, str]]:
         choices = [(label, key) for key, (label, _) in keys_mod.KEY_PRESETS.items()]

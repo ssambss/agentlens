@@ -2,6 +2,7 @@ import dataclasses
 import json
 import asyncio
 import io
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,8 +27,11 @@ from agentlens.driver import STARTING
 from agentlens.feed import Palette, _clip_lines, activity_log, collapse_repeats, conversation, tools_summary
 from agentlens.live import BACKGROUND, QUESTION, WAITING, WORKING, LiveSession
 from agentlens.model import Event
+from agentlens.live import model_name
+from agentlens.tui_colors import ColorPickScreen, ColorsScreen
 from agentlens.tui_driven import FolderPickerScreen
 from agentlens.tui_settings import SettingsScreen, tilde
+from textual.widgets import OptionList
 from agentlens.tui import (
     ALL,
     AdviseScreen,
@@ -536,7 +540,7 @@ def test_looks_read_on_their_own_background_and_textual_darks():
         assert set(c) == set(config_mod.DEFAULT_COLORS), key
         for background in (look.background, "#121212"):
             assert all(contrast(c[k], background) >= 3 for k in ("selected", "question", "working", "background",
-                                                                  "failed")), (key, background)
+                                                                  "failed", "coordinator")), (key, background)
             assert all(contrast(c[k], background) >= 4.5 for k in ("claude", "tool", "notice", "error")), (key, background)
         assert contrast(c["you"], c["card"]) >= 4.5, key
         # The state shows in the strength: brightest when it needs you, dim when idle.
@@ -585,6 +589,81 @@ def test_settings_keep_your_own_colours_to_go_back_to(projects, tmp_path):
         assert config_mod.load(cfg.path).colors["selected"] == "#ff00ff"
 
     run_app(app, steps)
+
+
+def test_any_one_colour_can_be_picked_whatever_the_preset_says(projects, tmp_path):
+    vivid = config_mod.COLOR_PRESETS["vivid"][1]
+    cfg = config_mod.Config(path=tmp_path / "config.yaml", colors=dict(vivid))
+    make_projects(projects)
+    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60, config=cfg)
+
+    def pick(screen, value):
+        screen.query_one("#pick-list", OptionList).highlighted = screen._values.index(value)
+
+    async def steps(app, pilot):
+        await pilot.press("comma")
+        await pilot.pause(0.2)
+        settings = app.screen
+        assert settings.query_one("#set-version", Static).content.plain.startswith("agentlens ")
+        assert settings.query_one("#set-colors", Select).value == "vivid"
+        settings.query_one("#set-colors-list", Button).press()
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ColorsScreen)
+        listing = app.screen.query_one("#colors-list", OptionList)
+        assert listing.highlighted_option.id == "selected"  # the session you're on, which every preset has near white
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        picker = app.screen
+        assert isinstance(picker, ColorPickScreen)
+        assert picker._values[picker.query_one("#pick-list", OptionList).highlighted] == "#FFFFFF"  # vivid's, now
+        pick(picker, "#E040FB")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ColorsScreen)
+        assert app.get_css_variables()["al-selected"].upper() == "#E040FB"  # on the wall at once
+        assert config_mod.load(cfg.path).colors == {**vivid, "selected": "#E040FB"}  # the others stay vivid's
+
+        # One that isn't in the list, typed. Something that isn't a colour says so, and changes nothing.
+        listing.highlighted = next(i for i, option in enumerate(listing.options) if option.id == "coordinator")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        picker = app.screen
+        picker.query_one("#pick-own", Input).focus()
+        await pilot.press(*"blurple", "enter")
+        await pilot.pause(0.1)
+        assert app.screen is picker and "isn't a colour" in picker.query_one("#pick-preview", Static).content.plain
+        picker.query_one("#pick-own", Input).value = ""
+        await pilot.press(*"orange", "enter")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ColorsScreen) and app.config.colors["coordinator"] == "orange"
+
+        # The theme's own, which follows it.
+        listing.highlighted = next(i for i, option in enumerate(listing.options) if option.id == "notice")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        pick(app.screen, "$accent")
+        await pilot.press("enter", "escape")
+        await pilot.pause(0.2)
+        assert app.screen is settings and app.config.colors["notice"] == "$accent"
+        # Back in the settings, they're your own now, and a preset is still there to go back to.
+        colors = settings.query_one("#set-colors", Select)
+        assert colors.value == "own"
+        colors.value = "vivid"
+        await pilot.pause(0.1)
+        assert app.config.colors == vivid
+        colors.value = "own"
+        await pilot.pause(0.1)
+        assert app.config.colors == {**vivid, "selected": "#E040FB", "coordinator": "orange", "notice": "$accent"}
+
+    run_app(app, steps)
+
+
+def test_colours_saved_before_one_was_added_stay_their_preset():
+    vivid = config_mod.COLOR_PRESETS["vivid"][1]
+    before = {name: value for name, value in vivid.items() if name != "coordinator"}
+    assert config_mod.parse({"colors": before}).colors == vivid
+    assert config_mod.parse({"colors": {"selected": "#ff00ff"}}).colors == {**config_mod.DEFAULT_COLORS,
+                                                                            "selected": "#ff00ff"}
 
 
 def test_settings_screen_exports_and_imports_settings(projects, tmp_path, isolated_home):
@@ -703,12 +782,56 @@ def test_panes_and_zoom_show_how_full_each_context_window_is(projects):
         assert [span.style for span in subtitle("full").spans] == [app.meter_colors[2]]
         await pilot.press("enter")
         await pilot.pause(0.2)
-        # Zoomed in, beside the plan's meters, with how many tokens of how many.
+        # Zoomed in, beside the plan's meters, with how many tokens of how many, after the model it runs on.
         context = app.screen.query_one("#zoom-context", Static)
-        assert context.content.plain == "Context ███▍░░░░ 42% 420K of 1M"
+        assert context.content.plain == "Model Opus 5.5   Context ███▍░░░░ 42% 420K of 1M"
         assert context.region.right == app.screen.query_one("#zoom-usage").region.x
 
     run_app(app, steps)
+
+
+def test_zoom_says_which_model_answered_even_when_another_was_asked_for(projects):
+    asked = text(1)
+    asked["requestedModel"] = "claude-haiku-5-5"  # an id Claude Code doesn't know runs its default instead
+    write_jsonl(projects / "demo" / "waiting.jsonl", common([human(0), asked], "waiting"))
+    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
+
+    async def steps(app, pilot):
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert app.screen.query_one("#zoom-context", Static).content.plain == "Model Opus 5.5"
+
+    run_app(app, steps)
+
+
+def test_model_names_read_the_way_people_say_them():
+    ids = ["claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-opus-4-20250514", "claude-3-7-sonnet-20250219",
+           "claude-sonnet-4-5[1m]", "us.anthropic.claude-opus-4-5-20251101-v1:0", "claude-fable-5-1", "gpt-5"]
+    assert [model_name(m) for m in ids] == ["Opus 5.5", "Sonnet 4.5", "Opus 4", "Sonnet 3.7", "Sonnet 4.5 1M",
+                                            "Opus 4.5", "Fable 5.1", "gpt-5"]
+
+
+def test_the_version_says_which_commit_it_is_and_how_old(monkeypatch):
+    from datetime import date
+
+    from agentlens import __version__, version
+
+    today = date(2026, 11, 10)
+    assert [version.age(d, today) for d in ("2026-11-10", "2026-11-09", "2026-11-05", "2026-10-20", "2026-08-01",
+                                            "2024-01-01", "not a date")] == \
+        ["today", "yesterday", "5 days ago", "3 weeks ago", "3 months ago", "2 years ago", ""]
+    monkeypatch.setattr(version, "commit", lambda: ("40c5fc9", "2026-10-20"))
+    assert version.describe(today) == f"agentlens {__version__} · 40c5fc9 from 2026-10-20, 3 weeks ago"
+    monkeypatch.setattr(version, "commit", lambda: None)
+    assert version.describe(today) == f"agentlens {__version__}"
+
+
+def test_run_from_a_checkout_git_says_which_commit():
+    from agentlens import version
+
+    version.commit.cache_clear()
+    found = version.commit()
+    assert found is not None and re.fullmatch(r"[0-9a-f]{7,}", found[0]) and re.fullmatch(r"\d{4}-\d\d-\d\d", found[1])
 
 
 def test_zoom_maps_subagents_without_their_details(projects):

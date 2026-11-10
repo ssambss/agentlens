@@ -25,6 +25,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentlens"]
 
+# hatch_build.py: the commit it's built from, which agentlens --version and the settings screen show.
+[tool.hatch.build.hooks.custom]
+
 [dependency-groups]
 dev = ["pytest>=8"]
 

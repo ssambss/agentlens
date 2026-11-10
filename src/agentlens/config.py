@@ -28,8 +28,10 @@ HEADER = """\
 # or title words match it, otherwise it lands in an automatic space named after its repository.
 #
 # colors: any CSS colour (#ff8800, orange) or a theme variable ($accent, $success...).
+#   Pick them one by one in the app too: Change a colour… on the settings screen.
 #   selected: the border of the session you're on
 #   question, waiting, background, working, failed, other: pane borders by state
+#   coordinator: a goal's lead, unless it needs you, and the goal's name on its sessions' borders
 #   you, claude, tool, error, notice: the conversation; card: behind your messages
 # usage_minutes: how often the usage meter (top right) asks your Claude Code's /usage how much
 #   of your plan's limits is used. No model call; 0 turns the meter off.
@@ -58,6 +60,7 @@ DEFAULT_COLORS = {
     "working": "$success",
     "failed": "$error",
     "other": "$panel-lighten-2",
+    "coordinator": "$primary",
     "you": "$warning",
     "claude": "$primary",
     "tool": "$foreground-darken-2",
@@ -65,6 +68,30 @@ DEFAULT_COLORS = {
     "notice": "$accent",
     "card": "$panel",
 }
+
+# What each colour is for, as the colours list (Change a colour… in the settings) shows them,
+# in the groups it shows them in.
+COLOR_GROUPS = {
+    "Pane borders": {
+        "selected": "The session you're on",
+        "question": "A question or a plan for you",
+        "waiting": "Waiting on you",
+        "working": "Working",
+        "background": "Waiting on its own agents",
+        "failed": "Failed",
+        "other": "Idle, paused or ended",
+        "coordinator": "A goal's lead, and the goal's name on its sessions",
+    },
+    "The conversation": {
+        "you": "Your messages",
+        "claude": "Claude's replies",
+        "tool": "Tool calls",
+        "notice": "Notices, and autopilot's level",
+        "error": "Errors",
+        "card": "Behind your messages",
+    },
+}
+COLOR_ABOUT = {name: about for group in COLOR_GROUPS.values() for name, about in group.items()}
 
 
 @dataclass(frozen=True)
@@ -89,37 +116,37 @@ class Look:
 LOOKS = {
     "violet": Look("Violet", "violet in strengths", {
         "selected": "#F3EEFF", "question": "#F07BE0", "waiting": "#F07BE0", "background": "#7B5CE0",
-        "working": "#A98BFF", "failed": "#FF6B81", "other": "#4A3D68", "you": "#F07BE0", "claude": "#C4AEFF",
+        "working": "#A98BFF", "failed": "#FF6B81", "other": "#4A3D68", "coordinator": "#6FC3FF", "you": "#F07BE0", "claude": "#C4AEFF",
         "tool": "#9C91B8", "error": "#FF6B81", "notice": "#D9A8FF", "card": "#261C3A",
     }, background="#0E0B15", surface="#161122", panel="#2A2040"),
     "oxblood": Look("Oxblood", "dark reds", {
         "selected": "#FFE6E6", "question": "#FF6B7F", "waiting": "#FF6B7F", "background": "#B03A4C",
-        "working": "#D24A45", "failed": "#FFB347", "other": "#55303A", "you": "#FF8A80", "claude": "#EE8A92",
+        "working": "#D24A45", "failed": "#FFB347", "other": "#55303A", "coordinator": "#D79BE8", "you": "#FF8A80", "claude": "#EE8A92",
         "tool": "#B09597", "error": "#FFB347", "notice": "#F4A9B5", "card": "#2E1419",
     }, background="#120A0C", surface="#1B0F12", panel="#33171D"),
     "plum-night": Look("Plum night", "plum, purple and navy", {
         "selected": "#F1F1F1", "question": "#EE86B8", "waiting": "#EE86B8", "background": "#7290D6",
-        "working": "#AF81E4", "failed": "#FF8A80", "other": "#45344F", "you": "#EE86B8", "claude": "#C3A2EE",
+        "working": "#AF81E4", "failed": "#FF8A80", "other": "#45344F", "coordinator": "#7FD6C2", "you": "#EE86B8", "claude": "#C3A2EE",
         "tool": "#AAAAAA", "error": "#FF8A80", "notice": "#8FAAE6", "card": "#2C1A30",
     }, background="#0F0F0F", surface="#171419", panel="#2B1D33"),
     "ember": Look("Ember", "copper and wine", {
         "selected": "#FFEDE2", "question": "#FFB768", "waiting": "#FFB768", "background": "#B94E66",
-        "working": "#E5814F", "failed": "#FF5F5F", "other": "#553238", "you": "#FFB768", "claude": "#F0A285",
+        "working": "#E5814F", "failed": "#FF5F5F", "other": "#553238", "coordinator": "#8FC1D6", "you": "#FFB768", "claude": "#F0A285",
         "tool": "#ACA09A", "error": "#FF5F5F", "notice": "#D59AC6", "card": "#31191A",
     }, background="#110C0B", surface="#1A1210", panel="#351D1B"),
     "deep-sea": Look("Deep sea", "teal and navy", {
         "selected": "#E2F7FA", "question": "#6BE9F7", "waiting": "#6BE9F7", "background": "#5476D6",
-        "working": "#3FA6CC", "failed": "#FF7B7B", "other": "#28404F", "you": "#6BE9F7", "claude": "#8DC2EA",
+        "working": "#3FA6CC", "failed": "#FF7B7B", "other": "#28404F", "coordinator": "#F2C66D", "you": "#6BE9F7", "claude": "#8DC2EA",
         "tool": "#90A6B0", "error": "#FF7B7B", "notice": "#97A8FF", "card": "#112A33",
     }, background="#0A0F12", surface="#10181C", panel="#1B2E38"),
     "aurora": Look("Aurora", "green, blue and orchid", {
         "selected": "#E9FFF6", "question": "#F5A3FF", "waiting": "#F5A3FF", "background": "#6E8DFF",
-        "working": "#3BB980", "failed": "#FF6F6F", "other": "#2D3F45", "you": "#F5A3FF", "claude": "#67E6D3",
+        "working": "#3BB980", "failed": "#FF6F6F", "other": "#2D3F45", "coordinator": "#F2D16B", "you": "#F5A3FF", "claude": "#67E6D3",
         "tool": "#95AAA2", "error": "#FF6F6F", "notice": "#B09AFC", "card": "#162D28",
     }, background="#0A100F", surface="#101917", panel="#1C2F2B"),
     "forest": Look("Forest", "greens and gold", {
         "selected": "#EDFDF2", "question": "#E9C75F", "waiting": "#E9C75F", "background": "#4FA5A7",
-        "working": "#62C27D", "failed": "#FF6E5E", "other": "#2E3E34", "you": "#E9C75F", "claude": "#86D19D",
+        "working": "#62C27D", "failed": "#FF6E5E", "other": "#2E3E34", "coordinator": "#C49BEA", "you": "#E9C75F", "claude": "#86D19D",
         "tool": "#97A59C", "error": "#FF6E5E", "notice": "#78ADDE", "card": "#17281D",
     }, background="#0B100C", surface="#121A14", panel="#1E3024"),
 }
@@ -134,13 +161,13 @@ COLOR_PRESETS = {
     }),
     "colorblind": ("Colour-blind safe (Okabe-Ito)", {
         **DEFAULT_COLORS, "question": "#E69F00", "waiting": "#E69F00", "background": "#009E73",
-        "working": "#56B4E9", "failed": "#D55E00", "you": "#E69F00", "claude": "#56B4E9",
-        "error": "#D55E00", "notice": "#CC79A7",
+        "working": "#56B4E9", "failed": "#D55E00", "coordinator": "#F0E442", "you": "#E69F00",
+        "claude": "#56B4E9", "error": "#D55E00", "notice": "#CC79A7",
     }),
     "vivid": ("Vivid, for dark themes", {
         **DEFAULT_COLORS, "selected": "#FFFFFF", "question": "#FFB000", "waiting": "#FFB000",
-        "background": "#00B7FF", "working": "#00E676", "failed": "#FF5252", "you": "#FFB000",
-        "claude": "#40C4FF", "error": "#FF5252", "notice": "#E040FB",
+        "background": "#00B7FF", "working": "#00E676", "failed": "#FF5252", "coordinator": "#E040FB",
+        "you": "#FFB000", "claude": "#40C4FF", "error": "#FF5252", "notice": "#E040FB",
     }),
 }
 
@@ -148,6 +175,15 @@ COLOR_PRESETS = {
 def color_preset(colors: dict[str, str]) -> str | None:
     """The preset these colours are, or None for colours of your own."""
     return next((key for key, (_, preset) in COLOR_PRESETS.items() if preset == colors), None)
+
+
+def with_all_colors(saved: dict[str, str]) -> dict[str, str]:
+    """Saved colours with the ones they lack, like a colour added since they were saved: the preset's
+    if the rest are a preset's, so it stays that preset, else the theme's."""
+    missing = DEFAULT_COLORS.keys() - saved.keys()
+    base = next((preset for _, preset in COLOR_PRESETS.values()
+                 if missing and all(preset.get(name) == value for name, value in saved.items())), DEFAULT_COLORS)
+    return {name: saved.get(name, base[name]) for name in DEFAULT_COLORS}
 
 
 # The settings that go to another PC (settings_file): how agentlens looks and behaves, and your editor.
@@ -285,7 +321,7 @@ def parse(data: dict, path: Path | None = None) -> Config:
     keys = data.get("keys") if isinstance(data.get("keys"), dict) else {}
     return Config(
         theme=str(data.get("theme", defaults.theme)),
-        colors={**DEFAULT_COLORS, **{k: str(v) for k, v in colors.items() if k in DEFAULT_COLORS and v}},
+        colors=with_all_colors({k: str(v) for k, v in colors.items() if k in DEFAULT_COLORS and v}),
         columns=int(columns) if isinstance(columns, int) and columns > 0 else None,
         sidebar=bool(data.get("sidebar", defaults.sidebar)),
         show_tools=bool(data.get("show_tools", defaults.show_tools)),

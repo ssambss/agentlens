@@ -64,9 +64,11 @@ is (`working 4m · 42% context`). It takes the theme's warning colour at 75% and
 colour at 90%, as the plan meter does: Claude Code compacts the conversation when it's
 nearly full. It's the last model call's whole input, as Claude Code counts it, against the
 model's window: 1M tokens, or 200K for models older than the 4.6 generation unless you
-picked their 1M variant. Zoomed in, it's a meter with the tokens
-(`Context ███▍░░░░ 42% 420K of 1M`). Subagents have their own context windows, not
-counted here.
+picked their 1M variant. Zoomed in, it's a meter with the tokens, after the model the
+session runs on (`Model Opus 5.5   Context ███▍░░░░ 42% 420K of 1M`). That's the model
+its newest reply came from, which isn't always the one asked for, or for a session
+agentlens runs that hasn't replied yet, the one Claude Code started it on. Subagents have
+their own context windows, not counted here.
 
 When a session starts needing you, you get a notification and a terminal bell. Its Open
 button, or `j` from anywhere, takes you there; `j` again goes to the next one.
@@ -126,11 +128,23 @@ A session you start (`n`) in a space of your own goes in it, whatever folder it 
 a repository's space, even one you've moved sessions into, it goes in its own folder's space.
 Sessions that come back at launch stay in their own space.
 
-Everything else is on the settings screen (`,`), saved as you pick:
+Under the spaces, **Coordinators** lists each [coordinator](#coordinator) with a pane on the
+wall, by its goal's name (`◆ Split the parser`). Its entry shows its lead and its sessions
+together, whichever spaces they're in, and they stay in those spaces too. `[` `]` and ↑ ↓
+in the list reach them after the spaces. An entry goes once its lead and sessions are closed.
+
+Everything else is on the settings screen (`,`), saved as you pick. Its top says which
+agentlens you run: the version, the commit it's from and how old that is
+(`agentlens 0.1.0 · 40c5fc9 from 2026-11-09, yesterday`), as `agentlens --version` does.
+An installed copy knows its commit from when it was built.
 
 - **Look**: theme, colours, columns, and whether the sidebar, tool calls and timestamps
   show. Seven looks are agentlens's own (Violet, Oxblood, Plum night, Ember, Deep sea,
-  Aurora, Forest); there are calm, colour-blind safe and vivid presets too.
+  Aurora, Forest); there are calm, colour-blind safe and vivid presets too. Change a
+  colour… lists every colour agentlens uses, like the border of the session you're on, and
+  Enter on one picks another for it: one of the theme's (it follows the theme), a fixed
+  one, or one you type (`#ff8800`, `orange`, `$accent`). The rest stay as the preset had
+  them, and picking a preset again puts all of its colours back.
 - **Sessions**: the permission mode for new sessions, your editor, which Claude Code to
   run, how often the usage meter checks, and how far back History (`H`) goes: the past
   week unless you pick otherwise. History lists sessions as it reads them, and `m` there
@@ -379,13 +393,17 @@ its title is then the start of its reply. Otherwise it shows what's under way
 ("coordinating: 2 running, 1 of 3 done").
 
 A goal's panes stay in the space you started it in, among your other sessions, but stand
-out. Their borders are double lines, still in the state's colour, so yellow is still a
-session that needs you. Each top border starts with the goal's name
-(`◆ Split the parser · agentlens`), in the colour autopilot's level has at the bottom. That
-name is your goal's first words, or the goal a session handed over, and the lead's pane
-goes by it too. Claude Code's own title for the lead doesn't replace it, since Claude Code
-titles the lead from what agentlens tells it. The lead's bottom border says
-`coordinator · 2 running · 1/3 done`, and each of its sessions' says `task 2 of 3 · coordinator`.
+out, and the goal has an entry of its own under Coordinators in the spaces list
+([spaces](#spaces-and-settings)). Their borders are double lines. Its sessions' are in the
+state's colour; the lead's is in the coordinator's colour, so you can tell it from them,
+except when it needs you or failed, when it's in that state's colour like any session's.
+Each top border starts with the goal's name (`◆ Split the parser · agentlens`), in the
+coordinator's colour too. Each look has one of its own; pick another in Change a colour… on
+the settings screen. That name is your goal's first words, or the goal a session handed
+over, and the lead's pane goes by it too. Claude Code's own title for the lead doesn't
+replace it, since Claude Code titles the lead from what agentlens tells it. The lead's
+bottom border says `coordinator · 2 running · 1/3 done`, and each of its sessions' says
+`task 2 of 3 · coordinator`.
 
 How much it decides follows your autopilot level:
 
@@ -462,6 +480,8 @@ textbox.py  the boxes you type in: a message over lines, and a Windows text box'
 terminal.py the tab's name, agentlens's icon on its window or tab, and in Windows the keys its consoles don't pass on
 icon.py     the icon, drawn for each size it's shown at
 tui_settings.py  the settings screen (,)
+tui_colors.py  the colours list there, where Enter on a colour picks another for it
+version.py  which agentlens this is: version, commit and how old (hatch_build.py writes the commit into a build)
 keys.py     the keys you can change, their presets, and which key each has now
 tui_keys.py the keys list (?), where Enter on a key changes it
 commands.py Claude Code's slash commands for that menu, from the session's own list

@@ -106,6 +106,7 @@ from agentlens.live import (
     derive,
     run_by_program,
     file_changes,
+    model_name,
     open_sessions,
     pane_place,
     pane_title,
@@ -120,6 +121,9 @@ from agentlens.subagent_map import SubagentMap
 from agentlens.selectable import Selectable
 
 ALL = "All sessions"
+# A coordinator's entry in the spaces list, under Coordinators: its goal's lead and sessions, from
+# whichever space they're in. Then the goal's id. No folder has a colon in its name, so no space has it.
+GOAL_VIEW = "goal:"
 NEEDS_YOU = {QUESTION, APPROVAL, PERMISSION, WAITING}
 AT_WORK = {WORKING, BACKGROUND}  # what F shows: busy without you, on its own turn or its subagents'
 STATE_CLASS = {
@@ -144,6 +148,7 @@ STATE_COLOR = {
     "st-failed": "$al-failed",
     "st-other": "$al-other",
 }
+LEAD_COLORED = ("st-working", "st-background", "st-other")  # a goal's lead takes its own colour in these
 
 
 def _state_css() -> str:
@@ -160,7 +165,13 @@ def _state_css() -> str:
     for cls, color in STATE_COLOR.items():
         if cls != "st-question":
             rules.append(f"SessionPane.coordinated.{cls} {{ border: double {color}; }}")
+    # The lead has a colour of its own, to tell it from its sessions, unless it needs you or failed:
+    # the wall still shows those as it does every session's.
+    for cls in LEAD_COLORED:
+        rules.append(f"SessionPane.coordinated.lead.{cls} {{ border: double $al-coordinator; "
+                     "border-title-color: $al-coordinator; }")
     rules.append("SessionPane.coordinated:focus-within { border: heavy $al-selected; }")
+    rules.append("SessionPane.coordinated.lead:focus-within { border: heavy $al-selected; }")  # as specific
     return "\n".join(rules)
 
 
@@ -404,15 +415,20 @@ class SessionPane(Vertical, can_focus=True):
             data.kind, "")
         driven = app.driven.get(self.session_id)
         title: str | Text = pane_place(data, self.space) + suffix
-        # A goal's lead and its sessions: double lines in the state's colour, and the goal's name first.
-        goal = app.coordinator.name(self.session_id) if driven is not None else ""
-        self.set_class(bool(goal), "coordinated")
-        if goal:
-            title = Text.assemble((f"◆ {goal}", app.palette.notice), " · ", title)
+        # A goal's lead and its sessions: double lines in the state's colour, the lead's in the coordinator's
+        # own, and the goal's name first, in the coordinator's colour.
+        role = app.coordinator.role(self.session_id) if driven is not None else None
+        self.set_class(role is not None, "coordinated")
+        self.set_class(role is not None and role[1] is None, "lead")
+        if role is not None:
+            title = Text.assemble((f"◆ {app.coordinator.name(self.session_id)}", app.coordinator_color), " · ", title)
         if self._changed("title", title):
             self.border_title = title
         subtitle = Text(f"{data.state} {ago(now - data.since)}" if data.since else data.state)
-        if driven is not None and (pilot := app.coordinator.label(self.session_id) or pilot_label(driven)):
+        if driven is not None and (part := app.coordinator.label(self.session_id)):
+            subtitle.append(" · ")
+            subtitle.append(part, style=app.coordinator_color)
+        elif driven is not None and (pilot := pilot_label(driven)):
             subtitle.append(" · ")
             subtitle.append(pilot, style=app.palette.notice)
         fill = data.context_fill
@@ -689,6 +705,17 @@ def context_meter(data: LiveSession, colors: tuple[str, str, str], width: int = 
                          (f" {token_count(data.context_tokens or 0)} of {token_count(data.context_window)}", "dim"))
 
 
+def model_and_context(data: LiveSession, colors: tuple[str, str, str]) -> Text:
+    """What a zoomed-in session says top right, as far as it's known: the model it runs on, and how full
+    its context window is. `Model Opus 5.5   Context ███▍░░░░ 42% 420K of 1M`."""
+    parts = []
+    if data.model:
+        parts.append(Text.assemble(("Model ", "dim"), (model_name(data.model), "bold")))
+    if data.context_fill is not None:
+        parts.append(context_meter(data, colors))
+    return Text("   ").join(parts)
+
+
 class ZoomScreen(QuietFocusScreen):
     """One session at full size: the whole conversation in a readable column, and beside it
     the files it changed and a map of its subagents."""
@@ -763,7 +790,7 @@ class ZoomScreen(QuietFocusScreen):
             self._head_text = (where, title)
             where_widget.update(where, layout=False)  # fixed size, beside the usage meter
             title_widget.update(title, layout=False)
-        context = context_meter(data, app.meter_colors) if data.context_fill is not None else Text()
+        context = model_and_context(data, app.meter_colors)
         if context != self._context_text:
             # Its width changes only with the token counts' digits; then the line is laid out again.
             relayout = self._context_text is None or context.cell_len != self._context_text.cell_len
@@ -1510,6 +1537,20 @@ class AgentlensApp(App):
                           background: $surface; }
         #capture-dialog .capture-ask { margin-top: 1; }
         #capture-note { height: auto; margin-top: 1; }
+        ColorsScreen, ColorPickScreen { align: center middle; }
+        #colors-dialog { width: 84; max-width: 100%; height: auto; max-height: 90%; padding: 1 2; border: round $accent;
+                         background: $surface; }
+        #pick-dialog { width: 56; max-width: 100%; height: 90%; padding: 1 2; border: round $accent;
+                       background: $surface; }
+        /* As tall as it is, and scrolling in a terminal too short for that. */
+        #colors-list { height: auto; max-height: 100%; margin: 1 0; background: transparent; scrollbar-size-vertical: 1; }
+        #pick-list { height: 1fr; margin: 1 0; background: transparent; scrollbar-size-vertical: 1; }
+        #colors-list > .option-list--option-disabled, #pick-list > .option-list--option-disabled { color: $foreground; }
+        /* A tint, not the block cursor, so the colour you're on still shows as itself. */
+        #colors-list > .option-list--option-highlighted, #colors-list:focus > .option-list--option-highlighted,
+        #pick-list > .option-list--option-highlighted, #pick-list:focus > .option-list--option-highlighted {
+            color: $foreground; background: $foreground 15%; text-style: none; }
+        #pick-preview { height: auto; margin-top: 1; }
         SettingsScreen { align: center middle; }
         #settings-dialog { width: 84; max-width: 100%; height: auto; max-height: 90%; padding: 1 2;
                            border: round $accent; background: $surface; scrollbar-size-vertical: 1; }
@@ -1636,6 +1677,7 @@ class AgentlensApp(App):
         self.only_working = False
         self.view_mode = "conversation"
         self.palette = Palette()
+        self.coordinator_color = "#0178D4"  # the coordinator's (a goal's lead, its goal's name); set from the theme
         self.analysis: Analysis | None = None
         # Sessions read whole, for History and the report screens; kept between launches too.
         self.session_cache = SessionCache(SessionStore())
@@ -1653,6 +1695,7 @@ class AgentlensApp(App):
         self.pilot_seen = autopilot_mod.load_seen()  # when you last had that list open
         self._needing: frozenset[str] = frozenset()  # sessions that need you, as the footer last saw them
         self._space_nodes: dict[str, TreeNode[str]] = {}
+        self._sidebar_rows: list[str | None] = []  # the spaces list's lines: a space, a coordinator, or a heading
         self.driven: dict[str, DrivenSession] = {}  # sessions agentlens runs itself, by pane key
         self.driven_space: dict[str, str] = {}  # space a driven session was started in
         self._dirty: set[str] = set()
@@ -1836,6 +1879,7 @@ class AgentlensApp(App):
             return value[:7] if value.startswith("#") else default
 
         self.meter_colors = (pick("primary", "#0178D4"), pick("warning", "#FEA62B"), pick("error", "#B93C5B"))
+        self.coordinator_color = pick("al-coordinator", pick("primary", "#0178D4"))
 
     def _theme_changed(self, theme) -> None:
         self.config.theme = theme.name
@@ -2141,6 +2185,10 @@ class AgentlensApp(App):
         if apply:
             self._apply(self._monitored, datetime.now(timezone.utc))
         if focus:
+            if self.current_space.startswith(GOAL_VIEW) and not self._in_view(driven.key):
+                # Started from a coordinator's view: shown where it is, in its own coordinator's if it leads a goal.
+                found = self.coordinator.role(driven.key)
+                self._set_space(GOAL_VIEW + found[0].id if found else self.space_of.get(driven.key, ALL))
             self.call_after_refresh(self._focus_key, driven.key)
         return driven
 
@@ -2824,7 +2872,7 @@ class AgentlensApp(App):
         """Where a new session works unless you change it: the folder of the session you're on, if
         it's in the space you're in, else the space's own folder or one of its sessions', open or
         closed."""
-        here = [s for sid, s in self.sessions.items() if self.current_space in (ALL, self.space_of.get(sid))]
+        here = [s for sid, s in self.sessions.items() if self._in_view(sid)]
         focused = self._focused_session()
         if focused is not None and focused.session_id not in {s.session_id for s in here}:
             focused = None  # the pane you were last in, in another space: its folder would point there
@@ -3074,9 +3122,8 @@ class AgentlensApp(App):
             return
         while len(self.screen_stack) > 1:
             self.pop_screen()
-        space = self.space_of.get(session_id, ALL)
-        if self.current_space not in (ALL, space):
-            self._set_space(space)
+        if not self._in_view(session_id):
+            self._set_space(self.space_of.get(session_id, ALL))
         if self.only_needs_you and not self.needs_you(session):
             self.action_toggle_filter()
         if self.only_working and session.state not in AT_WORK:  # j, to one that needs you
@@ -3092,6 +3139,33 @@ class AgentlensApp(App):
         configured = [s.name for s in self.config.spaces]
         automatic = sorted({name for name in self.space_of.values() if name not in configured})
         return [ALL, *configured, *automatic]
+
+    def goal_views(self) -> list[str]:
+        """The coordinators in the spaces list: one for each goal with a session on the wall, its lead or one of
+        its tasks', in the order the goals started."""
+        on_wall = {found[0].id for sid in self.sessions if (found := self.coordinator.role(sid)) is not None}
+        return [GOAL_VIEW + goal_id for goal_id in self.coordinator.goals if goal_id in on_wall]
+
+    def view_names(self) -> list[str]:
+        """What the spaces list has, in its order, which [ ] and ↑ ↓ step through: the spaces, then the coordinators."""
+        return [*self.space_names(), *self.goal_views()]
+
+    def _in_view(self, session_id: str, view: str | None = None) -> bool:
+        """Whether a session shows in a space or a coordinator's view (by default, the one you're in)."""
+        view = self.current_space if view is None else view
+        if view == ALL:
+            return True
+        if view.startswith(GOAL_VIEW):
+            found = self.coordinator.role(session_id)
+            return found is not None and found[0].id == view.removeprefix(GOAL_VIEW)
+        return self.space_of.get(session_id) == view
+
+    def _view_name(self, view: str) -> str:
+        """What a space or a coordinator is called: a coordinator by its goal's name."""
+        if not view.startswith(GOAL_VIEW):
+            return view
+        goal = self.coordinator.goals.get(view.removeprefix(GOAL_VIEW))
+        return (goal.title if goal is not None else "") or "a goal"
 
     def _made_space(self) -> str | None:
         """The space you're in, if you made it rather than it being named after a repository:
@@ -3114,17 +3188,29 @@ class AgentlensApp(App):
             tree = self.query_one(SpacesTree)
         except NoMatches:
             return
-        names = self.space_names()
+        spaces, goals = self.space_names(), self.goal_views()
+        names = [*spaces, *goals]
         if self.current_space not in names:
             self.current_space = ALL
-        if list(self._space_nodes) != names:  # rebuilt in order, so the list matches what [ ] and ↑ ↓ step through
+        # The coordinators come after the spaces, under a heading of their own, a line apart.
+        rows: list[str | None] = [*spaces, *((None, None) if goals else ()), *goals]
+        if rows != self._sidebar_rows:  # rebuilt in order, so the list matches what [ ] and ↑ ↓ step through
             tree.clear()
-            self._space_nodes = {name: tree.root.add_leaf(name, data=name) for name in names}
+            self._sidebar_rows = rows
+            self._space_nodes = {}
+            for i, name in enumerate(rows):
+                if name is None:  # the gap, then the heading: nothing to select. The gap's a space: with
+                    # NO_COLOR, Textual's tree fails to draw an empty line.
+                    tree.root.add_leaf(Text("COORDINATORS", style="bold dim") if rows[i - 1] is None else " ")
+                else:
+                    self._space_nodes[name] = tree.root.add_leaf(name, data=name)
         for name in names:
-            members = [s for sid, s in self.sessions.items() if name == ALL or self.space_of.get(sid) == name]
+            members = [s for sid, s in self.sessions.items() if self._in_view(sid, name)]
             label = Text()
-            label.append(("▶ " if name == self.current_space else "  ") + name,
-                         style="bold" if name == self.current_space else "")
+            label.append("▶ " if name == self.current_space else "  ", style="bold")
+            if name.startswith(GOAL_VIEW):
+                label.append("◆ ", style=self.coordinator_color)
+            label.append(self._view_name(name), style="bold" if name == self.current_space else "")
             label.append(f"  {len(members)}", style="dim")
             waiting = sum(1 for s in members if self.needs_you(s))
             if waiting:
@@ -3132,13 +3218,16 @@ class AgentlensApp(App):
             node = self._space_nodes[name]
             if node.label != label:  # type: ignore[attr-defined]
                 node.set_label(label)  # type: ignore[attr-defined]
-        line = names.index(self.current_space)
+        line = rows.index(self.current_space)
         if tree.cursor_line != line:
             tree.scroll_to_line(line, animate=False)
         tree.cursor_line = line
 
     @on(Tree.NodeSelected, "#spaces")
     def _space_selected(self, event: Tree.NodeSelected) -> None:
+        if event.node.data is None:  # the coordinators' heading, or the gap above it
+            self._update_sidebar()  # the cursor goes back to where you are
+            return
         self._set_space(event.node.data)
 
     def _set_space(self, name: str | None) -> None:
@@ -3151,14 +3240,14 @@ class AgentlensApp(App):
         self._apply_visibility()
 
     def action_space(self, delta: int, wrap: bool = True) -> None:
-        names = self.space_names()
+        names = self.view_names()
         index = (names.index(self.current_space) if self.current_space in names else 0) + delta
         self._set_space(names[index % len(names) if wrap else max(0, min(len(names) - 1, index))])
 
     def _apply_visibility(self) -> None:
         for pane in self.query_one("#grid", Grid).query(SessionPane):
             s = self.sessions.get(pane.session_id)
-            in_space = self.current_space == ALL or self.space_of.get(pane.session_id) == self.current_space
+            in_space = self._in_view(pane.session_id)
             pane.display = (s is not None and in_space and (not self.only_needs_you or self.needs_you(s))
                             and (not self.only_working or s.state in AT_WORK))
         self._layout()
@@ -3186,7 +3275,9 @@ class AgentlensApp(App):
             text.append(f"autopilot answered {answered}",
                         style=Style(color=self.palette.notice, bold=True, meta={"@click": "app.autopilot_log"}))
         where = Text()
-        if self.current_space != ALL:
+        if self.current_space.startswith(GOAL_VIEW):
+            where.append(f"coordinator: ◆ {self._view_name(self.current_space)}", style="bold")
+        elif self.current_space != ALL:
             where.append(f"space: {self.current_space}", style="bold")
         if self.only_needs_you or self.only_working:
             hidden = (f"need you ({keys_mod.name('toggle-filter')})" if self.only_needs_you
@@ -3205,7 +3296,8 @@ class AgentlensApp(App):
         visible = self._visible_panes()
         if not visible:
             spaces = f"{keys_mod.name('space-prev')} and {keys_mod.name('space-next')} switch spaces"
-            if self.current_space != ALL and self.current_space not in self.space_of.values():
+            if (self.current_space != ALL and not self.current_space.startswith(GOAL_VIEW)
+                    and self.current_space not in self.space_of.values()):
                 message = f"No sessions in {self.current_space}. {keys_mod.name('new-session')} starts one here; {spaces}."
             elif not sessions:
                 message = "No open Claude Code sessions. Start one and it appears here."

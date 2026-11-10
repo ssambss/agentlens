@@ -72,6 +72,7 @@ def as_live(d: DrivenSession, now: datetime) -> LiveSession:
         started=d.started,
         worktree=d.worktree,
         cwd=d.cwd,
+        model=d.running_model,
     )
 
 

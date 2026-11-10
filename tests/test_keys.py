@@ -217,6 +217,8 @@ def test_a_preset_in_the_settings(projects, tmp_path):
         assert config_mod.load(app.config.path).keys == keys.KEY_PRESETS["vim"][1]
 
         # Change one by hand from there: the preset is then yours.
+        screen.query_one("#set-keys-list").scroll_visible(animate=False)  # the settings are taller than the terminal
+        await pilot.pause(0.1)
         await pilot.click("#set-keys-list")
         await pilot.pause(0.1)
         listing = app.screen.query_one("#keys-list", OptionList)

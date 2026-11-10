@@ -226,6 +226,8 @@ class DrivenSession:
         self.session_id: str | None = resume
         self.permission_mode = permission_mode
         self.model = model
+        # The model it runs on, as Claude Code says: the one it started on, then the one each reply came from.
+        self.running_model = ""
         self.name = name or f"new-{self.key[2:6]}"
         self.title = ""  # your first message until Claude Code titles the session (see _name)
         self.titled = False  # Claude Code has given it a title
@@ -858,7 +860,10 @@ class DrivenSession:
                     self.on_change(self)
                 return
             # A slash command's output (/context, /model...) comes from Claude Code, not the model.
-            tag = "command" if getattr(message, "model", "") == "<synthetic>" else ""
+            replied = str(getattr(message, "model", "") or "")
+            tag = "command" if replied == "<synthetic>" else ""
+            if replied and not tag:
+                self.running_model = replied
             for block in getattr(message, "content", None) or []:
                 block_kind = type(block).__name__
                 if block_kind == "TextBlock" and block.text.strip():
@@ -928,6 +933,8 @@ class DrivenSession:
         if kind == "SystemMessage":
             data = getattr(message, "data", {}) or {}
             subtype = getattr(message, "subtype", "")
+            if subtype == "init" and data.get("model"):
+                self.running_model = str(data["model"])  # what it runs on, before a reply says
             if subtype == "init" and data.get("session_id"):
                 self.session_id = data["session_id"]
             elif subtype == "compact_boundary":

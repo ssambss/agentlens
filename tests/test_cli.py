@@ -27,6 +27,15 @@ def test_findings_and_advice_commands_say_how_to_turn_them_on(isolated_home, cap
     assert not (isolated_home / "profile.yaml").exists()  # nothing ran
 
 
+def test_version_says_which_commit_and_how_old_it_is(isolated_home, capsys, monkeypatch):
+    from agentlens import __version__, version
+
+    monkeypatch.setattr(version, "commit", lambda: ("40c5fc9", "2020-01-01"))
+    with pytest.raises(SystemExit):
+        cli.main(["--version"])
+    assert capsys.readouterr().out.strip().startswith(f"agentlens {__version__} · 40c5fc9 from 2020-01-01, ")
+
+
 def test_findings_and_advice_commands_are_in_the_help_only_while_they_are_on(isolated_home, capsys):
     from agentlens import config as config_mod
 
