@@ -447,9 +447,6 @@ agentlens reads your sessions on your machine. The sessions you start in it are 
 - **The coordinator**'s lead and its sessions are sessions like the others. What agentlens
   passes between them is the sessions' own replies. Off unless you turn it on.
 
-Findings and advice, early versions that are hidden and off, send more when they're turned
-on: [what they send](docs/findings-and-advice.md#what-they-send).
-
 ## Command line
 
 For scripting: `agentlens sessions`, `session <id>`, and `watch --once` for a plain table.
@@ -461,15 +458,8 @@ For scripting: `agentlens sessions`, `session <id>`, and `watch --once` for a pl
 ```
 adapters/   read one tool's data into a common model    (swap or add sources here)
 model.py    sessions, agent runs, time spans
-metrics.py  flat metrics per session, subagent and day   (add a metric -> every rule can use it); flags scripted runs
-rules/      best practices as YAML, with source + review date, and how practices moved, quoted
-profile.py  your working style, derived from your data
-trend.py    the past 7 days against the 7 before, for the report
-preferences.py  your goals and deliberate style (~/.agentlens/profile.yaml)
-advise.py   Claude reads the profile + findings + practices + team entries + current practice and writes advice, following up the last
-curate.py   Claude checks a pack against its sources and watch list and proposes edits for a person to review
-work.py     what you work on: languages, build and Claude Code setup per repo
-features.py which Claude Code features your sessions use, so advice can suggest new ones
+metrics.py  flat metrics per session, subagent and day; flags scripted runs
+preferences.py  where agentlens keeps its files (~/.agentlens, or AGENTLENS_HOME), each written whole
 live.py     open sessions + transcript tails, as live state
 read.py     the sessions needing you that you've already read (~/.agentlens/read.json)
 feed.py     how activity reads: conversation blocks, markdown, folded tool calls, questions and answers
@@ -492,15 +482,12 @@ usage.py    your plan's limits, from Claude Code's /usage and sessions' rate-lim
 config.py   app settings and spaces (~/.agentlens/config.yaml)
 settings_file.py  your settings in one file, to set up agentlens on another PC, and nothing of this one
 editor.py   the editors agentlens knows, and opening a file at its line or a folder in yours
-analysis.py full-history analysis shared by the app's report screens
 store.py    agentlens's own record of past sessions (~/.agentlens/history)
 crash.py    what agentlens leaves when it stops on an error (~/.agentlens/crash.log)
 ```
 
-`rules/`, `profile.py`, `trend.py`, `preferences.py`, `advise.py`, `curate.py`, `work.py`,
-`features.py` and `analysis.py` are findings and advice: early versions, hidden and off in
-the app until Ctrl+D on the settings screen shows their switch.
-[docs/findings-and-advice.md](docs/findings-and-advice.md) says what they do.
+Findings and advice, early versions that are hidden and off, are in
+[docs/findings-and-advice.md](docs/findings-and-advice.md): what they do, what they send, and their code.
 
 ## Caveat
 

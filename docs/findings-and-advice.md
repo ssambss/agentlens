@@ -125,7 +125,19 @@ findings and advice are off, they say how to turn them on and do nothing else.
 
 ## The code
 
-`profile.py`, `trend.py`, `preferences.py`, `advise.py`, `curate.py`, `rules.py` and
-`rules/`, `report.py`, `analysis.py`, `work.py` and `features.py` (see the README's *How
-it's built*). The settings screen's `findings-switch` widgets are the hidden switch, and
+```
+rules.py, rules/  best practices as YAML, with source + review date, and how practices moved, quoted;
+                  any metric in metrics.py is one a rule can use
+report.py   the report, the session view and the rules, rendered for the CLI and the app's screens
+analysis.py full-history analysis shared by the app's report screens
+profile.py  your working style, derived from your data
+trend.py    the past 7 days against the 7 before, for the report
+preferences.py  your goals and deliberate style (~/.agentlens/profile.yaml), beside where agentlens keeps its files
+advise.py   Claude reads the profile + findings + practices + team entries + current practice and writes advice, following up the last
+curate.py   Claude checks a pack against its sources and watch list and proposes edits for a person to review
+work.py     what you work on: languages, build and Claude Code setup per repo
+features.py which Claude Code features your sessions use, so advice can suggest new ones
+```
+
+The settings screen's `findings-switch` widgets are the hidden switch, and
 `keys.FINDINGS_AND_ADVICE` the keys the keys list leaves out while they're off.
