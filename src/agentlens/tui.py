@@ -45,7 +45,7 @@ from textual.worker import WorkerFailed, get_current_worker
 
 from agentlens import activity as activity_mod, advise, analysis as analysis_mod, clipboard, commands as commands_mod
 from agentlens import autopilot as autopilot_mod, coordinator as coordinator_mod
-from agentlens import config as config_mod, crash
+from agentlens import config as config_mod, crash, version as version_mod
 from agentlens import editor as editor_mod, keys as keys_mod, preferences, settings_file, terminal, timings
 from agentlens import usage as usage_mod
 from agentlens.adapters.claude_transcripts import (
@@ -1797,6 +1797,18 @@ class AgentlensApp(App):
         self._schedule_usage()  # the first check comes with the first listing: see _load
         self.set_interval(30, self._paint_usage)  # "resets in 2h 10m" counts down
         self.set_timer(10, self._forget_old_sessions)  # once the wall is busy with more urgent things
+        self._read_version()
+        self.set_interval(3600, self._show_version)  # "today" turns into "yesterday" while it runs
+
+    @work(thread=True, group="version")
+    def _read_version(self) -> None:
+        """Which agentlens this is, in the wall's title bar after its name: git says, which launch needn't wait for."""
+        version_mod.commit()
+        self.call_from_thread(self._show_version)
+
+    def _show_version(self) -> None:
+        # The wall's, not the app's: the other screens' title bars name the screen, and would get it too.
+        self.screen_stack[0].sub_title = version_mod.about()
 
     def on_resize(self, event: events.Resize) -> None:
         self._hide_cursor()

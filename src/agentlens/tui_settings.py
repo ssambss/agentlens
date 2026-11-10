@@ -22,7 +22,6 @@ from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Input, Label, Select, Static
 
 from agentlens import config as config_mod, editor as editor_mod, keys as keys_mod, preferences, settings_file
-from agentlens import version as version_mod
 from agentlens.frames import PacedScreen
 from agentlens.textbox import TextInput
 from agentlens import coordinator as coordinator_mod
@@ -109,8 +108,6 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             yield Label(Text("Settings", style="bold"))
             yield Static(Text(f"Saved as you change them, in {tilde(cfg.path or config_mod.config_path())}",
                               style="dim"))
-            # Which agentlens this is, and how old: its version number alone doesn't change between commits.
-            yield Static(Text(version_mod.describe(), style="dim"), id="set-version")
 
             yield Label("Look", classes="settings-section")
             yield row("Theme", Select(themes, value=app.theme, allow_blank=False, compact=True, id="set-theme"))

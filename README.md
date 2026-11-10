@@ -22,6 +22,12 @@ uv tool install .      # from this folder; or `uv run agentlens` without install
 agentlens              # the app
 ```
 
+The title bar says which agentlens you run: the version, the commit it's from and how old
+that is (`agentlens — 0.1.0 · 0f70887 from 2026-11-10, today`), as `agentlens --version`
+does. The version number alone is the same from one commit to the next. A copy installed
+with `uv tool install .` knows the commit it was built from. To update it, pull, then run
+`uv tool install --reinstall .`, so uv builds it again from what you pulled.
+
 For a week it was called panopsis. The first run copies what panopsis kept in `~/.panopsis`
 (settings, spaces, keys, history) to `~/.agentlens`, and leaves `~/.panopsis` as it was. An
 `~/.agentlens` from before then is older, so it's kept beside, in `~/.agentlens.before-panopsis`.
@@ -133,10 +139,7 @@ wall, by its goal's name (`◆ Split the parser`). Its entry shows its lead and 
 together, whichever spaces they're in, and they stay in those spaces too. `[` `]` and ↑ ↓
 in the list reach them after the spaces. An entry goes once its lead and sessions are closed.
 
-Everything else is on the settings screen (`,`), saved as you pick. Its top says which
-agentlens you run: the version, the commit it's from and how old that is
-(`agentlens 0.1.0 · 40c5fc9 from 2026-11-09, yesterday`), as `agentlens --version` does.
-An installed copy knows its commit from when it was built.
+Everything else is on the settings screen (`,`), saved as you pick:
 
 - **Look**: theme, colours, columns, and whether the sidebar, tool calls and timestamps
   show. Seven looks are agentlens's own (Violet, Oxblood, Plum night, Ember, Deep sea,

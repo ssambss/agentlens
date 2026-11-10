@@ -604,7 +604,6 @@ def test_any_one_colour_can_be_picked_whatever_the_preset_says(projects, tmp_pat
         await pilot.press("comma")
         await pilot.pause(0.2)
         settings = app.screen
-        assert settings.query_one("#set-version", Static).content.plain.startswith("agentlens ")
         assert settings.query_one("#set-colors", Select).value == "vivid"
         settings.query_one("#set-colors-list", Button).press()
         await pilot.pause(0.2)
@@ -824,6 +823,26 @@ def test_the_version_says_which_commit_it_is_and_how_old(monkeypatch):
     assert version.describe(today) == f"agentlens {__version__} · 40c5fc9 from 2026-10-20, 3 weeks ago"
     monkeypatch.setattr(version, "commit", lambda: None)
     assert version.describe(today) == f"agentlens {__version__}"
+
+
+def test_the_walls_title_bar_says_which_agentlens_this_is(projects, monkeypatch):
+    from textual.widgets import Header
+
+    from agentlens import __version__, version
+
+    monkeypatch.setattr(version, "commit", lambda: ("abc1234", "2020-01-01"))
+    make_projects(projects)
+    app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
+
+    async def steps(app, pilot):
+        await until(pilot, lambda: app.screen.sub_title)
+        title = app.screen.query_one(Header).format_title().plain
+        assert title.startswith(f"agentlens — {__version__} · abc1234 from 2020-01-01, ") and title.endswith(" ago")
+        await pilot.press("H")  # the other screens' title bars name the screen, without it
+        await pilot.pause(0.2)
+        assert app.screen.query_one(Header).format_title().plain == "History"
+
+    run_app(app, steps)
 
 
 def test_run_from_a_checkout_git_says_which_commit():

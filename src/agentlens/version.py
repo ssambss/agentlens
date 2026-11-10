@@ -21,8 +21,10 @@ def commit() -> tuple[str, str] | None:
     root = Path(__file__).resolve().parents[2]
     if (root / ".git").exists():  # a checkout, or a worktree of one, where .git is a file
         try:
+            # Without a console: in Windows, git would otherwise share agentlens's, and could change its modes.
             found = subprocess.run(["git", "log", "-1", "--format=%h %cs"], cwd=root, capture_output=True,
-                                   text=True, timeout=5, stdin=subprocess.DEVNULL)
+                                   text=True, timeout=5, stdin=subprocess.DEVNULL,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             parts = found.stdout.split()
             if found.returncode == 0 and len(parts) == 2:
                 return parts[0], parts[1]
@@ -52,9 +54,10 @@ def age(when: str, today: date | None = None) -> str:
     return ""
 
 
-def describe(today: date | None = None) -> str:
-    """`agentlens 0.1.0 · 40c5fc9 from 2026-11-10, 3 weeks ago`, or less, as far as it's known."""
-    text = f"agentlens {__version__}"
+def about(today: date | None = None) -> str:
+    """`0.1.0 · 40c5fc9 from 2026-10-20, 3 weeks ago`, or less, as far as it's known: what the app's
+    title bar says after its name."""
+    text = __version__
     found = commit()
     if found and found[0]:
         text += f" · {found[0]}"
@@ -62,3 +65,8 @@ def describe(today: date | None = None) -> str:
             when = age(found[1], today)
             text += f" from {found[1]}" + (f", {when}" if when else "")
     return text
+
+
+def describe(today: date | None = None) -> str:
+    """`agentlens 0.1.0 · 40c5fc9 from 2026-10-20, 3 weeks ago`: what --version says."""
+    return f"agentlens {about(today)}"
