@@ -22,10 +22,9 @@ uv tool install .      # from this folder; or `uv run agentlens` without install
 agentlens              # the app
 ```
 
-The title bar says which agentlens you run: the version, the commit it's from and how old
-that is (`agentlens — 0.1.0 · 0f70887 from 2026-11-10, today`), as `agentlens --version`
-does. The version number alone is the same from one commit to the next. A copy installed
-with `uv tool install .` knows the commit it was built from. To update it, pull, then run
+The title bar says which agentlens you run (`agentlens — 0.1.76`), as `agentlens --version`
+and `uv tool list` do. The last number is how many commits it has, so a copy that's fallen
+behind has a lower one than the latest. To update an installed copy, pull, then run
 `uv tool install --reinstall .`, so uv builds it again from what you pulled.
 
 For a week it was called panopsis. The first run copies what panopsis kept in `~/.panopsis`
@@ -484,7 +483,7 @@ terminal.py the tab's name, agentlens's icon on its window or tab, and in Window
 icon.py     the icon, drawn for each size it's shown at
 tui_settings.py  the settings screen (,)
 tui_colors.py  the colours list there, where Enter on a colour picks another for it
-version.py  which agentlens this is: version, commit and how old (hatch_build.py writes the commit into a build)
+version.py  which agentlens this is: 0.1 and how many commits it has (hatch_build.py writes it into a build)
 keys.py     the keys you can change, their presets, and which key each has now
 tui_keys.py the keys list (?), where Enter on a key changes it
 commands.py Claude Code's slash commands for that menu, from the session's own list

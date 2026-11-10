@@ -1,6 +1,6 @@
 [project]
 name = "agentlens"
-version = "0.1.0"
+dynamic = ["version"]  # 0.1 and how many commits it has: hatch_build.py, agentlens/version.py
 description = "Every Claude Code session you have open on this computer, on one screen in your terminal"
 readme = "README.md"
 license = "MIT"
@@ -25,7 +25,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentlens"]
 
-# hatch_build.py: the commit it's built from, which agentlens --version and the app's title bar show.
+# hatch_build.py: the version, for the package and for agentlens --version and the app's title bar.
+[tool.hatch.metadata.hooks.custom]
 [tool.hatch.build.hooks.custom]
 
 [dependency-groups]

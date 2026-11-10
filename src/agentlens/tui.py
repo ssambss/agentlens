@@ -1797,18 +1797,14 @@ class AgentlensApp(App):
         self._schedule_usage()  # the first check comes with the first listing: see _load
         self.set_interval(30, self._paint_usage)  # "resets in 2h 10m" counts down
         self.set_timer(10, self._forget_old_sessions)  # once the wall is busy with more urgent things
-        self._read_version()
-        self.set_interval(3600, self._show_version)  # "today" turns into "yesterday" while it runs
+        self._show_version()
 
     @work(thread=True, group="version")
-    def _read_version(self) -> None:
-        """Which agentlens this is, in the wall's title bar after its name: git says, which launch needn't wait for."""
-        version_mod.commit()
-        self.call_from_thread(self._show_version)
-
     def _show_version(self) -> None:
-        # The wall's, not the app's: the other screens' title bars name the screen, and would get it too.
-        self.screen_stack[0].sub_title = version_mod.about()
+        """Which agentlens this is, in the wall's title bar after its name: git counts, which launch needn't
+        wait for. The wall's, not the app's: the other screens' title bars name the screen, and would get it too."""
+        number = version_mod.number()
+        self.call_from_thread(setattr, self.screen_stack[0], "sub_title", number)
 
     def on_resize(self, event: events.Resize) -> None:
         self._hide_cursor()

@@ -810,34 +810,18 @@ def test_model_names_read_the_way_people_say_them():
                                             "Opus 4.5", "Fable 5.1", "gpt-5"]
 
 
-def test_the_version_says_which_commit_it_is_and_how_old(monkeypatch):
-    from datetime import date
-
-    from agentlens import __version__, version
-
-    today = date(2026, 11, 10)
-    assert [version.age(d, today) for d in ("2026-11-10", "2026-11-09", "2026-11-05", "2026-10-20", "2026-08-01",
-                                            "2024-01-01", "not a date")] == \
-        ["today", "yesterday", "5 days ago", "3 weeks ago", "3 months ago", "2 years ago", ""]
-    monkeypatch.setattr(version, "commit", lambda: ("40c5fc9", "2026-10-20"))
-    assert version.describe(today) == f"agentlens {__version__} · 40c5fc9 from 2026-10-20, 3 weeks ago"
-    monkeypatch.setattr(version, "commit", lambda: None)
-    assert version.describe(today) == f"agentlens {__version__}"
-
-
 def test_the_walls_title_bar_says_which_agentlens_this_is(projects, monkeypatch):
     from textual.widgets import Header
 
-    from agentlens import __version__, version
+    from agentlens import version
 
-    monkeypatch.setattr(version, "commit", lambda: ("abc1234", "2020-01-01"))
+    monkeypatch.setattr(version, "number", lambda: "0.1.76")
     make_projects(projects)
     app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
 
     async def steps(app, pilot):
         await until(pilot, lambda: app.screen.sub_title)
-        title = app.screen.query_one(Header).format_title().plain
-        assert title.startswith(f"agentlens — {__version__} · abc1234 from 2020-01-01, ") and title.endswith(" ago")
+        assert app.screen.query_one(Header).format_title().plain == "agentlens — 0.1.76"
         await pilot.press("H")  # the other screens' title bars name the screen, without it
         await pilot.pause(0.2)
         assert app.screen.query_one(Header).format_title().plain == "History"
@@ -845,12 +829,20 @@ def test_the_walls_title_bar_says_which_agentlens_this_is(projects, monkeypatch)
     run_app(app, steps)
 
 
-def test_run_from_a_checkout_git_says_which_commit():
+def test_the_version_counts_the_commits(tmp_path):
+    import subprocess
+
+    import agentlens
     from agentlens import version
 
-    version.commit.cache_clear()
-    found = version.commit()
-    assert found is not None and re.fullmatch(r"[0-9a-f]{7,}", found[0]) and re.fullmatch(r"\d{4}-\d\d-\d\d", found[1])
+    # Run from a checkout: 0.1 and how many commits it has, so one that's fallen behind has a lower number.
+    count = subprocess.run(["git", "rev-list", "--count", "HEAD"], capture_output=True, text=True,
+                           cwd=Path(version.__file__).parents[2]).stdout.strip()
+    version.number.cache_clear()
+    assert version.number() == agentlens.__version__ == f"{version.BASE}.{count}"
+    # Away from one, without git, it's what the build wrote, if anything.
+    assert version.from_git(tmp_path) is None
+    version.number.cache_clear()
 
 
 def test_zoom_maps_subagents_without_their_details(projects):

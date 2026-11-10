@@ -63,11 +63,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 class _Version(argparse.Action):
-    """--version: which agentlens this is, with the commit it's from and how old that is. Asked only
-    when you ask: it runs git, which every launch needn't wait for."""
+    """--version: which agentlens this is, 0.1.76. Worked out only when you ask: from a checkout, it
+    runs git, which every launch needn't wait for."""
 
     def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS,
-                 help="show which agentlens this is, and how old, and exit"):
+                 help="show which agentlens this is, and exit"):
         super().__init__(option_strings, dest=dest, default=default, nargs=0, help=help)
 
     def __call__(self, parser, namespace, values, option_string=None):
