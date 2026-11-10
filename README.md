@@ -471,6 +471,7 @@ settings_file.py  your settings in one file, to set up agentlens on another PC, 
 editor.py   the editors agentlens knows, and opening a file at its line or a folder in yours
 analysis.py full-history analysis shared by the app's report screens
 store.py    agentlens's own record of past sessions (~/.agentlens/history)
+crash.py    what agentlens leaves when it stops on an error (~/.agentlens/crash.log)
 ```
 
 `rules/`, `profile.py`, `trend.py`, `preferences.py`, `advise.py`, `curate.py`, `work.py`,
@@ -488,6 +489,11 @@ Sessions read before a format change keep reading the same after it, and History
 back past Claude Code's 30 days. A hook plugin writing events in that format
 could add to the adapter later; it can't replace it, since hooks don't carry Claude's
 replies or token counts.
+
+When agentlens stops on an error, its traceback is kept in `~/.agentlens/crash.log`, as are
+errors in its threads and crashes of Python's own. One ended by another program
+(`Stop-Process -Force`, `taskkill /f`) leaves nothing there, but its files are written whole,
+so your goals and settings stay as they were last saved.
 
 ## License
 

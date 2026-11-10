@@ -13,6 +13,7 @@ import gc
 import re
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta, timezone
@@ -40,11 +41,11 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 from textual.widgets.tree import TreeNode
-from textual.worker import get_current_worker
+from textual.worker import WorkerFailed, get_current_worker
 
 from agentlens import activity as activity_mod, advise, analysis as analysis_mod, clipboard, commands as commands_mod
 from agentlens import autopilot as autopilot_mod, coordinator as coordinator_mod
-from agentlens import config as config_mod
+from agentlens import config as config_mod, crash
 from agentlens import editor as editor_mod, keys as keys_mod, preferences, settings_file, terminal, timings
 from agentlens import usage as usage_mod
 from agentlens.adapters.claude_transcripts import (
@@ -1698,6 +1699,12 @@ class AgentlensApp(App):
 
     def get_driver_class(self) -> type[Driver]:
         return terminal.read_windows_keys(terminal.fit_glyphs_to_console(super().get_driver_class()))
+
+    def _handle_exception(self, error: Exception) -> None:
+        # Textual's, for an error nothing handled, which stops the app: kept in the crash log, as the
+        # traceback Textual prints is gone with the console. A worker's comes wrapped, without one.
+        crash.write(error.error if isinstance(error, WorkerFailed) else error, "stopped agentlens")
+        super()._handle_exception(error)
 
     @property
     def _background_screens(self) -> list[Screen]:
@@ -3749,7 +3756,10 @@ def run(interval: float | None = None, project: str | None = None, root: Path = 
     # Everything loaded so far (the modules: Textual, Rich, the SDK) stays until the app quits. Out
     # of the collector's sight, its full sweeps go over less: they held up keys while sessions streamed.
     gc.freeze()
-    with terminal.titled(), terminal.iconed():
-        AgentlensApp(provider=provider, root=root, interval=interval, project=project).run()
+    with crash.logged(), terminal.titled(), terminal.iconed():
+        app = AgentlensApp(provider=provider, root=root, interval=interval, project=project)
+        app.run()
+    if app.return_code and crash.written:
+        print(f"\nThis error is kept in {crash.written}", file=sys.stderr)
     if timings.ENABLED:
         print(timings.report())
