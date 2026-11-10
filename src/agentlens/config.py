@@ -80,7 +80,7 @@ COLOR_GROUPS = {
         "background": "Waiting on its own agents",
         "failed": "Failed",
         "other": "Idle, paused or ended",
-        "coordinator": "A goal's lead, and the goal's name on its sessions",
+        "coordinator": "The coordinator: a goal's lead, and the goal's name on its sessions",
     },
     "The conversation": {
         "you": "Your messages",

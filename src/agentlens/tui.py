@@ -500,6 +500,14 @@ class SpacesTree(Tree[str]):
         Binding("right,escape", "app.focus_sessions", show=False),
     ]
 
+    def on_resize(self, event: events.Resize) -> None:
+        self.app._update_sidebar()  # type: ignore[attr-defined]  # the names are cut to fit its width
+
+    def label_width(self) -> int:
+        """How wide a line can be without the list scrolling sideways: a column kept for the scrollbar
+        it has when there are more spaces than lines. 0 until it's laid out."""
+        return max(0, self.size.width - 1)
+
 
 class KeyFooter(Footer):
     """The footer, rebuilt only when the keys it shows change.
@@ -1484,7 +1492,7 @@ class AgentlensApp(App):
         Sidebar { width: 30; border-right: solid $panel-lighten-1; padding: 0 1; }
         Sidebar.hidden { display: none; }
         .sidebar-title { color: $text-muted; text-style: bold; padding: 1 0 0 1; }
-        #spaces { background: transparent; }
+        #spaces { background: transparent; overflow-x: hidden; }  /* names are cut to fit, never scrolled to */
         #main { width: 1fr; }
         #summary { height: 1; padding: 0 1; background: $panel; link-color: $al-waiting; }
         /* The one link in an alert is its Open button. */
@@ -3204,17 +3212,22 @@ class AgentlensApp(App):
                     tree.root.add_leaf(Text("COORDINATORS", style="bold dim") if rows[i - 1] is None else " ")
                 else:
                     self._space_nodes[name] = tree.root.add_leaf(name, data=name)
+        width = tree.label_width()
         for name in names:
             members = [s for sid, s in self.sessions.items() if self._in_view(sid, name)]
             label = Text()
             label.append("▶ " if name == self.current_space else "  ", style="bold")
             if name.startswith(GOAL_VIEW):
                 label.append("◆ ", style=self.coordinator_color)
-            label.append(self._view_name(name), style="bold" if name == self.current_space else "")
-            label.append(f"  {len(members)}", style="dim")
+            counts = Text(f"  {len(members)}", style="dim")
             waiting = sum(1 for s in members if self.needs_you(s))
             if waiting:
-                label.append(f"  ●{waiting}", style="bold yellow")
+                counts.append(f"  ●{waiting}", style="bold yellow")
+            called = Text(self._view_name(name), style="bold" if name == self.current_space else "")
+            if width:  # a long name is cut short, so the list doesn't scroll sideways and its counts show
+                called.truncate(max(4, width - label.cell_len - counts.cell_len), overflow="ellipsis")
+            label.append_text(called)
+            label.append_text(counts)
             node = self._space_nodes[name]
             if node.label != label:  # type: ignore[attr-defined]
                 node.set_label(label)  # type: ignore[attr-defined]

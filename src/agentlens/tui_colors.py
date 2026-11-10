@@ -137,8 +137,8 @@ class ColorPickScreen(PacedScreen, ModalScreen[str | None]):
         about = config_mod.COLOR_ABOUT[self.color_name]
         now = self._app.config.colors.get(self.color_name, config_mod.DEFAULT_COLORS[self.color_name])
         with Vertical(id="pick-dialog"):
-            yield Label(Text.assemble("The colour for ", (about, "bold")))
-            yield Static(Text(f"Now {now}", style="dim"))
+            yield Static(Text(about, style="bold"))  # what it colours, which can take two lines
+            yield Static(Text(f"Its colour now: {now}", style="dim"))
             yield OptionList(*self._options(), id="pick-list", compact=True)
             yield TextInput("", placeholder="Or type one: #ff8800, orange, $accent", compact=True, id="pick-own")
             yield Static(id="pick-preview")
@@ -181,8 +181,7 @@ class ColorPickScreen(PacedScreen, ModalScreen[str | None]):
 
     def _preview(self, value: str) -> None:
         color = resolve(value, self._app.get_css_variables())
-        about = config_mod.COLOR_ABOUT[self.color_name]
-        shown = (sample(self.color_name, color, f"╭─ {about} ─╮") if color
+        shown = (sample(self.color_name, color, "╭─ like this ─╮") if color
                  else Text(f"{value} isn't a colour: try #ff8800, orange or $accent.", style="italic"))
         self.query_one("#pick-preview", Static).update(shown)
 

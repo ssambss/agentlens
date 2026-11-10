@@ -784,13 +784,14 @@ def test_each_coordinator_has_a_colour_and_an_entry_of_its_own_under_the_spaces(
                 assert name.style == app.coordinator_color == variables["al-coordinator"]
 
             # Under the spaces, one entry for each coordinator: its lead and its sessions, from wherever they are.
-            assert rows() == ["▶ All sessions  3", "  repo  3", " ", "COORDINATORS", "  ◆ Split the parser  2"]
+            assert rows()[:4] == ["▶ All sessions  3", "  repo  3", " ", "COORDINATORS"]
+            assert re.fullmatch(r"  ◆ Split the par(ser|s?e?…)  2", rows()[4])  # cut to fit beside a ● count
             await pilot.press("right_square_bracket", "right_square_bracket")
             assert app.current_space == f"{tui_mod.GOAL_VIEW}{goal.id}"
             assert shown() == {lead.key, worker.key}
             assert app.query_one(tui_mod.SpacesTree).cursor_line == 4
             assert app.query_one("#where").content.plain == "coordinator: ◆ Split the parser"
-            assert rows()[4] == "▶ ◆ Split the parser  2"
+            assert re.fullmatch(r"▶ ◆ Split the par(ser|s?e?…)  2", rows()[4])  # cut to fit beside a ● count
 
             # A session you start from there shows where it goes.
             started = app.open_driven(str(folder), prompt="Something else")

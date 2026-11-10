@@ -1057,6 +1057,27 @@ def test_a_long_space_name_still_shows_on_a_crowded_top_line(projects):
     run_app(app, steps, size=(140, 30))
 
 
+def test_a_name_too_long_for_the_spaces_list_is_cut_short_and_its_counts_still_show(projects):
+    long = "AndroidProjectsAndMoreOfThemStill"
+    write_jsonl(projects / "android" / "phone.jsonl",
+                common([human(0), text(1)], "phone", cwd=f"D:\\work\\{long}"))
+    app = AgentlensApp(provider=lambda: [entry("phone", "idle", 0, f"D:\\work\\{long}")], root=projects,
+                       interval=60)
+
+    async def steps(app, pilot):
+        tree = app.query_one(SpacesTree)
+        line = tree.root.children[1].label.plain
+        assert re.fullmatch(r"  AndroidProjects\w+…  1  ●1", line), line
+        # It used to scroll sideways, with a scrollbar under the list, to show the rest.
+        assert tree.virtual_size.width <= tree.size.width and not tree.show_horizontal_scrollbar
+        await pilot.press("right_square_bracket")  # the space you're in, in bold with ▶, is cut to fit too
+        await pilot.pause(0.1)
+        assert tree.root.children[1].label.plain.startswith("▶ AndroidProjects")
+        assert tree.virtual_size.width <= tree.size.width
+
+    run_app(app, steps)
+
+
 def test_spaces_list_works_from_the_keyboard(projects):
     make_projects(projects)
     entries = [entry("busy", "busy", 0), entry("waiting", "idle", 1), entry("other", "idle", 2, "D:\\work\\other")]
