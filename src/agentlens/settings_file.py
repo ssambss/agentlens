@@ -32,7 +32,7 @@ NAMES = {
     "history_keep_days": "how long sessions are kept", "default_mode": "mode for new sessions", "editor": "editor",
     "editor_terminal": "whether your editor runs in the terminal", "keys": "keys",
     "findings_and_advice": "findings and advice", "autopilot": "autopilot", "coordinator": "the coordinator",
-    "goals": "goals",
+    "new_offers_goal": "whether the new-session dialog starts goals too", "goals": "goals",
     "style": "style", "mute": "muted rules",
     "thresholds": "rule thresholds",
 }

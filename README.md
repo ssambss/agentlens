@@ -110,7 +110,7 @@ never shows a time.
 | `H` | history |
 | `U`, `,` | usage and what's using it; settings |
 | `D` | what [autopilot](#autopilot) answered for you, in every session |
-| `G` | start a goal that a lead Claude runs across sessions: the [coordinator](#coordinator), experimental |
+| `G` | start a goal that a lead Claude runs across sessions: the [coordinator](#coordinator), experimental. `n` can start one too |
 
 Drag to select text and Ctrl+C copies it, over SSH too. Links open on click: web pages in
 your browser, file links like `[app.py:42](src/app.py#L42)` in your editor at that line.
@@ -397,6 +397,11 @@ starts a lead Claude in a pane of its own, in the space you're in:
 5. A task's session closes once the lead marks it done, as `w` would close it, and its
    conversation stays in History. One still working closes when its turn ends.
 6. It tells you when the goal is done, and closes any of its sessions still open.
+
+`n` starts a goal too. While the coordinator is on, its dialog has a session or a goal to
+pick at the top, and Ctrl+G switches between them; `G` opens the same dialog on the goal. To
+keep `n` for sessions and `G` for goals, untick "n starts them too", beside the coordinator in
+the settings.
 
 You can also plan the work first, in an ordinary session you started here. When the plan is
 ready, tell that session to delegate it to a coordinator. While the coordinator is on, each

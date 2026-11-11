@@ -190,7 +190,7 @@ def with_all_colors(saved: dict[str, str]) -> dict[str, str]:
 # Not this PC's spaces (its folders), its Claude Code, or its sessions.
 PORTABLE = ("theme", "colors", "columns", "sidebar", "show_tools", "show_times", "refresh_seconds", "usage_minutes",
             "history_days", "history_keep_days", "default_mode", "editor", "editor_terminal", "keys",
-            "findings_and_advice", "autopilot", "coordinator")
+            "findings_and_advice", "autopilot", "coordinator", "new_offers_goal")
 
 
 @dataclass
@@ -238,6 +238,8 @@ class Config:
     findings_and_advice: bool = False  # experimental: Report, Profile, Rules and Advice
     autopilot: str = "off"  # experimental: one of autopilot.LEVELS, for sessions without their own
     coordinator: bool = False  # experimental: G starts a goal that a lead Claude runs across sessions
+    # While the coordinator is on, n's dialog starts a goal too: you pick which. G opens it on a goal either way.
+    new_offers_goal: bool = True
     spaces: list[Space] = field(default_factory=list)
     # Sessions agentlens runs, restored (paused) on the next launch until you end or detach them.
     driven_sessions: list[dict] = field(default_factory=list)
@@ -348,6 +350,7 @@ def parse(data: dict, path: Path | None = None) -> Config:
         findings_and_advice=bool(data.get("findings_and_advice", defaults.findings_and_advice)),
         autopilot=data["autopilot"] if data.get("autopilot") in AUTOPILOT_LEVELS else defaults.autopilot,
         coordinator=bool(data.get("coordinator", defaults.coordinator)),
+        new_offers_goal=bool(data.get("new_offers_goal", defaults.new_offers_goal)),
         spaces=spaces,
         driven_sessions=[
             # Not "autopilot": saved before the setting was for every session, that was the setting's.

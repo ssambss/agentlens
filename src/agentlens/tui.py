@@ -2724,21 +2724,31 @@ class AgentlensApp(App):
             self.push_screen(ZoomScreen(key))
 
     def action_new_session(self) -> None:
+        self._new_dialog(goal=False)
+
+    def _new_dialog(self, goal: bool) -> None:
+        """The dialog n and G open, for a session or a goal. While the coordinator is on, it offers
+        both (unless you've turned that off), on the one whose key you pressed."""
         made = self._made_space()
 
-        def space(folder: str, prompt: str) -> str:
-            if made:
-                return made
+        def space(folder: str, prompt: str, for_goal: bool) -> str:
+            if made or for_goal:
+                return made  # a goal's lead goes in a space you made, and only then says so
             return self.config.space_for("", folder, prompt) if folder and Path(folder).is_dir() else ""
 
         def chosen(result: dict | None) -> None:
-            if result:
-                self.config.default_mode = result["mode"]
-                driven = self.open_driven(result["cwd"], prompt=result["prompt"], images=result["images"],
-                                          mode=result["mode"])
-                self._keep_space_of(driven)
+            if not result:
+                return
+            self.config.default_mode = result["mode"]
+            if result["goal"]:
+                self._keep_space_of(self.start_goal(result["cwd"], result["prompt"], result["mode"], made))
+            else:
+                self._keep_space_of(self.open_driven(result["cwd"], prompt=result["prompt"], images=result["images"],
+                                                     mode=result["mode"]))
 
-        self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode, space), chosen)
+        both = self.config.coordinator and self.config.new_offers_goal
+        self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode, space, goal=goal,
+                                          both=both), chosen)
 
     def _keep_space_of(self, driven: DrivenSession | None) -> None:
         """Keep the space a session you started is in, so it stays in the list, and n there still
@@ -2754,15 +2764,7 @@ class AgentlensApp(App):
             self.notify(f"Turn it on in settings ({keys_mod.name('settings')}), under Experimental.",
                         title="The coordinator is off")
             return
-        made = self._made_space()
-
-        def chosen(result: dict | None) -> None:
-            if result:
-                self.config.default_mode = result["mode"]
-                self._keep_space_of(self.start_goal(result["cwd"], result["prompt"], result["mode"], made))
-
-        self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode,
-                                          (lambda folder, prompt: made) if made else None, goal=True), chosen)
+        self._new_dialog(goal=True)
 
     def start_goal(self, cwd: str, text: str, mode: str, space: str, *, title: str = "", note: str = "",
                    by: str = "", focus: bool = True) -> DrivenSession | None:

@@ -39,7 +39,7 @@ USAGE_CHOICES = [("Off", 0.0), ("Every minute", 1.0), ("Every 2 minutes", 2.0), 
                  ("Every 10 minutes", 10.0), ("Every 15 minutes", 15.0), ("Every 30 minutes", 30.0)]
 CHECKBOXES = {"set-sidebar": "sidebar", "set-tools": "show_tools", "set-times": "show_times",
               "set-editor-terminal": "editor_terminal", "set-findings": "findings_and_advice",
-              "set-coordinator": "coordinator"}
+              "set-coordinator": "coordinator", "set-new-goal": "new_offers_goal"}
 INPUTS = {"set-editor": "editor", "set-cli": "cli_path"}
 # A sample of the colours, as the panes and the conversation use them.
 BORDER_SAMPLE = [("selected", "selected"), ("question", "needs you"), ("working", "working"),
@@ -185,13 +185,18 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
                          f"{keys_mod.name('autopilot')} gives the session you're on its own, and its border says so. "
                          "Each check sends that reply and the session to Claude, through your own claude.",
                          classes="settings-note")
-            yield row("Goals", Checkbox("Coordinator", cfg.coordinator, compact=True, id="set-coordinator"))
-            yield Static(f"{keys_mod.name('new-goal')} starts a goal: a lead Claude plans it, starts a session for "
+            new_key, goal_key = keys_mod.name("new-session"), keys_mod.name("new-goal")
+            yield row("Goals", Checkbox("Coordinator", cfg.coordinator, compact=True, id="set-coordinator"),
+                      Checkbox(f"{new_key} starts them too", cfg.new_offers_goal, compact=True, id="set-new-goal",
+                               disabled=not cfg.coordinator))
+            yield Static(f"{goal_key} starts a goal: a lead Claude plans it, starts a session for "
                          f"each part, and keeps them going, in the space you're in. It reads the repository but changes "
                          f"nothing itself. How much it decides follows your autopilot level: on autonomous it starts "
                          f"the sessions itself, else it shows you the plan first. At most {coordinator_mod.AT_ONCE} "
                          f"run at once and {coordinator_mod.PER_GOAL} per goal, and none start past "
-                         f"{coordinator_mod.USAGE_STOP:.0%} of your five-hour window.", classes="settings-note")
+                         f"{coordinator_mod.USAGE_STOP:.0%} of your five-hour window. With {new_key} starts them too, "
+                         f"{new_key}'s dialog has a session or a goal to pick at the top (Ctrl+G switches); without it, "
+                         f"{new_key} is for sessions and {goal_key} for goals.", classes="settings-note")
 
             # Only the experimental screens use these, so they show while those are on.
             aims = [
@@ -386,6 +391,7 @@ class SettingsScreen(PacedScreen, ModalScreen[None]):
             if event.value != getattr(self._app.config, name):
                 self._set(name, event.value)
                 self._show_editor()
+                self.query_one("#set-new-goal", Checkbox).disabled = not self._app.config.coordinator
                 for widget in self.query(".aims"):
                     widget.display = self._app.config.findings_and_advice
             return

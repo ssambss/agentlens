@@ -624,29 +624,30 @@ class Composer(Vertical):
 
 
 class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
-    """Start a session agentlens runs itself: folder, first message, permission mode."""
+    """Start a session agentlens runs itself: folder, first message, permission mode. Or a goal for
+    the coordinator, whose lead starts with the goal as its first message; with `both`, you pick
+    which at the top (Ctrl+G switches), starting on `goal`."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS = [Binding("escape", "cancel", "Cancel"),
+                Binding("ctrl+g", "switch_kind", "Session or goal", show=False, priority=True)]
 
-    def __init__(self, folder: str, mode: str, space: Callable[[str, str], str] | None = None,
-                 goal: bool = False) -> None:
+    def __init__(self, folder: str, mode: str, space: Callable[[str, str, bool], str] | None = None,
+                 goal: bool = False, both: bool = False) -> None:
         super().__init__()
         self.folder, self.mode = folder, mode if mode in PERMISSION_MODES else "default"
-        self.space = space  # the space a session started in this folder, with this first message, goes in
+        # The space a session (or a goal's lead, the bool) started in this folder, with this first message, goes in.
+        self.space = space
         self.images: list = []  # pasted into the first message's box, to go with it
         self.goal = goal  # a goal for the coordinator: its first message is the goal, and the mode its sessions'
+        self.both = both  # it starts either, and says which at the top
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-dialog"):
-            if self.goal:
-                yield Label(Text("New goal", style="bold"))
-                yield Static(Text("A lead Claude plans it in this folder, starts a session for each part and keeps "
-                                  "them going. It reads the repository but changes nothing itself. Experimental.",
-                                  style="dim"))
-            else:
-                yield Label(Text("New session", style="bold"))
-                yield Static(Text("Runs your own Claude Code in this folder, typeable right here.",
-                                 style="dim"))
+            yield Label(self._title(), id="new-title")
+            yield Static(self._about(), id="new-about")
+            if self.both:
+                yield Select([("A session", "session"), ("A goal, for the coordinator", "goal")],
+                             value="goal" if self.goal else "session", allow_blank=False, id="new-kind")
             with Horizontal(id="new-folder-row"):
                 yield TextInput(self.folder, placeholder="Folder to work in", id="new-folder")
                 yield Button("Browse…", id="new-browse")
@@ -654,13 +655,50 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
             yield Static(self._space_line(self.folder, ""), id="new-space")
             yield Select([(label, mode) for mode, label in MODE_LABELS.items()], value=self.mode,
                          allow_blank=False, id="new-mode")
-            yield Static(folder_note(self.folder) if not self.goal else
-                         Text("The mode is for the sessions it starts.", style="dim"), id="new-note")
-            yield FirstMessageInput(placeholder="What should get done? Enter to start, Shift+Enter for a new line"
-                                    if self.goal else "First message (optional, Alt+V pastes an image), Enter to "
-                                                      "start, Shift+Enter for a new line", id="new-prompt")
+            yield Static(self._note(self.folder), id="new-note")
+            yield FirstMessageInput(placeholder=self._placeholder(), id="new-prompt")
             yield Static(id="new-images")
             yield Static(id="new-error")
+
+    def _title(self) -> Text:
+        return Text("New goal" if self.goal else "New session", style="bold")
+
+    def _about(self) -> Text:
+        if self.goal:
+            about = ("A lead Claude plans it in this folder, starts a session for each part and keeps them going. "
+                     "It reads the repository but changes nothing itself. Experimental.")
+        else:
+            about = "Runs your own Claude Code in this folder, typeable right here."
+        if self.both:
+            about += f" Ctrl+G: {'a session' if self.goal else 'a goal'} instead."
+        return Text(about, style="dim")
+
+    def _note(self, folder: str) -> Text:
+        return Text("The mode is for the sessions it starts.", style="dim") if self.goal else folder_note(folder)
+
+    def _placeholder(self) -> str:
+        if self.goal:
+            return "What should get done? Enter to start, Shift+Enter for a new line"
+        return "First message (optional, Alt+V pastes an image), Enter to start, Shift+Enter for a new line"
+
+    def action_switch_kind(self) -> None:
+        if self.both:
+            self.query_one("#new-kind", Select).value = "session" if self.goal else "goal"
+
+    @on(Select.Changed, "#new-kind")
+    def _kind_changed(self, event: Select.Changed) -> None:
+        if (event.value == "goal") == self.goal:
+            return
+        self.goal = event.value == "goal"
+        self.query_one("#new-title", Label).update(self._title())
+        self.query_one("#new-about", Static).update(self._about())
+        self.query_one("#new-note", Static).update(self._note(self._folder()))
+        self.query_one("#new-prompt", MessageBox).placeholder = self._placeholder()
+        self.query_one("#new-error", Static).update("")
+        self._show_space()
+
+    def _folder(self) -> str:
+        return self.query_one("#new-folder", TextInput).value.strip().strip('"')
 
     def on_mount(self) -> None:
         self.query_one("#new-prompt", MessageBox).focus()
@@ -683,18 +721,16 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
 
     @on(TextInput.Changed, "#new-folder")
     def _folder_changed(self, event: TextInput.Changed) -> None:
-        if not self.goal:
-            self.query_one("#new-note", Static).update(folder_note(event.value.strip().strip('"')))
+        self.query_one("#new-note", Static).update(self._note(event.value.strip().strip('"')))
         self._show_space()
 
     @on(TextArea.Changed, "#new-prompt")
     def _show_space(self) -> None:
-        folder = self.query_one("#new-folder", TextInput).value.strip().strip('"')
         prompt = self.query_one("#new-prompt", MessageBox).value
-        self.query_one("#new-space", Static).update(self._space_line(folder, prompt))
+        self.query_one("#new-space", Static).update(self._space_line(self._folder(), prompt))
 
     def _space_line(self, folder: str, prompt: str) -> Text:
-        name = self.space(folder, prompt) if self.space else ""
+        name = self.space(folder, prompt, self.goal) if self.space else ""
         return Text.assemble("Opens in the ", (name, "bold"), " space") if name else Text("")
 
     @on(Button.Pressed, "#new-browse")
@@ -712,7 +748,7 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
     @on(TextInput.Submitted)
     @on(MessageBox.Submitted)
     def _start(self) -> None:
-        folder = self.query_one("#new-folder", TextInput).value.strip().strip('"')
+        folder = self._folder()
         if not folder or not Path(folder).is_dir():
             self.query_one("#new-error", Static).update(Text(f"No such folder: {folder}", style="red"))
             self.query_one("#new-folder", TextInput).focus()
@@ -725,6 +761,7 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
             "prompt": self.query_one("#new-prompt", MessageBox).value,
             "images": list(self.images),
             "mode": self.query_one("#new-mode", Select).value,
+            "goal": self.goal,
         })
 
     def action_cancel(self) -> None:

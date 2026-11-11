@@ -826,3 +826,98 @@ def test_g_needs_the_coordinator_turned_on(projects, tmp_path):
             assert type(app.screen).__name__ == "NewSessionScreen" and app.screen.goal
 
     asyncio.run(go())
+
+
+def test_n_starts_a_session_or_a_goal_while_the_coordinator_is_on(projects, tmp_path):
+    """While the coordinator is on, n's dialog has a session or a goal to pick, Ctrl+G switching,
+    and G opens it on the goal. The setting takes the pick away: n for sessions, G for goals."""
+    from textual.widgets import Checkbox
+
+    from agentlens.tui_driven import NewSessionScreen
+    from agentlens.tui_settings import SettingsScreen
+
+    scripts = Prefixes({"Split the parser": [text("I'll plan it."), done()], "Hello": [text("Hi."), done()]})
+    app, folder, fakes = app_with_session(projects, tmp_path, scripts)
+    app._new_session_folder = lambda: str(folder)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            async def dialog(key):
+                await pilot.press(key)
+                await until(pilot, lambda: isinstance(app.screen, NewSessionScreen))
+                return app.screen
+
+            def shown(screen, part):
+                return str(screen.query_one(f"#new-{part}").render())
+
+            new = await dialog("n")  # the coordinator off: a session, nothing to pick
+            assert not new.query("#new-kind")
+            await pilot.press("ctrl+g")
+            assert not new.goal and shown(new, "title") == "New session"
+            await pilot.press("escape")
+
+            app.config.coordinator = True
+            new = await dialog("n")
+            kind = new.query_one("#new-kind")
+            assert kind.value == "session" and not new.goal and shown(new, "space") == "Opens in the repo space"
+            await pilot.press("ctrl+g")
+            await until(pilot, lambda: new.goal and shown(new, "title") == "New goal")
+            assert kind.value == "goal" and "Ctrl+G: a session instead." in shown(new, "about")
+            assert shown(new, "note") == "The mode is for the sessions it starts." and shown(new, "space") == ""
+            await pilot.press("enter")
+            assert shown(new, "error") == "Say what the goal is." and app.screen is new
+            new.query_one("#new-prompt").value = "Split the parser"
+            await pilot.press("enter")
+            await until(pilot, lambda: app.driven)
+            [lead] = app.driven.values()
+            assert app.coordinator.role(lead.key) is not None and lead.title == "Split the parser"
+            await until(pilot, lambda: fakes and fakes[0].options is not None)
+            assert fakes[0].options.tools == ["Read", "Grep", "Glob"]  # a lead's
+            assert app.config.coordinator  # the dialog left it as it was
+
+            goal = await dialog("G")  # on the goal; Ctrl+G back to a session, which it starts
+            assert goal.goal and goal.query_one("#new-kind").value == "goal"
+            await pilot.press("ctrl+g")
+            await until(pilot, lambda: not goal.goal and shown(goal, "title") == "New session")
+            goal.query_one("#new-prompt").value = "Hello"
+            await pilot.press("enter")
+            await until(pilot, lambda: len(app.driven) == 2)
+            session = next(d for d in app.driven.values() if d is not lead)
+            assert app.coordinator.role(session.key) is None
+
+            # Turned off in the settings: n is for sessions again, and G for goals.
+            await pilot.press("comma")
+            await until(pilot, lambda: isinstance(app.screen, SettingsScreen))
+            box = app.screen.query_one("#set-new-goal", Checkbox)
+            assert box.value and not box.disabled and str(box.label) == "n starts them too"
+            box.value = False
+            await until(pilot, lambda: not app.config.new_offers_goal)
+            await pilot.press("escape")
+            new = await dialog("n")
+            assert not new.query("#new-kind") and not new.goal
+            await pilot.press("ctrl+g")
+            assert not new.goal
+            await pilot.press("escape")
+            goal = await dialog("G")
+            assert goal.goal and not goal.query("#new-kind")
+
+    asyncio.run(go())
+
+
+def test_the_choice_in_n_is_off_with_the_coordinator_in_the_settings(projects, tmp_path):
+    from textual.widgets import Checkbox
+
+    from agentlens.tui_settings import SettingsScreen
+
+    app, _, _ = app_with_session(projects, tmp_path)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await pilot.press("comma")
+            await until(pilot, lambda: isinstance(app.screen, SettingsScreen))
+            box = app.screen.query_one("#set-new-goal", Checkbox)
+            assert box.disabled  # it does nothing while the coordinator is off
+            app.screen.query_one("#set-coordinator", Checkbox).value = True
+            await until(pilot, lambda: app.config.coordinator and not box.disabled)
+
+    asyncio.run(go())
