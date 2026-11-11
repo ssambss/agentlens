@@ -65,6 +65,8 @@ icon. In Konsole the tab has the icon itself, and in iTerm2 the tab is violet, u
 agentlens quits. Other terminals, and macOS and Linux, don't let a program change its tab
 or window beyond its name, so there it has no icon or taskbar button of its own.
 
+The top of the border ends with the model the session runs on, after `here` or `bg`
+(`parser · repo · here · Opus 5.5`).
 Beside the state, at the bottom of the border, is how full the session's context window
 is (`working 4m · 42% context`). It takes the theme's warning colour at 75% and its error
 colour at 90%, as the plan meter does: Claude Code compacts the conversation when it's

@@ -1019,7 +1019,7 @@ def test_a_session_a_program_runs_doesnt_wait_on_you(projects):
         app.bell = lambda: None
         scripted, waiting = app.sessions["scripted"], app.sessions["waiting"]
         assert scripted.by_program and not app.needs_you(scripted) and app.needs_you(waiting)
-        assert app.query_one("#s-scripted", SessionPane).border_title.endswith("· run by a program")
+        assert app.query_one("#s-scripted", SessionPane).border_title.endswith("· run by a program · Opus 5.5")
         assert str(app.query_one("#summary").content.plain).startswith("1 need you")
         shown = io.StringIO()
         Console(file=shown, width=100).print(conversation(scripted.feed, app.palette))

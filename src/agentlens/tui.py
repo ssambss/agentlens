@@ -413,6 +413,8 @@ class SessionPane(Vertical, can_focus=True):
             self.set_class(cls == state_class, cls)
         suffix = " · run by a program" if data.by_program else {"background": " · bg", "agentlens": " · here"}.get(
             data.kind, "")
+        if data.model:  # after here or bg: the model it runs on, as the zoom names it
+            suffix += f" · {model_name(data.model)}"
         driven = app.driven.get(self.session_id)
         title: str | Text = pane_place(data, self.space) + suffix
         # A goal's lead and its sessions: double lines in the state's colour, the lead's in the coordinator's

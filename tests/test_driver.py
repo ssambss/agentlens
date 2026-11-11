@@ -1525,7 +1525,7 @@ def test_sessions_come_back_under_claude_codes_title(projects, tmp_path, isolate
             [driven] = app.driven.values()
             assert driven.title == "Repo parser support" and driven.worktree == "parser"
             pane = app.query_one(f"#s-{driven.key}", tui_mod.SessionPane)
-            assert pane.border_title == "parser · repo · here"
+            assert pane.border_title == "parser · repo · here · Opus 5.5"  # the model after here
             assert pane.query_one(".headline").content.plain.startswith("Parser support\n")
 
     asyncio.run(go())
