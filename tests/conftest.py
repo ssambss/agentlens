@@ -144,6 +144,15 @@ def system_clipboard(monkeypatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def clipboard_text(monkeypatch) -> list[str | None]:
+    """What Ctrl+V reads off the clipboard comes from here, never the real one. Empty, agentlens
+    can't read it, as over SSH: put text in."""
+    held: list[str | None] = []
+    monkeypatch.setattr("agentlens.clipboard.paste_text", lambda: held[-1] if held else None)
+    return held
+
+
+@pytest.fixture(autouse=True)
 def clipboard_images(monkeypatch) -> list:
     """What the app pastes as an image comes from here, never the real clipboard: put one in."""
     from agentlens.clipboard import NoImage

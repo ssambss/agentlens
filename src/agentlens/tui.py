@@ -315,6 +315,10 @@ def file_link(href: str, cwd: str) -> tuple[Path, int | None] | None:
     return (path if path.is_absolute() or not cwd else Path(cwd) / path), line
 
 
+COPY_FAILED = ("This terminal doesn't let programs put text on the clipboard, and agentlens couldn't reach it "
+               "itself. Installing wl-clipboard (on Wayland) or xclip (on X) lets it.")
+
+
 def describe_copy(text: str) -> str:
     lines = text.count("\n") + 1
     if lines > 1:
@@ -1755,7 +1759,7 @@ class AgentlensApp(App):
         return WallScreen(id="_default")
 
     def get_driver_class(self) -> type[Driver]:
-        return terminal.read_windows_keys(terminal.fit_glyphs_to_console(super().get_driver_class()))
+        return terminal.read_keys(terminal.fit_glyphs_to_console(super().get_driver_class()))
 
     def _handle_exception(self, error: Exception) -> None:
         # Textual's, for an error nothing handled, which stops the app: kept in the crash log, as the
@@ -3536,13 +3540,18 @@ class AgentlensApp(App):
     # Copying and links ----------------------------------------------------------------------
 
     def copy_to_clipboard(self, text: str, what: str = "") -> None:
-        self._copy(text)
-        if text:
+        if not text:
+            return
+        if self._copy(text):
             self.notify(describe_copy(text), title=f"Copied {what}".strip(), timeout=2)
+        else:
+            self.notify(COPY_FAILED, title="Couldn't copy", severity="warning", timeout=10)
 
-    def _copy(self, text: str) -> None:
+    def _copy(self, text: str) -> bool:
+        """Copy, and say whether it can have worked."""
         super().copy_to_clipboard(text)  # through the terminal (OSC 52), which also works over SSH
-        clipboard.copy(text)  # and straight to the system clipboard, for terminals that ignore OSC 52
+        # and straight to the system clipboard, for terminals that ignore OSC 52
+        return clipboard.copy(text) or terminal.takes_copies()
 
     def action_copy_reply(self) -> None:
         session = self._focused_session()
@@ -3564,10 +3573,9 @@ class AgentlensApp(App):
         if found is not None and found[0].is_file():
             self.open_in_code_editor(str(found[0]), found[1])
             return
-        self._copy(href)
+        copied = " The link is copied instead." if self._copy(href) else ""
         reason = f"{found[0]} isn't a file." if found else "agentlens only opens web pages and files."
-        self.notify(f"{reason} The link is copied instead.", title="Can't open that link", severity="warning",
-                    timeout=6)
+        self.notify(reason + copied, title="Can't open that link", severity="warning", timeout=6)
 
     def _session_of(self, widget: Widget | None) -> LiveSession | None:
         node = widget

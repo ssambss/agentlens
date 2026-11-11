@@ -1,8 +1,14 @@
-"""Put text on the system clipboard, and take an image off it.
+"""Put text on the system clipboard, and take text or an image off it.
 
 The app also asks the terminal to copy (OSC 52), which works over SSH, but not every
-terminal supports that. This is the local way: the Windows clipboard API, pbcopy, or
-wl-copy / xclip / xsel. It never raises; it says whether it worked.
+terminal supports that: GNOME Terminal doesn't. This is the local way: the Windows clipboard
+API, pbcopy, or in Linux the desktop's own tool (wl-copy on Wayland, xclip or xsel on X), and
+with none installed, agentlens's own X clipboard (x11.py). It never raises; it says whether it
+worked.
+
+Ctrl+V reads the clipboard here too: Windows' terminals paste on it themselves, but Linux's
+and macOS's (whose paste is Ctrl+Shift+V, or Cmd+V) pass it on to the app, and Textual's own
+Ctrl+V pastes only what was copied in the app.
 
 A terminal only ever pastes text, so an image you copied (a screenshot, a picture from a
 web page, an image file in Explorer or Finder) is read from the clipboard directly, as
@@ -12,13 +18,14 @@ Claude Code's own Alt+V / Ctrl+V does. That too only works where agentlens runs,
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 
-LINUX_TOOLS = (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"])
+from agentlens import x11
 
 # Claude takes images up to 2576 px on the long edge, but a request carrying more than 20 of
 # them is refused if any is over 2000 px, and a long session gathers screenshots. Over
@@ -44,22 +51,58 @@ class PastedImage:
 
 
 def copy(text: str) -> bool:
-    try:
-        if sys.platform == "win32":
+    if sys.platform == "win32":
+        try:
             return _windows(text)
-        if sys.platform == "darwin":
-            return _pipe(["pbcopy"], text)
-        tool = next((cmd for cmd in LINUX_TOOLS if shutil.which(cmd[0])), None)
-        return _pipe(tool, text) if tool else False
-    except (OSError, subprocess.SubprocessError):
-        return False
+        except OSError:
+            return False
+    return any(_pipe(cmd, text) for cmd in tools(copying=True))
+
+
+def paste_text() -> str | None:
+    """The text on the clipboard; None where agentlens can't read it (in Windows its terminals
+    paste themselves, and over SSH there's no clipboard here)."""
+    for cmd in [] if sys.platform == "win32" else tools(copying=False):
+        try:
+            result = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return result.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
+    return None
+
+
+def tools(copying: bool) -> list[list[str]]:
+    """The commands that copy (text on stdin) or paste (to stdout) here, to try in turn: the
+    desktop's own tool, then agentlens's own on X. Wayland's desktops run X programs too, and
+    hand the clipboard between the two."""
+    if sys.platform == "darwin":
+        return [["pbcopy" if copying else "pbpaste"]]
+    found = []
+    if os.environ.get("WAYLAND_DISPLAY"):
+        found.append(["wl-copy"] if copying else ["wl-paste", "--no-newline", "--type", "text"])
+    if os.environ.get("DISPLAY"):
+        found += [["xclip", "-selection", "clipboard", *([] if copying else ["-o"])],
+                  ["xsel", "--clipboard", "--input" if copying else "--output"]]
+    found = [cmd for cmd in found if shutil.which(cmd[0])]
+    if os.environ.get("DISPLAY") and x11.xlib() is not None:
+        found.append(own_x_clipboard("copy" if copying else "paste"))
+    return found
+
+
+def own_x_clipboard(*args: str) -> list[str]:
+    """agentlens's own X clipboard, for when no tool is installed."""
+    return [sys.executable, "-I", "-m", "agentlens.x11", *args]
 
 
 def _pipe(cmd: list[str], text: str) -> bool:
-    # Output goes nowhere: xclip and wl-copy stay running to serve the clipboard, and would
-    # keep a captured pipe open.
-    result = subprocess.run(cmd, input=text.encode("utf-8"), stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, timeout=5)
+    # Output goes nowhere: xclip, wl-copy and agentlens's own stay running to serve the
+    # clipboard, and would keep a captured pipe open.
+    try:
+        result = subprocess.run(cmd, input=text.encode("utf-8"), stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
     return result.returncode == 0
 
 
@@ -119,8 +162,8 @@ def paste_image() -> PastedImage:
         from PIL import ImageGrab
 
         grabbed = ImageGrab.grabclipboard()
-    except NotImplementedError:
-        raise NoImage("Reading an image from the clipboard needs wl-paste or xclip installed.") from None
+    except NotImplementedError:  # Linux, with neither wl-paste nor xclip
+        grabbed = _x_image()
     except Exception as e:  # noqa: BLE001 - Pillow raises what the platform's clipboard does
         raise NoImage(f"Couldn't read the clipboard: {e}") from None
     if isinstance(grabbed, list):  # files copied in Explorer or Finder: the first that's an image
@@ -148,6 +191,28 @@ def encode(picture) -> PastedImage:
     if out.tell() > MAX_BYTES:
         raise NoImage("That image is too big for Claude even after shrinking it.")
     return PastedImage(media_type, out.getvalue(), picture.width, picture.height)
+
+
+def _x_image():
+    """The image on the clipboard through agentlens's own X clipboard, as Pillow reads it through
+    xclip; None if there isn't one."""
+    from PIL import Image
+
+    if not os.environ.get("DISPLAY") or x11.xlib() is None:
+        raise NoImage("Reading an image from the clipboard needs wl-paste or xclip installed.")
+    try:
+        result = subprocess.run(own_x_clipboard("paste", "--image"), stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise NoImage(f"Couldn't read the clipboard: {e}") from None
+    if result.returncode != 0:
+        return None
+    try:
+        picture = Image.open(io.BytesIO(result.stdout))
+        picture.load()
+    except Exception:  # noqa: BLE001 - a form Pillow doesn't read
+        return None
+    return picture
 
 
 def _open_image(path: str):

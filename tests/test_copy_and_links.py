@@ -230,3 +230,24 @@ def test_y_copies_claudes_last_reply(projects, tmp_path, system_clipboard):
         assert system_clipboard == [REPLY]
 
     run_app(app, steps)
+
+
+def test_a_copy_nothing_could_take_says_so(projects, tmp_path, monkeypatch):
+    # GNOME Terminal ignores a program's copy (OSC 52), and with no clipboard tool or X to reach,
+    # nothing took it: saying "Copied" would be wrong.
+    app = make_app(projects, str(tmp_path))
+    monkeypatch.setattr("agentlens.clipboard.copy", lambda text: False)
+
+    async def steps(app, pilot):
+        monkeypatch.setenv("VTE_VERSION", "7600")
+        monkeypatch.delenv("TMUX", raising=False)
+        monkeypatch.delenv("STY", raising=False)
+        await pilot.press("y")
+        assert [n.title for n in app._notifications] == ["Couldn't copy"]
+        assert "xclip" in next(iter(app._notifications)).message
+        app._notifications.clear()
+        monkeypatch.delenv("VTE_VERSION")  # a terminal that may have taken it
+        await pilot.press("y")
+        assert [n.title for n in app._notifications] == ["Copied Claude's last reply"]
+
+    run_app(app, steps)

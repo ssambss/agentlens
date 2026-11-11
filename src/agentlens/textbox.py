@@ -1,20 +1,40 @@
 """The boxes you type in, with a Windows text box's editing keys: Ctrl+Backspace and Ctrl+Delete
 take a word, Shift with the arrows selects (with Ctrl, a word at a time), Ctrl+C copies what's
-selected.
+selected and Ctrl+V pastes what's on the clipboard.
 
 `TextInput` is one line. `MessageBox` is a message to Claude: Enter sends it, Shift+Enter starts a
-new line, and the box grows with what you type. Ctrl+J starts one too, for terminals that send
-Shift+Enter as a plain Enter. In Windows' terminals agentlens tells the two apart itself (see
-terminal.py)."""
+new line, and the box grows with what you type. Alt+Enter and Ctrl+J start one too, for terminals
+that send Shift+Enter as a plain Enter. In Windows' terminals, and on a Linux desktop's X, agentlens
+tells the two apart itself (see terminal.py)."""
 
 from __future__ import annotations
+
+import asyncio
+from collections.abc import Callable
 
 from textual import events
 from textual.binding import Binding
 from textual.message import Message
+from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
-NEW_LINE_KEYS = {"shift+enter", "ctrl+j"}
+from agentlens import clipboard
+
+NEW_LINE_KEYS = {"shift+enter", "alt+enter", "ctrl+j"}
+
+
+def paste(box: Widget, insert: Callable[[str], object]) -> None:
+    """Ctrl+V: what's on the clipboard, into the box. Textual's own takes only what was copied in
+    agentlens, which is what's left where agentlens can't read the clipboard (over SSH)."""
+
+    async def pasting() -> None:
+        text = await asyncio.to_thread(clipboard.paste_text)
+        if text is None:
+            text = box.app.clipboard
+        if text:
+            insert(text)
+
+    box.run_worker(pasting(), group="paste-text", exclusive=True)
 
 
 class TextInput(Input):
@@ -24,6 +44,9 @@ class TextInput(Input):
         Binding("ctrl+backspace", "delete_left_word", "Delete the word to the left", show=False),
         Binding("ctrl+delete", "delete_right_word", "Delete the word to the right", show=False),
     ]
+
+    def action_paste(self) -> None:
+        paste(self, lambda text: self.replace(text.splitlines()[0], *self.selection))  # a line, as the terminal's
 
 
 class MessageBox(TextArea):
@@ -57,6 +80,10 @@ class MessageBox(TextArea):
     def value(self, text: str) -> None:
         self.text = text
         self.move_cursor(self.document.end)  # to go on typing after it
+
+    def action_paste(self) -> None:
+        if not self.read_only:
+            paste(self, lambda text: self.replace(text, *self.selection, maintain_selection_offset=False))
 
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":

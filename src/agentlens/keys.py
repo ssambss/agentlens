@@ -46,7 +46,7 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
     ("The selected session", [
         Action("compose", "i", "type a message to it"),
         Fixed("/", "in its box: Claude Code's commands (/model, /compact, /clear, your skills)"),
-        Fixed("shift+enter", "in its box: a new line (ctrl+j too); enter sends the message"),
+        Fixed("shift+enter", "in its box: a new line (alt+enter and ctrl+j too); enter sends the message"),
         Fixed("alt+v", "in its box: paste an image from the clipboard, to go with your message"),
         Action("interrupt", "x", "stop its current turn"),
         Fixed("1-9", "answer its question or permission prompt"),
@@ -107,7 +107,8 @@ HELP: list[tuple[str, list[Action | Fixed]]] = [
     ]),
     ("Anywhere", [
         Fixed("drag", "select text with the mouse; ctrl+c copies it"),
-        Fixed("shift+arrows", "in a text box: select text (with ctrl, a word at a time); ctrl+c copies it"),
+        Fixed("shift+arrows", "in a text box: select text (with ctrl, a word at a time); ctrl+c copies it, "
+                              "ctrl+v pastes"),
         Fixed("ctrl+backspace", "in a text box: delete the word before the cursor (ctrl+delete: after it)"),
         Fixed("click", "open a link: web pages in your browser, files in your editor"),
         Action("usage", "U", "usage: how much of your plan's session and weekly limits is used"),

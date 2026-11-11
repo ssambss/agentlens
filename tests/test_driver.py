@@ -2243,7 +2243,9 @@ def test_an_image_on_its_own_starts_a_session_with_it():
     asyncio.run(go())
 
 
-def test_ctrl_v_pastes_text_when_there_is_no_image(projects, tmp_path, clipboard_images):
+def test_ctrl_v_pastes_text_when_there_is_no_image(projects, tmp_path, clipboard_images, clipboard_text):
+    # Linux's and macOS's terminals pass Ctrl+V on (theirs is Ctrl+Shift+V, or Cmd+V), and Textual's
+    # own pastes only what was copied in agentlens.
     app, folder, _ = app_with_session(projects, tmp_path)
 
     async def go():
@@ -2251,14 +2253,19 @@ def test_ctrl_v_pastes_text_when_there_is_no_image(projects, tmp_path, clipboard
             driven = await started(app, pilot, folder)
             app._focus_key(driven.key)
             await pilot.press("i")
-            app._clipboard = "some text"  # copied in the app: what Textual's own paste puts in
+            app._clipboard = "copied in agentlens"
+            clipboard_text.append("copied in the browser\nover two lines")
             await pilot.press("ctrl+v")
-            await until(pilot, lambda: app.focused.value == "some text")
+            await until(pilot, lambda: app.focused.value == "copied in the browser\nover two lines")
             assert driven.images == []
             clipboard_images.append(_image())
             await pilot.press("ctrl+v")
             await until(pilot, lambda: len(driven.images) == 1)
-            assert app.focused.value == "some text"
+            assert app.focused.value == "copied in the browser\nover two lines"
+            app.focused.value = ""
+            clipboard_text.append(None)  # where agentlens can't read the clipboard: what it copied itself
+            await pilot.press("ctrl+v")
+            await until(pilot, lambda: app.focused.value == "copied in agentlens")
 
     asyncio.run(go())
 
@@ -2273,11 +2280,11 @@ def test_a_message_takes_lines_and_is_edited_as_in_a_windows_text_box(projects, 
             await pilot.press("i", *"fix the parser")
             box = app.focused
             height = box.outer_size.height
-            await pilot.press("shift+enter", *"and its tests", "ctrl+j", *"then push")
+            await pilot.press("shift+enter", *"and its tests", "ctrl+j", *"then push", "alt+enter", *"now")
             await pilot.pause()
-            assert box.value == "fix the parser\nand its tests\nthen push" and fakes[0].sent == []
-            assert box.outer_size.height == height + 2  # the box grows with the message
-            await pilot.press("ctrl+backspace")  # a word at a time
+            assert box.value == "fix the parser\nand its tests\nthen push\nnow" and fakes[0].sent == []
+            assert box.outer_size.height == height + 3  # the box grows with the message
+            await pilot.press("ctrl+backspace", "backspace", "ctrl+backspace")  # a word at a time
             assert box.value == "fix the parser\nand its tests\nthen "
             # Select by words (the end of a line is a stop, as in Windows), and copy.
             await pilot.press("ctrl+shift+left", "ctrl+shift+left", "ctrl+shift+left", "ctrl+c")
@@ -2358,7 +2365,7 @@ def test_a_long_plan_reads_in_full_and_shows_how_to_approve_it(projects, tmp_pat
         asyncio.run(go(zoomed))
 
 
-def test_one_line_boxes_take_a_word_with_ctrl_backspace_too(projects, tmp_path):
+def test_one_line_boxes_take_a_word_with_ctrl_backspace_too(projects, tmp_path, clipboard_text):
     app, folder, _ = app_with_session(projects, tmp_path)
 
     async def go():
@@ -2375,6 +2382,9 @@ def test_one_line_boxes_take_a_word_with_ctrl_backspace_too(projects, tmp_path):
             box.cursor_position = 0
             await pilot.press("ctrl+delete")
             assert box.value == "work/repo "
+            clipboard_text.append("D:/other\nand more")
+            await pilot.press("ctrl+v")  # the clipboard's, as the terminal pastes it: its first line
+            await until(pilot, lambda: box.value == "D:/otherwork/repo ")
 
     asyncio.run(go())
 

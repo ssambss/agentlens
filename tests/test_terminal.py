@@ -7,13 +7,15 @@ import shutil
 import threading
 import subprocess
 
+import pytest
+
 from conftest import StreamingClaude, claude_result
 from rich.cells import cell_len
 from textual import _border
 from textual.app import App
 from textual.scrollbar import ScrollBarRender
 
-from agentlens import advise, live, terminal, tui, usage
+from agentlens import advise, live, terminal, tui, usage, x11
 from agentlens.driver import DrivenSession
 from agentlens.usage import run_probe  # the real one; tests get a stand-in by default
 
@@ -126,16 +128,19 @@ def test_in_windows_own_console_window_the_cursor_is_hidden_again_after_a_resize
     assert terminal.HIDE_CURSOR not in written_after_resize(classic=False)  # other terminals keep it hidden
 
 
-def test_in_windows_shift_enter_and_ctrl_backspace_come_through_as_such(monkeypatch):
-    # Windows' consoles send both Enters as \r, and Ctrl+Backspace as \x08, which Textual reads as Backspace.
+def test_shift_enter_and_ctrl_backspace_come_through_as_such(monkeypatch):
+    # Most terminals send both Enters as \r, and Ctrl+Backspace as \x08, which Textual reads as Backspace.
     from textual import events
 
-    def meant(key: str, character: str, shift: bool = False) -> str:
-        return terminal.windows_key(events.Key(key, character), lambda: shift).key
+    def meant(key: str, character: str, shift: bool | None = False, ctrl_h: bool = True) -> str:
+        shift_down = None if shift is None else lambda: shift
+        return terminal.meant_key(events.Key(key, character), shift_down, ctrl_h).key
 
     assert meant("enter", "\r", shift=True) == "shift+enter"
     assert meant("enter", "\r") == "enter"
+    assert meant("enter", "\r", shift=None) == "enter"  # nothing can say whether Shift is down
     assert meant("backspace", "\x08") == "ctrl+backspace"
+    assert meant("backspace", "\x08", ctrl_h=False) == "backspace"  # a terminal whose Backspace is \x08
     assert meant("backspace", "\x7f", shift=True) == "backspace"  # Backspace, and Shift+Backspace
     assert meant("a", "a", shift=True) == "a"
 
@@ -143,13 +148,56 @@ def test_in_windows_shift_enter_and_ctrl_backspace_come_through_as_such(monkeypa
         def process_message(self, message) -> None:
             self.got = message
 
-    monkeypatch.setattr(terminal, "shift_down", lambda: True)
+    def through(**environment) -> str:
+        driver = terminal.read_keys(Driver)()
+        driver.process_message(events.Key("enter", "\r"))
+        return driver.got.key
+
+    monkeypatch.setattr(terminal, "windows_shift_down", lambda: True)
     monkeypatch.setattr(terminal, "WINDOWS", True)
-    driver = terminal.read_windows_keys(Driver)()
-    driver.process_message(events.Key("enter", "\r"))
-    assert driver.got.key == "shift+enter"
+    assert through() == "shift+enter"
+    # On a Linux desktop's X, the X server says.
     monkeypatch.setattr(terminal, "WINDOWS", False)
-    assert terminal.read_windows_keys(Driver) is Driver  # elsewhere the terminal says which it was
+    monkeypatch.setattr(terminal, "_read_alt_enter", lambda: None)
+    monkeypatch.setattr(x11, "shift_down", lambda: True)
+    monkeypatch.setattr(x11, "knows_the_keys", lambda: True)
+    assert through() == "shift+enter"
+    monkeypatch.setattr(x11, "knows_the_keys", lambda: False)  # Wayland's, or over SSH: the terminal says
+    assert through() == "enter"
+
+
+@pytest.mark.parametrize("display, wayland, knows", [
+    (":0", "", True), (":10.0", "", True),  # a desktop, and one over remote desktop (xrdp)
+    (":0", "wayland-0", False),  # X only hears of keys pressed in its own windows
+    ("localhost:10.0", "", False),  # forwarded over SSH: a round trip each Enter
+    ("", "", False),
+])
+def test_x_is_asked_about_shift_on_this_computers_desktop_only(monkeypatch, display, wayland, knows):
+    monkeypatch.setenv("DISPLAY", display)
+    monkeypatch.setenv("WAYLAND_DISPLAY", wayland)
+    monkeypatch.setattr(x11, "xlib", lambda: object())
+    assert x11.knows_the_keys() is knows
+
+
+def test_alt_enter_comes_through_as_such(monkeypatch):
+    # Textual reads ESC and \r as Enter; it's Alt+Enter, and Shift+Enter in terminals Claude
+    # Code's /terminal-setup set up.
+    from textual._xterm_parser import XTermParser
+    from textual.drivers import linux_driver
+
+    monkeypatch.setattr(linux_driver, "XTermParser", XTermParser)
+    terminal._read_alt_enter()
+
+    def keys(data: str) -> list[str]:
+        parser = linux_driver.XTermParser()  # as the driver makes one
+        return [e.key for e in [*parser.feed(data), *parser.feed("")]]
+
+    assert keys("\x1b\r") == ["alt+enter"]
+    assert keys("\r") == ["enter"]
+    assert keys("\x1b[13;3u") == ["alt+enter"]  # the kitty keyboard protocol's
+    assert keys("\x1b\x7f") == ["ctrl+w"]  # the others as Textual reads them: Alt+Backspace takes a word
+    terminal._read_alt_enter()  # only once
+    assert linux_driver.XTermParser.__mro__[1] is XTermParser
 
 
 def test_the_icon_is_four_panes_on_violet_at_every_size():

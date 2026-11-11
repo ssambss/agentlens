@@ -2,6 +2,7 @@
 
 import io
 import os
+import subprocess
 
 import pytest
 from PIL import Image, ImageGrab
@@ -52,11 +53,27 @@ def test_paste_says_why_there_is_nothing(monkeypatch, grabbed, says):
         real_paste_image()
 
 
-def test_paste_says_what_linux_needs(monkeypatch):
+def test_in_linux_with_neither_wl_paste_nor_xclip_agentlens_reads_x_itself(monkeypatch):
     def missing():
         raise NotImplementedError("wl-paste or xclip is required")
 
     monkeypatch.setattr(ImageGrab, "grabclipboard", missing)
+    monkeypatch.setattr(clipboard.x11, "xlib", lambda: object())
+    shot = io.BytesIO()
+    Image.new("RGB", (64, 32)).save(shot, "PNG")
+    asked = []
+
+    def run(cmd, **kwargs):
+        asked.append(cmd[-3:])
+        return subprocess.CompletedProcess(cmd, 0 if shot.getvalue() else 1, shot.getvalue(), b"")
+
+    monkeypatch.setattr(clipboard.subprocess, "run", run)
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert real_paste_image().size == "64×32" and asked == [["agentlens.x11", "paste", "--image"]]
+    shot = io.BytesIO()  # nothing copied, or not an image
+    with pytest.raises(NoImage, match="no image on the clipboard"):
+        real_paste_image()
+    monkeypatch.delenv("DISPLAY")  # no X to reach: say what it takes
     with pytest.raises(NoImage, match="wl-paste or xclip"):
         real_paste_image()
 

@@ -1,7 +1,8 @@
 """The terminal tab agentlens runs in: its name, kept while the `claude` processes it starts share it,
 and agentlens's icon, on the window in Windows, with a taskbar button of its own, and on the tab in
-Konsole (in iTerm2 the tab is violet). In Windows, too, the keys its consoles don't pass on as such,
-and in Windows' own console window, glyphs its font can draw and a cursor that stays hidden."""
+Konsole (in iTerm2 the tab is violet). The keys a terminal doesn't pass on as such, like Shift+Enter;
+whether it lets a program set the clipboard; and in Windows' own console window, glyphs its font can
+draw and a cursor that stays hidden."""
 
 from __future__ import annotations
 
@@ -129,45 +130,100 @@ def fit_glyphs(text: str) -> str:
 
 
 # Keys --------------------------------------------------------------------------------------------
-# Windows' consoles pass keys on to an app as text, as Textual reads them, and the text leaves two
-# out. Enter and Shift+Enter are both \r: whether Shift is down as it comes tells them apart.
-# Ctrl+Backspace is \x08, which Textual takes for Backspace (\x7f, as the consoles send it).
+# Terminals pass keys on to an app as text, as Textual reads them, and the text leaves some out,
+# unless the terminal has the kitty keyboard protocol (kitty, WezTerm, Ghostty, foot), which Textual
+# asks for. Enter and Shift+Enter are both \r: whether Shift is down as it comes tells them apart,
+# which Windows can say, and on a Linux desktop the X server. Ctrl+Backspace is \x08, which Textual
+# takes for Backspace (\x7f, as nearly every terminal sends it). Alt+Enter is ESC and \r, which
+# Textual takes for Enter: it's the new line of terminals Claude Code's /terminal-setup set up, and
+# of the rest, as it is in Claude Code.
 
 VK_SHIFT = 0x10
+ALT_ENTER = "\x1b\r"
 
 
-def read_windows_keys(driver_class: type[Driver]) -> type[Driver]:
-    """In Windows, Textual's driver passing on Shift+Enter and Ctrl+Backspace as such."""
+def read_keys(driver_class: type[Driver]) -> type[Driver]:
+    """Textual's driver passing on Shift+Enter, Ctrl+Backspace and Alt+Enter as such."""
+    from agentlens import x11
+
     if not WINDOWS:
-        return driver_class
+        _read_alt_enter()
+    shift = windows_shift_down if WINDOWS else x11.shift_down if x11.knows_the_keys() else None
 
     class KeysDriver(driver_class):  # type: ignore[valid-type, misc]
         def process_message(self, message) -> None:
             from textual import events
 
             if isinstance(message, events.Key):
-                message = windows_key(message, shift_down)
+                message = meant_key(message, shift, WINDOWS or backspace_is_delete())
             super().process_message(message)
 
     return KeysDriver
 
 
-def windows_key(key: events.Key, shift_down: Callable[[], bool]) -> events.Key:
-    """The key a Windows console meant by the one Textual read."""
+def meant_key(key: events.Key, shift_down: Callable[[], bool] | None, ctrl_h: bool) -> events.Key:
+    """The key the terminal meant by the one Textual read. `shift_down` says whether Shift is down,
+    where something can; `ctrl_h` that ^H is Ctrl+Backspace, Backspace being DEL."""
     from textual import events
 
-    if key.key == "enter" and shift_down():
+    if key.key == "enter" and shift_down is not None and shift_down():
         return events.Key("shift+enter", None)
-    if key.key == "backspace" and key.character == "\x08":
+    if ctrl_h and key.key == "backspace" and key.character == "\x08":
         return events.Key("ctrl+backspace", None)
     return key
 
 
-def shift_down() -> bool:
+def windows_shift_down() -> bool:
     """Whether a Shift key is down now. Read as the key comes in, it's down for Shift+Enter."""
     import ctypes
 
     return bool(ctypes.WinDLL("user32").GetAsyncKeyState(VK_SHIFT) & 0x8000)
+
+
+@functools.cache
+def backspace_is_delete() -> bool:
+    """Whether this terminal's Backspace is DEL (\\x7f), and so ^H (\\x08) is Ctrl+Backspace, or
+    Ctrl+H, which it can't be told from. GNOME Terminal's Backspace sends what the terminal's
+    settings (stty) say it is, and with Ctrl the other one; nearly every other terminal sends DEL
+    and ^H."""
+    try:
+        import termios
+    except ImportError:
+        return False
+    try:
+        erase = termios.tcgetattr(sys.__stdin__.fileno())[6][termios.VERASE]
+    except (AttributeError, ValueError, OSError, termios.error):
+        return False
+    return erase in (b"\x7f", 0x7F)
+
+
+def _read_alt_enter() -> None:
+    """Have Textual read Alt+Enter as such. Its parser drops the Alt from ESC and a key that has a
+    name, as Enter does; its Linux and macOS driver makes one for each run of the app."""
+    from textual import events
+    from textual._xterm_parser import XTermParser
+    from textual.drivers import linux_driver
+
+    if getattr(linux_driver, "XTermParser", None) is not XTermParser:
+        return  # already, or Textual makes it another way now
+
+    class Parser(XTermParser):
+        def _sequence_to_key_events(self, sequence: str, alt: bool = False):
+            if sequence == ALT_ENTER or (alt and sequence == "\r"):
+                yield events.Key("alt+enter", None)
+                return
+            yield from super()._sequence_to_key_events(sequence, alt)
+
+    linux_driver.XTermParser = Parser
+
+
+# The clipboard ---------------------------------------------------------------------------------
+
+def takes_copies() -> bool:
+    """Whether the terminal may put what agentlens copies on the clipboard (OSC 52, which works over
+    SSH too). GNOME Terminal and the others built on VTE never do; tmux and screen keep it for
+    themselves, and hand it on where the terminal they're in takes it. Most others do."""
+    return not os.environ.get("VTE_VERSION") or bool(os.environ.get("TMUX") or os.environ.get("STY"))
 
 
 # The icon ------------------------------------------------------------------------------------------

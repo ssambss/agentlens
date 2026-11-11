@@ -115,6 +115,14 @@ never shows a time.
 Drag to select text and Ctrl+C copies it, over SSH too. Links open on click: web pages in
 your browser, file links like `[app.py:42](src/app.py#L42)` in your editor at that line.
 
+agentlens copies through the terminal, which works over SSH, and straight to the clipboard
+where it runs. Some terminals don't take a program's copy, GNOME Terminal among them, so the
+second way matters. In Linux that's `wl-copy`, `xclip` or `xsel` if one is installed, and
+otherwise agentlens's own, through X, which Wayland desktops run too. Ctrl+V in a box pastes
+what's on the clipboard. Linux's terminals pass it on to agentlens (their own paste is
+Ctrl+Shift+V, which works too), and Windows' paste on it themselves. Over SSH, Ctrl+V pastes
+what you last copied in agentlens; the terminal's own paste pastes the rest.
+
 The changed-files list comes from the session's Edit and Write calls, so changes made
 through a shell command aren't in it. The subagent map shows that a subagent ran, not
 what it did. For a long session, both cover only its recent part: the wall reads the last
@@ -222,7 +230,7 @@ not Claude Code's interface, so a few things work differently; they're in the li
 | Key | Does |
 |---|---|
 | `i`, Esc | type in the session's box; leave it |
-| Enter, Shift+Enter | in the box: send the message; start a new line (Ctrl+J too) |
+| Enter, Shift+Enter | in the box: send the message; start a new line (Alt+Enter and Ctrl+J too) |
 | `/` | in the box: the session's own commands, skills and plugins, and their values (`/model`, `/effort`) |
 | `@` | in the box: your other sessions, for Claude to ask or tell something |
 | `1` `2` `3` | allow, allow and don't ask again, deny. For a question, pick an option; for a plan, `1` approves and `3` says what to change |
@@ -239,10 +247,14 @@ not Claude Code's interface, so a few things work differently; they're in the li
 - You can type while Claude works; the message goes in at its next step.
 - The box is edited as a Windows text box is: Ctrl+Backspace and Ctrl+Delete delete a
   word, Shift with the arrows, Home and End selects (with Ctrl, a word at a time), and
-  Ctrl+C, Ctrl+X and Ctrl+Z copy, cut and undo. It grows to ten lines with your message.
-  Ctrl+Backspace deletes a word in agentlens's other boxes too. Not every terminal tells
-  Shift+Enter from Enter: Windows' do, through agentlens, and so do those with the kitty
-  keyboard protocol (kitty, WezTerm, Ghostty, foot). In the others, Ctrl+J starts a line.
+  Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+Z copy, cut, paste and undo. It grows to ten lines with
+  your message. Ctrl+Backspace deletes a word in agentlens's other boxes too. Most
+  terminals send Shift+Enter as a plain Enter, so agentlens asks whether Shift is down
+  as it comes: Windows can say, and on a Linux desktop that runs X, the X server can, in
+  any terminal. Terminals with the kitty keyboard protocol (kitty, WezTerm, Ghostty, foot)
+  say so themselves. Where nothing can, on Wayland or over SSH, Alt+Enter or Ctrl+J
+  starts a line. Alt+Enter is also what Claude Code's `/terminal-setup` has Shift+Enter
+  send, so in a terminal it set up Shift+Enter works too.
 - In the box, `/usage` opens the usage view, `/exit` closes the session, and `/clear`
   starts a new conversation in the same pane.
 - Claude Code lets Claude message your other sessions on this machine, by the name each
@@ -267,7 +279,7 @@ not Claude Code's interface, so a few things work differently; they're in the li
   terminal passes it through). It shows above the box as `[Image #1]`, Backspace in an
   empty box removes it, and it goes with your next message, shrunk to 2000 px on the long
   edge. The first message in the `n` dialog takes images the same way. Not over SSH; on
-  Linux it needs `wl-paste` or `xclip`.
+  Linux it takes `wl-paste` or `xclip`, or, with neither installed, X.
 - They come back, paused, when you reopen agentlens, until you close (`w`) or detach them;
   a closed one's conversation stays in History. One that's open in a terminal or an editor
   by then comes back once it's closed there. Quitting while some are working asks whether
