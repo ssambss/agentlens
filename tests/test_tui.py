@@ -825,7 +825,7 @@ def test_model_names_read_the_way_people_say_them():
                                             "Opus 4.5", "Fable 5.1", "gpt-5"]
 
 
-def test_the_walls_title_bar_says_which_agentlens_this_is(projects, monkeypatch):
+def test_the_title_bar_says_which_agentlens_this_is(projects, monkeypatch):
     from textual.widgets import Header
 
     from agentlens import version
@@ -835,8 +835,13 @@ def test_the_walls_title_bar_says_which_agentlens_this_is(projects, monkeypatch)
     app = AgentlensApp(provider=lambda: [entry("waiting", "idle", 0)], root=projects, interval=60)
 
     async def steps(app, pilot):
-        await until(pilot, lambda: app.screen.sub_title)
+        await until(pilot, lambda: app.sub_title)
         assert app.screen.query_one(Header).format_title().plain == "agentlens — 0.1.76"
+        await pilot.press("enter")  # zoomed in on a session, too
+        await until(pilot, lambda: isinstance(app.screen, ZoomScreen))
+        assert app.screen.query_one(Header).format_title().plain == "agentlens — 0.1.76"
+        await pilot.press("escape")
+        await pilot.pause(0.2)
         await pilot.press("H")  # the other screens' title bars name the screen, without it
         await pilot.pause(0.2)
         assert app.screen.query_one(Header).format_title().plain == "History"

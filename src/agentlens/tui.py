@@ -883,6 +883,7 @@ class AnalysisScreen(QuietFocusScreen):
 
     BINDINGS = [Binding("escape", "app.pop_screen", "Back"), bind("refresh", "reload", "Re-read history")]
     LOADING_TEXT = "Reading your session history…"
+    SUB_TITLE = ""  # each names itself, without the version: see AgentlensApp._show_version
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1118,6 +1119,7 @@ class HistoryScreen(QuietFocusScreen):
     it has been; m reaches further back. What's been read stays read until it changes."""
 
     TITLE = "History"
+    SUB_TITLE = ""
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
         Binding("enter", "open", "Details"),
@@ -1323,6 +1325,7 @@ class AutopilotScreen(PacedScreen):
     it said. Enter opens that session. The turns it left you are only counted: their replies say it."""
 
     TITLE = "Autopilot"
+    SUB_TITLE = ""
     BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
 
     def compose(self) -> ComposeResult:
@@ -1389,6 +1392,7 @@ class UsageScreen(PacedScreen):
     """Your plan's limits as meters, and what Claude Code says is using them (its /usage)."""
 
     TITLE = "Usage"
+    SUB_TITLE = ""
     BINDINGS = [Binding("escape", "app.pop_screen", "Back"), bind("refresh", "check", "Check now")]
 
     def compose(self) -> ComposeResult:
@@ -1803,10 +1807,11 @@ class AgentlensApp(App):
 
     @work(thread=True, group="version")
     def _show_version(self) -> None:
-        """Which agentlens this is, in the wall's title bar after its name: git counts, which launch needn't
-        wait for. The wall's, not the app's: the other screens' title bars name the screen, and would get it too."""
+        """Which agentlens this is, after its name in the title bar: git counts, which launch needn't wait for.
+        The app's, so the wall, a session zoomed in and every other screen titled agentlens have it. The screens
+        that name themselves (History, Usage…) blank it with their SUB_TITLE."""
         number = version_mod.number()
-        self.call_from_thread(setattr, self.screen_stack[0], "sub_title", number)
+        self.call_from_thread(setattr, self, "sub_title", number)
 
     def on_resize(self, event: events.Resize) -> None:
         self._hide_cursor()
