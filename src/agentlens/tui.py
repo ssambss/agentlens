@@ -2062,9 +2062,10 @@ class AgentlensApp(App):
         elif self._waiting:
             self._restore_driven(monitored)
         self._adopt_names(monitored)
-        # A session agentlens runs also shows up as an open session; keep only the driven pane.
-        # One it's closing does too, until its Claude Code has exited and a fresh listing is in.
-        driven_ids = {d.session_id for d in self.driven.values() if d.session_id}
+        # A session agentlens runs also shows up as an open session, a new one before you've written to it too;
+        # keep only the driven pane. One it's closing does too, until its Claude Code has exited and a fresh
+        # listing is in.
+        driven_ids = {d.listed_as for d in self.driven.values() if d.listed_as}
         hidden = {*self.config.hidden_sessions, *self._closing_sessions}
         # Of the others, one a program drives through the Agent SDK is that program's, not yours.
         sessions = [run_by_program(s) for s in monitored
@@ -2463,8 +2464,8 @@ class AgentlensApp(App):
         the ones it can message, and the ones paused here, which a message naming them starts. As the
         wall calls them and in its order."""
         driven = self.driven.get(key)
-        own = driven.session_id if driven is not None else None
-        ran_here = {d.session_id: d for d in self.driven.values() if d.session_id}
+        own = driven.listed_as if driven is not None else None
+        ran_here = {d.listed_as: d for d in self.driven.values() if d.listed_as}
         hidden = {*self.config.hidden_sessions, *self._closing_sessions}
         now = datetime.now(timezone.utc)
         found = []
@@ -2582,12 +2583,12 @@ class AgentlensApp(App):
         if isinstance(self.screen, ZoomScreen) and self.screen.session_id == driven.key:
             self.pop_screen()
         # Off the wall right away: Claude Code can take a moment to shut down.
-        session_id = driven.session_id
-        if session_id:
-            self._closing_sessions[session_id] = None
+        listed = driven.listed_as
+        if listed:
+            self._closing_sessions[listed] = None
         self.driven.pop(driven.key, None)
         self._painted.pop(driven.key, None)
-        self.config.forget_driven(session_id)
+        self.config.forget_driven(driven.session_id)
         self._save_config()
         if not by_coordinator:
             self.coordinator.left(driven.key, "was closed")
@@ -2600,8 +2601,8 @@ class AgentlensApp(App):
                 await driven.interrupt()
             await driven.close()
         finally:
-            if session_id:
-                self._closing_sessions[session_id] = self._loads
+            if listed:
+                self._closing_sessions[listed] = self._loads
 
     async def _stop_background(self, session: LiveSession) -> None:
         ok, output = await asyncio.to_thread(stop_background, self._claude(), session.session_id, session.name,

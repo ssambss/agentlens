@@ -897,6 +897,74 @@ def test_closing_takes_the_pane_off_the_wall_while_claude_code_shuts_down(projec
     asyncio.run(go())
 
 
+def test_a_new_session_you_have_not_written_to_is_on_the_wall_once(projects, tmp_path):
+    folder = tmp_path / "repo"
+    folder.mkdir()
+    listed = []  # what `claude agents` reports
+    fakes = []
+
+    class LikeClaudeCode(FakeClaude):
+        async def connect(self):
+            pass  # its conversation's id comes with the first message, but it's listed as open from the start
+
+        async def disconnect(self):
+            await self.exited.wait()
+
+    def factory(options):
+        fakes.append(LikeClaudeCode(options, {}))
+        fakes[-1].exited = asyncio.Event()
+        return fakes[-1]
+
+    app = AgentlensApp(provider=lambda: list(listed), root=projects, interval=60)
+    app.client_factory = factory
+
+    async def refresh(pilot):
+        app.action_refresh()
+        for worker in [w for w in app.workers if w.group == "live"]:
+            await worker.wait()
+        await pilot.pause(0.1)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await pilot.pause(0.2)
+            await pilot.press("n")
+            await pilot.pause(0.2)
+            app.screen.query_one("#new-folder").value = str(folder)
+            await pilot.press("enter")  # no first message
+            await until(pilot, lambda: app.driven and next(iter(app.driven.values())).state == WAITING)
+            driven = next(iter(app.driven.values()))
+            assert driven.session_id is None
+            listed.append({"sessionId": fakes[0].options.session_id, "status": "idle", "name": "repo-a1",
+                           "kind": "interactive", "cwd": str(folder)})
+            await refresh(pilot)
+            assert [type(p) for p in app.query(tui_mod.SessionPane)] == [DrivenPane]
+            await pilot.press("w", "w")
+            await refresh(pilot)
+            assert not app.query(tui_mod.SessionPane)  # still listed while Claude Code shuts down, but it's going
+            fakes[0].exited.set()
+            await until(pilot, lambda: driven.state == "ended")
+            listed.clear()
+            await refresh(pilot)
+            assert not app.query(tui_mod.SessionPane) and not app._closing_sessions
+
+    asyncio.run(go())
+
+
+def test_a_new_session_starts_under_an_id_it_knows_and_a_resumed_one_under_its_conversations():
+    async def go():
+        new, fakes = make({})
+        await new.start()
+        assert fakes[0].options.session_id == new.new_id and fakes[0].options.resume is None
+        new.handle(ConversationResetMessage("conv-2", "u1", "sess-42"))  # /clear
+        assert new.listed_as is None  # the id it started under is the old conversation's now
+        back, fakes = make({}, resume="sess-7")
+        await back.start()
+        assert fakes[0].options.session_id is None and fakes[0].options.resume == "sess-7"
+        await new.close()
+        await back.close()
+    asyncio.run(go())
+
+
 def test_quitting_closes_sessions_together(projects, tmp_path, monkeypatch):
     app, folder, fakes = app_with_session(projects, tmp_path)
     closing, most, titles = [0], [0], []

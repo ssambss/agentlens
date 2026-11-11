@@ -225,6 +225,9 @@ class DrivenSession:
         self.cwd = cwd
         self.resume = resume
         self.session_id: str | None = resume
+        # The id a new one's Claude Code starts under. It lists itself by it as an open session from the start, while
+        # its conversation's id (session_id) only comes with the first message: known, that listing is this one's.
+        self.new_id: str | None = None if resume else str(uuid.uuid4())
         self.permission_mode = permission_mode
         self.model = model
         # The model it runs on, as Claude Code says: the one it started on, then the one each reply came from.
@@ -310,6 +313,12 @@ class DrivenSession:
         return self._client is not None
 
     @property
+    def listed_as(self) -> str | None:
+        """The id Claude Code lists it under among the open sessions: its conversation's, or before
+        it has one, the one it started under."""
+        return self.session_id or self.new_id
+
+    @property
     def stopped_by_you(self) -> bool:
         """The turn ending now (as on_turn_end hears of it) is one you stopped."""
         return self._interrupted
@@ -326,6 +335,7 @@ class DrivenSession:
         return ClaudeAgentOptions(**{
             "cwd": self.cwd,
             "resume": self.resume,
+            "session_id": None if self.resume else self.new_id,  # Claude Code takes one or the other
             "permission_mode": self.permission_mode,
             "model": self.model,
             "include_partial_messages": True,
@@ -958,7 +968,8 @@ class DrivenSession:
             # message carries). The old one stays in History.
             if self.session_id:
                 self.cleared.append(self.session_id)
-            self.session_id = None
+            # The id it started under is the old conversation's now, which a terminal could open again.
+            self.session_id = self.new_id = None
             self.events.append(Event(now, "notice", "Context cleared: a new conversation starts here. "
                                                     "The earlier one is in History."))
             self.on_change(self)
