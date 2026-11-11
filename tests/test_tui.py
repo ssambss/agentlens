@@ -1093,7 +1093,7 @@ def test_a_name_too_long_for_the_spaces_list_is_cut_short_and_its_counts_still_s
     async def steps(app, pilot):
         tree = app.query_one(SpacesTree)
         line = tree.root.children[1].label.plain
-        assert re.fullmatch(r"  AndroidProjects\w+…  1  ●1", line), line
+        assert re.fullmatch(r"  AndroidProjects\w+…  1  ● 1", line), line
         # It used to scroll sideways, with a scrollbar under the list, to show the rest.
         assert tree.virtual_size.width <= tree.size.width and not tree.show_horizontal_scrollbar
         await pilot.press("right_square_bracket")  # the space you're in, in bold with ▶, is cut to fit too

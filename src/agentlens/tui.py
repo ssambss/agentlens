@@ -3230,7 +3230,8 @@ class AgentlensApp(App):
             counts = Text(f"  {len(members)}", style="dim")
             waiting = sum(1 for s in members if self.needs_you(s))
             if waiting:
-                counts.append(f"  ●{waiting}", style="bold yellow")
+                # A space after the dot: a font without ●, like Ubuntu's, borrows a wider one that runs over the next cell.
+                counts.append(f"  ● {waiting}", style="bold yellow")
             called = Text(self._view_name(name), style="bold" if name == self.current_space else "")
             if width:  # a long name is cut short, so the list doesn't scroll sideways and its counts show
                 called.truncate(max(4, width - label.cell_len - counts.cell_len), overflow="ellipsis")
