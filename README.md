@@ -362,13 +362,15 @@ settings, under Experimental. Then `G` asks for a folder and the goal, like `n` 
 starts a lead Claude in a pane of its own, in the space you're in:
 
 1. The lead reads the repository and breaks the goal into tasks. Each task has a brief that a
-   fresh session can act on, and says which tasks it waits for.
+   fresh session can act on, and says which tasks it waits for. The brief says what's wanted,
+   not how: working that out is the session's.
 2. It starts a session for each task beside itself, in the mode you picked. Each is told to
    keep its changes apart from the others' the way the repo does it. How, in a worktree or
    on a branch, is up to the repo and your own skills.
 3. When one of those sessions ends a turn, agentlens sends its reply to the lead, and the
    session waits without ringing ("the coordinator is reading this"). The lead answers it,
-   marks it done, or brings it to you.
+   marks it done, or brings it to you. What you tell the lead about a task it passes on in
+   your words, with only what the session can't know, and no steps.
 4. When the tasks are done and checked, it has them delivered one at a time, the way the
    repo does it. Where changes need review, sent for review counts as done: approving and
    submitting are the reviewers', never the lead's or a session's.

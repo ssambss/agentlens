@@ -76,6 +76,9 @@ def test_a_plan_runs_as_sessions_and_each_turn_goes_to_the_lead(tmp_path):
     assert "sent for review counts as delivered" in coordinator.INSTRUCTIONS
     assert "approving, submitting or merging them is the user's" in coordinator.INSTRUCTIONS  # autonomous's, carried
     assert "merge and push" not in coordinator.INSTRUCTIONS
+    # It says what's wanted and leaves the how to the session, which soon knows more of its task than the lead.
+    assert "Say what, not how" in coordinator.INSTRUCTIONS
+    assert "give it in their words" in coordinator.INSTRUCTIONS and "Don't diagnose it" in coordinator.INSTRUCTIONS
     assert goal.task(1).status == RUNNING and goal.started == 1
 
     # Its turn ending goes to the lead, quietly, with what it said.
