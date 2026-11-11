@@ -2725,9 +2725,18 @@ class AgentlensApp(App):
         def chosen(result: dict | None) -> None:
             if result:
                 self.config.default_mode = result["mode"]
-                self.open_driven(result["cwd"], prompt=result["prompt"], images=result["images"], mode=result["mode"])
+                driven = self.open_driven(result["cwd"], prompt=result["prompt"], images=result["images"],
+                                          mode=result["mode"])
+                self._keep_space_of(driven)
 
         self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode, space), chosen)
+
+    def _keep_space_of(self, driven: DrivenSession | None) -> None:
+        """Keep the space a session you started is in, so it stays in the list, and n there still
+        starts one in its folder, once you've closed all its sessions."""
+        if driven is not None and self.config.keep(self.space_of.get(driven.key, "")):
+            self._save_config()
+            self._update_sidebar()
 
     # The coordinator (experimental) ----------------------------------------------------------
 
@@ -2741,7 +2750,7 @@ class AgentlensApp(App):
         def chosen(result: dict | None) -> None:
             if result:
                 self.config.default_mode = result["mode"]
-                self.start_goal(result["cwd"], result["prompt"], result["mode"], made)
+                self._keep_space_of(self.start_goal(result["cwd"], result["prompt"], result["mode"], made))
 
         self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode,
                                           (lambda folder, prompt: made) if made else None, goal=True), chosen)

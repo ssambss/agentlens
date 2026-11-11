@@ -671,6 +671,50 @@ def test_a_session_started_in_a_repositorys_space_goes_by_its_folder(projects, t
     asyncio.run(go())
 
 
+def test_a_repositorys_space_you_started_a_session_in_stays_once_its_sessions_close(projects, tmp_path,
+                                                                                     isolated_home):
+    """A repository's space shows while one of its sessions is open. Start one in it with n and
+    the space is kept: closing its sessions leaves it in the list, and n there starts one in its folder."""
+    import re
+
+    from conftest import common, human, write_jsonl
+
+    from agentlens import config as config_mod
+    from agentlens.tui_driven import NewSessionScreen
+
+    repo = tmp_path / "lens"
+    (repo / ".git").mkdir(parents=True)
+    # What Claude Code writes for the session: the fake doesn't, and it's how n finds the folder again.
+    write_jsonl(projects / re.sub(r"[^A-Za-z0-9]", "-", str(repo)) / "past-1.jsonl",
+                common([human(0)], "past-1", cwd=str(repo)))
+    app = AgentlensApp(provider=lambda: [], root=projects, interval=60)
+    app.client_factory = lambda options: FakeClaude(options, {})
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await until(pilot, lambda: app._restored and not app._listing, steps=300)
+            await pilot.press("n")
+            await until(pilot, lambda: isinstance(app.screen, NewSessionScreen) and app.screen.query("#new-space"))
+            app.screen.query_one("#new-folder").value = str(repo)
+            await pilot.pause(0.1)
+            await pilot.press(*"hi", "enter")
+            await settle(lambda: app.driven and all(d.session_id for d in app.driven.values()), steps=1000)
+            assert [s.name for s in config_mod.load(isolated_home / "config.yaml").spaces] == ["lens"]
+
+            await pilot.press("w", "w")
+            await until(pilot, lambda: not app.driven and not app.query(DrivenPane))
+            assert "lens" in app.space_names()
+            await pilot.press("right_square_bracket")
+            await pilot.pause(0.1)
+            assert app.current_space == "lens"
+            await pilot.press("n")
+            await until(pilot, lambda: isinstance(app.screen, NewSessionScreen) and app.screen.query("#new-space"))
+            box, space = app.screen.query_one("#new-folder"), lambda: str(app.screen.query_one("#new-space").render())
+            await until(pilot, lambda: box.value == str(repo) and space() == "Opens in the lens space")
+
+    asyncio.run(go())
+
+
 def test_sessions_come_back_in_their_own_space_not_the_one_you_quit_in(projects, tmp_path, isolated_home):
     """A session you start in a space you made goes in it. One that comes back at launch doesn't:
     it keeps its own space, whichever space you were in when you quit."""

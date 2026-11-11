@@ -283,6 +283,14 @@ class Config:
             self.spaces.append(target)
         target.sessions.append(session_id)
 
+    def keep(self, space_name: str) -> bool:
+        """Keep a space in the list once its sessions are closed: a repository's, which otherwise
+        shows only while one of its sessions is open. False if it's kept already."""
+        if not space_name or any(s.name == space_name for s in self.spaces):
+            return False
+        self.spaces.append(Space(space_name))
+        return True
+
     def unassign(self, session_id: str) -> str | None:
         """Take a session out of the space it was put in by hand. The space it was in, if any."""
         picked = next((s.name for s in self.spaces if session_id in s.sessions), None)

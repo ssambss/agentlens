@@ -137,6 +137,11 @@ A session you start (`n`) in a space of your own goes in it, whatever folder it 
 a repository's space, even one you've moved sessions into, it goes in its own folder's space.
 Sessions that come back at launch stay in their own space.
 
+A repository's space shows while one of its sessions is open. Start a session in it (`n`, or a
+goal with `G`) and it's kept in your settings: once you've closed all its sessions it stays in the
+list, and `n` there starts one in its folder again. Take one out of `spaces` in the settings file
+to drop it.
+
 Under the spaces, **Coordinators** lists each [coordinator](#coordinator) with a pane on the
 wall, by its goal's name (`◆ Split the parser`). Its entry shows its lead and its sessions
 together, whichever spaces they're in, and they stay in those spaces too. `[` `]` and ↑ ↓
