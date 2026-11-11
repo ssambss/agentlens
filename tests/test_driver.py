@@ -425,6 +425,7 @@ def test_new_session_typed_in_a_pane(projects, tmp_path):
                     break
             driven = next(iter(app.driven.values()))
             assert driven.state == PERMISSION and driven.cwd == str(folder)
+            assert fakes[0].options.model is None  # Claude Code's default: no model asked for
             pane = app.query_one(DrivenPane)
             assert app.focused is pane
             await pilot.press("1")  # allow, from the focused pane
@@ -449,6 +450,53 @@ def test_new_session_typed_in_a_pane(projects, tmp_path):
             assert app.focused is app.screen.query_one("#zoom-map")  # this session changed no files
 
     asyncio.run(go())
+
+
+def test_new_session_starts_on_the_model_picked_and_the_dialog_on_the_default(projects, tmp_path, isolated_home,
+                                                                              server_info):
+    """The dialog offers the models Claude Code last listed, on its default each time; one picked
+    is the session's, and it comes back on it next launch."""
+    from textual.widgets import Select
+
+    from agentlens import commands as commands_mod
+    from agentlens.tui_driven import NewSessionScreen
+
+    commands_mod.save_cached(commands_mod.Catalog.from_server_info(server_info))  # as a session last said
+    app, folder, fakes = app_with_session(projects, tmp_path, {"map the parser": [text("Mapped."), done()]})
+    app._new_session_folder = lambda: str(folder)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await pilot.press("n")
+            await until(pilot, lambda: isinstance(app.screen, NewSessionScreen))
+            model = app.screen.query_one("#new-model", Select)
+            assert model.value == "default" and model.display
+            assert [label for label, _ in app.screen.models] == [
+                "Default (recommended) · Opus 5.5 · Org default", "Opus 5.5 · For complex work", "Haiku 5.5 · Fastest"]
+            model.value = "haiku"
+            await pilot.press(*"map the parser", "enter")
+            await until(pilot, lambda: app.driven and next(iter(app.driven.values())).session_id)
+            [driven] = app.driven.values()
+            assert driven.model == "haiku" and fakes[0].options.model == "haiku"
+            await until(pilot, lambda: _config.load(isolated_home / "config.yaml").driven_sessions)
+            assert _config.load(isolated_home / "config.yaml").driven_sessions[0]["model"] == "haiku"
+
+            await pilot.press("n")  # what you picked was for that session: the next starts on the default
+            await until(pilot, lambda: isinstance(app.screen, NewSessionScreen))
+            assert app.screen.query_one("#new-model", Select).value == "default"
+            await pilot.press("escape")
+
+    asyncio.run(go())
+
+
+def test_the_dialog_offers_claude_codes_model_names_before_any_session_has_listed_them():
+    from agentlens.commands import Choice
+    from agentlens.tui_driven import model_options
+
+    assert model_options([]) == [("Default model, as Claude Code picks it", "default"), ("Opus", "opus"),
+                                 ("Sonnet", "sonnet"), ("Haiku", "haiku")]
+    assert model_options([Choice("sonnet", "Sonnet 5.5")]) == [("Default model, as Claude Code picks it", "default"),
+                                                                 ("Sonnet 5.5", "sonnet")]
 
 
 def test_new_session_folder_picked_with_the_mouse(projects, tmp_path):
@@ -1481,7 +1529,7 @@ def test_sessions_come_back_paused_with_their_conversation(projects, tmp_path, i
     _write(projects / "repo" / "sess-42.jsonl",
            _common([_human(0, "add a parser"), _text(1, LONG_REPLY)], "sess-42", cwd=str(folder)))
     cfg = _config.Config(path=isolated_home / "config.yaml")
-    cfg.remember_driven("sess-42", str(folder), "Parser work", "acceptEdits")
+    cfg.remember_driven("sess-42", str(folder), "Parser work", "acceptEdits", model="sonnet")
     _config.save(cfg)
     app, _, fakes = app_with_session(projects, tmp_path, {"continue": [text("Continuing."), done()]})
 
@@ -1502,6 +1550,7 @@ def test_sessions_come_back_paused_with_their_conversation(projects, tmp_path, i
                 if driven.events[-1].text == "Continuing.":
                     break
             assert fakes[0].options.resume == "sess-42" and fakes[0].options.permission_mode == "acceptEdits"
+            assert fakes[0].options.model == "sonnet"  # the one you started it on
             assert fakes[0].sent == ["continue"]
             # Closing takes it off the list for next time.
             await pilot.press("escape", "delete", "w")

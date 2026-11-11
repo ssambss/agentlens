@@ -256,9 +256,12 @@ class Config:
                 return space.name
         return repo_name(cwd)
 
-    def remember_driven(self, session_id: str, cwd: str, title: str, mode: str, own_autopilot: str = "") -> None:
-        """`own_autopilot`: its own level, set with p; empty, it follows your setting."""
-        entry = {"session_id": session_id, "cwd": cwd, "title": title, "mode": mode, "own_autopilot": own_autopilot}
+    def remember_driven(self, session_id: str, cwd: str, title: str, mode: str, own_autopilot: str = "",
+                        model: str = "") -> None:
+        """`own_autopilot`: its own level, set with p; empty, it follows your setting. `model`: the one you
+        started it on; empty, Claude Code's default."""
+        entry = {"session_id": session_id, "cwd": cwd, "title": title, "mode": mode, "own_autopilot": own_autopilot,
+                 "model": model}
         for i, saved in enumerate(self.driven_sessions):
             if saved.get("session_id") == session_id:
                 self.driven_sessions[i] = entry  # in place: panes come back in this order
@@ -354,7 +357,7 @@ def parse(data: dict, path: Path | None = None) -> Config:
         spaces=spaces,
         driven_sessions=[
             # Not "autopilot": saved before the setting was for every session, that was the setting's.
-            {k: str(d.get(k) or "") for k in ("session_id", "cwd", "title", "mode", "own_autopilot")}
+            {k: str(d.get(k) or "") for k in ("session_id", "cwd", "title", "mode", "own_autopilot", "model")}
             for d in data.get("driven_sessions") or []
             if isinstance(d, dict) and d.get("session_id") and d.get("cwd")
         ],

@@ -1602,6 +1602,7 @@ class AgentlensApp(App):
         #new-dialog { width: 80; max-width: 100%; height: auto; padding: 1 2; border: round $accent;
                       background: $surface; }
         #new-dialog Input, #new-dialog MessageBox, #new-dialog Select { margin-top: 1; }
+        #new-dialog #new-model { margin-top: 0; }
         #new-error { height: auto; }
         #new-folder-row { height: auto; }
         #new-folder-row Input { width: 1fr; }
@@ -2157,11 +2158,12 @@ class AgentlensApp(App):
     # Sessions agentlens runs ---------------------------------------------------------------
 
     def open_driven(self, cwd: str, *, prompt: str = "", images: list | None = None, mode: str | None = None,
-                    resume: str | None = None, title: str = "", force: bool = False, start: bool = True,
-                    apply: bool = True, focus: bool = True, own_autopilot: str | None = None,
+                    model: str | None = None, resume: str | None = None, title: str = "", force: bool = False,
+                    start: bool = True, apply: bool = True, focus: bool = True, own_autopilot: str | None = None,
                     prepare: Callable[[DrivenSession], None] | None = None, first_note: str = "",
                     first_by: str = "", in_space: str | None = None) -> DrivenSession | None:
-        """`own_autopilot`: the session's own level, set with p; None, it follows your setting.
+        """`model`: the one it starts on, None for Claude Code's default.
+        `own_autopilot`: the session's own level, set with p; None, it follows your setting.
         `prepare`: what to do with the session before Claude Code starts. `first_note`, `first_by`:
         the first message's note and sender, as send's. `in_space`: the space it goes in, instead of
         the one you're in."""
@@ -2173,7 +2175,7 @@ class AgentlensApp(App):
             self.notify(f"Folder not found: {cwd or '(unknown)'}", severity="error")
             return None
         driven = DrivenSession(
-            cwd, resume=resume, permission_mode=mode or self.config.default_mode,
+            cwd, resume=resume, permission_mode=mode or self.config.default_mode, model=model or None,
             on_change=self._driven_changed, on_rate_limit=self._rate_limit_seen, cli_path=self.config.cli_path,
             client_factory=self.client_factory, decide=self.decide, on_pilot=self._autopilot_decided,
             autopilot=own_autopilot if own_autopilot in autopilot_mod.LEVELS else self.config.autopilot,
@@ -2267,7 +2269,7 @@ class AgentlensApp(App):
 
     def _remember_entry(self, driven: DrivenSession) -> None:
         self.config.remember_driven(driven.session_id or "", driven.cwd, driven.title, driven.permission_mode,
-                                    own_autopilot(driven) or "")
+                                    own_autopilot(driven) or "", driven.model or "")
 
     def _restore_driven(self, monitored: list[LiveSession]) -> None:
         """Bring back last time's agentlens sessions, paused. One that's open elsewhere stays saved and
@@ -2288,7 +2290,8 @@ class AgentlensApp(App):
                 waiting.add(session_id)
             else:
                 self.open_driven(cwd, resume=session_id, title=saved.get("title", ""),
-                                 mode=saved.get("mode") or None, force=True, start=False, apply=False, focus=False,
+                                 mode=saved.get("mode") or None, model=saved.get("model") or None, force=True,
+                                 start=False, apply=False, focus=False,
                                  own_autopilot=saved.get("own_autopilot") or None)
         self._waiting = waiting
         if first or forgot:
@@ -2674,7 +2677,7 @@ class AgentlensApp(App):
         else:
             self.notify(output or "Claude Code couldn't take it over.", title="Couldn't detach, so it stays here",
                         severity="error", timeout=15)
-            self.open_driven(cwd, resume=session_id, title=title, mode=mode, force=True,
+            self.open_driven(cwd, resume=session_id, title=title, mode=mode, model=driven.model, force=True,
                              own_autopilot=own_autopilot(driven))
         self.action_refresh()
         return ok
@@ -2744,11 +2747,11 @@ class AgentlensApp(App):
                 self._keep_space_of(self.start_goal(result["cwd"], result["prompt"], result["mode"], made))
             else:
                 self._keep_space_of(self.open_driven(result["cwd"], prompt=result["prompt"], images=result["images"],
-                                                     mode=result["mode"]))
+                                                     mode=result["mode"], model=result["model"]))
 
         both = self.config.coordinator and self.config.new_offers_goal
         self.push_screen(NewSessionScreen(self._new_session_folder(), self.config.default_mode, space, goal=goal,
-                                          both=both), chosen)
+                                          both=both, models=self.catalog.models), chosen)
 
     def _keep_space_of(self, driven: DrivenSession | None) -> None:
         """Keep the space a session you started is in, so it stays in the list, and n there still
@@ -2960,7 +2963,7 @@ class AgentlensApp(App):
         self.driven.pop(driven.key, None)
         self.handoff(driven.session_id, driven.cwd, "" if driven.known_as else driven.title)
         self.open_driven(driven.cwd, resume=driven.session_id, title=driven.title, mode=driven.permission_mode,
-                         own_autopilot=own_autopilot(driven))
+                         model=driven.model, own_autopilot=own_autopilot(driven))
 
     def handoff(self, session_id: str | None, cwd: str, unnamed: str = "") -> None:
         """Continue a session in full Claude Code, in this terminal; `unnamed`, the title of one it

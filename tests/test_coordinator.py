@@ -860,9 +860,11 @@ def test_n_starts_a_session_or_a_goal_while_the_coordinator_is_on(projects, tmp_
             new = await dialog("n")
             kind = new.query_one("#new-kind")
             assert kind.value == "session" and not new.goal and shown(new, "space") == "Opens in the repo space"
+            assert new.query_one("#new-model").display
             await pilot.press("ctrl+g")
             await until(pilot, lambda: new.goal and shown(new, "title") == "New goal")
             assert kind.value == "goal" and "Ctrl+G: a session instead." in shown(new, "about")
+            assert not new.query_one("#new-model").display  # a goal's sessions start on the default
             assert shown(new, "note") == "The mode is for the sessions it starts." and shown(new, "space") == ""
             await pilot.press("enter")
             assert shown(new, "error") == "Say what the goal is." and app.screen is new

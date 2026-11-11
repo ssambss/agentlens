@@ -23,7 +23,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Label, OptionList, Select, Static, TextArea, Tree
 
 from agentlens import keys as keys_mod
-from agentlens.commands import Catalog, Suggestion
+from agentlens.commands import Catalog, Choice, Suggestion
 from agentlens.driver import (
     APPROVAL,
     ENDED,
@@ -51,6 +51,21 @@ MODE_LABELS = {
     "plan": "Plan first, no changes until you approve",
     "auto": "Auto: a classifier approves safe actions",
 }
+
+# The model a new session starts on unless you pick another: whichever Claude Code starts on itself.
+DEFAULT_MODEL = "default"
+# Until a session has said which models Claude Code offers, the names it always takes.
+FALLBACK_MODELS = [Choice("opus", "Opus"), Choice("sonnet", "Sonnet"), Choice("haiku", "Haiku")]
+
+
+def model_options(models: list[Choice]) -> list[tuple[str, str]]:
+    """The new-session dialog's models: Claude Code's list, as a session last gave it
+    (`Sonnet 5.5 · Most efficient for simpler tasks`), and its default."""
+    options = [(" · ".join(filter(None, (m.label or m.value, m.description))), m.value)
+               for m in models or FALLBACK_MODELS]
+    if all(value != DEFAULT_MODEL for _, value in options):
+        options.insert(0, ("Default model, as Claude Code picks it", DEFAULT_MODEL))
+    return options
 
 
 def as_live(d: DrivenSession, now: datetime) -> LiveSession:
@@ -624,17 +639,18 @@ class Composer(Vertical):
 
 
 class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
-    """Start a session agentlens runs itself: folder, first message, permission mode. Or a goal for
-    the coordinator, whose lead starts with the goal as its first message; with `both`, you pick
-    which at the top (Ctrl+G switches), starting on `goal`."""
+    """Start a session agentlens runs itself: folder, first message, permission mode, model. Or a goal
+    for the coordinator, whose lead starts with the goal as its first message; with `both`, you pick
+    which at the top (Ctrl+G switches), starting on `goal`. `models`: the ones Claude Code offers."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel"),
                 Binding("ctrl+g", "switch_kind", "Session or goal", show=False, priority=True)]
 
     def __init__(self, folder: str, mode: str, space: Callable[[str, str, bool], str] | None = None,
-                 goal: bool = False, both: bool = False) -> None:
+                 goal: bool = False, both: bool = False, models: list[Choice] | None = None) -> None:
         super().__init__()
         self.folder, self.mode = folder, mode if mode in PERMISSION_MODES else "default"
+        self.models = model_options(models or [])
         # The space a session (or a goal's lead, the bool) started in this folder, with this first message, goes in.
         self.space = space
         self.images: list = []  # pasted into the first message's box, to go with it
@@ -655,6 +671,10 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
             yield Static(self._space_line(self.folder, ""), id="new-space")
             yield Select([(label, mode) for mode, label in MODE_LABELS.items()], value=self.mode,
                          allow_blank=False, id="new-mode")
+            # Always Claude Code's default to begin with: a model you picked once is for that session.
+            model = Select(self.models, value=DEFAULT_MODEL, allow_blank=False, id="new-model")
+            model.display = not self.goal  # a goal's lead and sessions start on the default
+            yield model
             yield Static(self._note(self.folder), id="new-note")
             yield FirstMessageInput(placeholder=self._placeholder(), id="new-prompt")
             yield Static(id="new-images")
@@ -693,6 +713,7 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
         self.query_one("#new-title", Label).update(self._title())
         self.query_one("#new-about", Static).update(self._about())
         self.query_one("#new-note", Static).update(self._note(self._folder()))
+        self.query_one("#new-model", Select).display = not self.goal
         self.query_one("#new-prompt", MessageBox).placeholder = self._placeholder()
         self.query_one("#new-error", Static).update("")
         self._show_space()
@@ -756,11 +777,13 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
         if self.goal and not self.query_one("#new-prompt", MessageBox).value.strip():
             self.query_one("#new-error", Static).update(Text("Say what the goal is.", style="red"))
             return
+        model = str(self.query_one("#new-model", Select).value)
         self.dismiss({
             "cwd": str(Path(folder)),
             "prompt": self.query_one("#new-prompt", MessageBox).value,
             "images": list(self.images),
             "mode": self.query_one("#new-mode", Select).value,
+            "model": None if self.goal or model == DEFAULT_MODEL else model,  # None: Claude Code's own
             "goal": self.goal,
         })
 

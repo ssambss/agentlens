@@ -221,7 +221,8 @@ Code, JetBrains Mono) at 11-12 pt, with a line height around 1.2, reads well.
 
 ## Sessions you start here
 
-`n` starts a session in a folder you pick; `o` in History continues a past one. They run
+`n` starts a session in a folder you pick, on Claude Code's default model unless you pick
+another there; `o` in History continues a past one. They run
 your own installed, unmodified `claude` headless through the Agent SDK, with Claude Code's
 own system prompt, tools and settings, so they behave like your other sessions.
 agentlens never reads or passes credentials. It's agentlens's own front end on your `claude`,
