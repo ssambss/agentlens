@@ -850,11 +850,11 @@ def test_the_version_counts_the_commits(tmp_path):
     import agentlens
     from agentlens import version
 
-    # Run from a checkout: 0.1 and how many commits it has, so one that's fallen behind has a lower number.
+    # Run from a checkout: how many commits it has, so one that's fallen behind has a lower number.
     count = subprocess.run(["git", "rev-list", "--count", "HEAD"], capture_output=True, text=True,
                            cwd=Path(version.__file__).parents[2]).stdout.strip()
     version.number.cache_clear()
-    assert version.number() == agentlens.__version__ == f"{version.BASE}.{count}"
+    assert version.number() == agentlens.__version__ == version.from_count(int(count))
     # Away from one, without git, it's what the build wrote, if anything.
     assert version.from_git(tmp_path) is None
     version.number.cache_clear()

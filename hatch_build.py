@@ -1,7 +1,7 @@
-"""At build time, agentlens's version: 0.1 and how many commits it has (agentlens.version), for the
+"""At build time, agentlens's version, from how many commits it has (agentlens.version), for the
 package and for a copy installed away from its checkout (uv tool install .), which has no git to ask.
 It goes into the package as agentlens/_build.py, in the sdist too, so a wheel built from that has it.
-Without git, or outside a checkout, it's what that file says, else just 0.1."""
+Without git, or outside a checkout, it's what that file says, else just 0.1 (FALLBACK)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def version(root: str) -> str:
         return found
     built = Path(root) / "src" / "agentlens" / "_build.py"  # in an sdist, from when it was made
     match = re.search(r'VERSION = "([^"]+)"', built.read_text(encoding="utf-8")) if built.exists() else None
-    return match[1] if match else module.BASE
+    return match[1] if match else module.FALLBACK
 
 
 class CustomMetadataHook(MetadataHookInterface):

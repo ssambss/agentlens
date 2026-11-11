@@ -1,6 +1,6 @@
 [project]
 name = "agentlens"
-dynamic = ["version"]  # 0.1 and how many commits it has: hatch_build.py, agentlens/version.py
+dynamic = ["version"]  # from how many commits it has: hatch_build.py, agentlens/version.py
 description = "Every Claude Code session you have open on this computer, on one screen in your terminal"
 readme = "README.md"
 license = "MIT"

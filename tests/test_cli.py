@@ -36,6 +36,14 @@ def test_version_says_which_agentlens_this_is(isolated_home, capsys, monkeypatch
     assert capsys.readouterr().out.strip() == "agentlens 0.1.76"
 
 
+def test_version_goes_to_the_next_part_at_100_commits_and_to_1_0_rather_than_0_10():
+    from agentlens.version import from_count
+
+    assert [from_count(n) for n in (1, 82, 99, 100, 101, 199, 200, 899, 900, 999, 1000, 1899, 1900)] == [
+        "0.1.1", "0.1.82", "0.1.99", "0.2.0", "0.2.1", "0.2.99", "0.3.0", "0.9.99", "1.0.0", "1.0.99", "1.1.0",
+        "1.9.99", "2.0.0"]
+
+
 def test_findings_and_advice_commands_are_in_the_help_only_while_they_are_on(isolated_home, capsys):
     from agentlens import config as config_mod
 
