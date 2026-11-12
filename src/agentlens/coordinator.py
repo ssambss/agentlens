@@ -273,6 +273,8 @@ class Coordinator:
         # goal -> the tasks whose sessions goal_done closed: one that was mid-turn closes as that ends
         self.goal_closed: dict[str, set[int]] = {}
         self._asked: set[str] = set()  # goals whose lead asked you in the turn under way
+        # goal -> when its lead last started or messaged one of its sessions: after your message, it passed that on
+        self._passed_on: dict[str, str] = {}
         # (goal, task): those whose last turn was yours, as you wrote to it or stopped it. They wait on you, not
         # at work for the goal, until the lead writes to them or a turn of theirs reaches it.
         self._yours: set[tuple[str, int]] = set()
@@ -451,8 +453,10 @@ class Coordinator:
                 return False, goal.asking
             goal.asking = ""  # your message answers it
             self.save()
-        if yours or interrupted:
-            return None  # it answered you, or you stopped it: yours, as any session's
+        if interrupted or yours and not self._passed_on_since_yours(goal):
+            # It answered you, or you stopped it: yours, as any session's. One that passed what you said on to its
+            # sessions waits on them, as any turn of its own does.
+            return None
         if failed:
             # Its turn failed (an API error, say): what it set out to do, a report's answer, may not be done, and
             # one of its sessions at work bringing it back later wouldn't say so. It's yours.
@@ -462,6 +466,11 @@ class Coordinator:
             # without ask_you.
             return False, _first_sentence(reply) or "the coordinator is waiting on you"
         return True, f"coordinating: {self.summary(goal)}"
+
+    def _passed_on_since_yours(self, goal: Goal) -> bool:
+        """Whether its lead has started or messaged one of its sessions since your last message to it."""
+        when = self._passed_on.get(goal.id)
+        return when is not None and not self.yours_since(self.lead_keys.get(goal.id, ""), when)
 
     def _task_turn_ended(self, goal: Goal, task: Task, yours: bool, reply: str, failed: str,
                          cut_off: bool = False) -> tuple[bool, str] | None:
@@ -575,6 +584,7 @@ class Coordinator:
             return _text(f"agentlens couldn't start a session for task {task.id}.", error=True)
         task.status = RUNNING
         goal.started += 1
+        self._passed_on[goal.id] = _now()
         again = " The goal is open again: call goal_done once it's done too." if self._reopen(goal) else ""
         self.save()
         return _text(f"Started task {task.id}, {task.title}. Its replies come to you as it ends its turns.{again}")
@@ -595,6 +605,7 @@ class Coordinator:
         task.in_a_row += 1
         task.waiting_on_lead = False
         self._yours.discard((goal.id, task.id))  # at work for the goal again
+        self._passed_on[goal.id] = _now()
         self.save()
         return _text(f"Sent to task {task.id}.")
 

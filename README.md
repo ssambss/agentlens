@@ -415,7 +415,9 @@ the coordinator on get the tool the next time agentlens starts.
 
 The lead doesn't work on the code itself. It has Read, Grep and Glob, and agentlens's own
 tools for the board: add tasks, start one, message one, finish one, ask you, finish the goal.
-Its pane rings when it asks you something, answers you, or the goal is done. What it asks
+Its pane rings when it asks you something, answers you, or the goal is done. When it passes
+what you said on to its sessions, starting one or messaging one, it waits on them instead, as
+after any other turn of its own. What it asks
 you reads in its conversation, options and all, as Claude's own questions do, and you answer
 by writing to it. Asking ends its turn, so the question is the last thing it says. It also
 rings when it ends a turn while none of its sessions is at work: those waiting on its answer

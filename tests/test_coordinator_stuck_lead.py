@@ -361,11 +361,32 @@ def test_the_leads_question_still_calls_you_after_a_report_comes_before_your_ans
             await lead_says(fakes, lead, "The docs are written. Still waiting on your answer.")
             await until(pilot, lambda: lead.events[-1].text.startswith("The docs are written.") and rings(app, lead))
             assert lead.detail == QUESTION
-            # Your answer is the end of it: the lead's turn on it is yours, as any.
+            # Your answer is the end of it: the lead's turn on it, passing nothing on, is yours, as any.
             await lead.send("Keep it for one release.")
-            await lead_says(fakes, lead, "Telling Parser to keep it.")
-            await until(pilot, lambda: lead.events[-1].text == "Telling Parser to keep it." and rings(app, lead))
+            await lead_says(fakes, lead, "Noted: one release.")
+            await until(pilot, lambda: lead.events[-1].text == "Noted: one release." and rings(app, lead))
             assert lead.detail == "turn finished" and not goal.asking
+
+    asyncio.run(go())
+
+
+def test_your_answer_the_lead_passes_on_leaves_it_waiting_on_its_sessions(projects, tmp_path):
+    """It asks you while reading Parser's reply, with Docs at work. You answer, and its turn on that tells Parser
+    what you said: it waits on its sessions quietly then, where it had said it waits on you until a report came."""
+    app, folder, fakes = app_for(projects, tmp_path)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            lead, goal, [parser, _] = await goal_at_work(app, pilot, folder, "Parser", "Docs")
+            await reports(fakes, parser)
+            await reach(pilot, lambda: len(sent_to(fakes, lead)) == 2, "Parser's reply sent to the lead")
+            await asked(app, pilot, fakes, lead, goal)
+            await lead.send("Keep it for one release.")
+            await until(pilot, lambda: sent_to(fakes, lead)[-1] == "Keep it for one release.")
+            assert said(app.coordinator.message_task(goal, 1, "Keep the old API for one release.")) == "Sent to task 1."
+            await lead_says(fakes, lead, "Told Parser to keep it.")
+            await until(pilot, lambda: lead.events[-1].text == "Told Parser to keep it." and lead.state == BACKGROUND)
+            assert lead.detail == "coordinating: 2 running, 0 of 2 done" and not rings(app, lead) and not goal.asking
 
     asyncio.run(go())
 

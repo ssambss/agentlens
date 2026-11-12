@@ -158,7 +158,8 @@ def test_new_work_on_a_done_goal_opens_it_again(tmp_path):
     assert "Started task 2" in said(c.start_task(goal, 2))
     c.link("k2", goal, goal.task(2))
     assert c.label("lead") == "coordinator · 1 running · 1/2 done"
-    assert c.turn_ended("lead", True, "Started a check.") is None  # it answered you, as for any goal
+    # Its turn on what you asked started one: it waits on that, as for any goal.
+    assert c.turn_ended("lead", True, "Started a check.") == (True, "coordinating: 1 running, 1 of 2 done")
     assert c.turn_ended("k2", False, "Checked: all good.") == (True, "the coordinator is reading this")
     assert panes.sent[-1][0] == "lead" and "Check (task 2) ended a turn" in panes.sent[-1][1]
     assert ("k2", "goal done") not in panes.closes
@@ -237,6 +238,29 @@ def test_what_the_lead_asks_you_or_finishing_the_goal_calls_you(tmp_path):
     assert c.turn_ended("lead", False, "") == (False, "the coordinator is waiting on you")  # asked once
     c.goal_done(goal, "Parser split and merged")
     assert goal.done and c.turn_ended("lead", False, "") == (False, "Goal done: Parser split and merged")
+
+
+def test_your_answer_the_lead_passes_on_to_its_sessions_waits_on_them(tmp_path):
+    """It asks you, you answer, and it tells a session what you said: then it waits on its sessions quietly, as
+    after a turn of its own, where it had called you as if its reply were all your answer was for. A turn of yours
+    it only answers you in is yours, as any session's."""
+    panes = Panes()
+    c, goal = panes.coordinator(tmp_path)
+    c.add_tasks(goal, tasks("Parser", "Docs"))
+    for n in (1, 2):
+        c.start_task(goal, n)
+        c.link(f"k{n}", goal, goal.task(n))
+    c.turn_ended("k1", False, "Pushed for review.")
+    c.ask_you(goal, "The parser change is ready: merge it?")
+    assert c.turn_ended("lead", False, "") == (False, "The parser change is ready: merge it?")
+
+    panes.yours["lead"] = datetime.now(timezone.utc) - timedelta(seconds=1)  # you answer: "merged"
+    c.message_task(goal, 1, "The user merged it: clean up.")
+    assert c.turn_ended("lead", True, "Its session is cleaning up.") == (True, "coordinating: 2 running, 0 of 2 done")
+    assert not goal.asking
+
+    panes.yours["lead"] = datetime.now(timezone.utc) + timedelta(seconds=1)  # you ask it something
+    assert c.turn_ended("lead", True, "Tonight's run will have it.") is None
 
 
 def test_your_message_to_one_of_its_sessions_gets_its_reply_to_you(tmp_path):
