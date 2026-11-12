@@ -446,6 +446,29 @@ def test_waiting_on_a_background_subagent_ends_with_the_turn_its_notification_st
     asyncio.run(go())
 
 
+def test_a_turn_a_subagents_report_starts_is_read_and_can_wait_on_a_command():
+    """Claude Code 2.1.322 brings a background subagent's report back as a peer's message from the subagent's
+    task. That turn is the session's own: autopilot reads it, and a test run Claude still waits on keeps it from
+    calling you. It said "turn finished" and waited on you for the whole run."""
+    decide, asked = fake_check(Decision("", "Claude is waiting on its subagent and the test run", waiting=True),
+                               Decision("", "Claude is waiting on the test run", waiting=True))
+    handback = {"kind": "peer", "from": "ag1", "senderTaskId": "ag1", "name": "general-purpose", "handback": True}
+
+    async def go():
+        d, fakes = make({"review it": [*background_subagent(), *background_command(), text("Both are going."), done()]},
+                        autopilot="autonomous", decide=decide)
+        await d.start("review it")
+        await settle(lambda: d.state == BACKGROUND)
+        await fakes[0]._play([UserMessage("VERDICT: fine", origin=handback), notified("ag1"),
+                              text("The review is in. The suite is still running; I'll report when it ends."),
+                              finished(handback)])
+        await settle(lambda: len(asked) == 2 and d.state == BACKGROUND)
+        assert d.detail == "Claude is waiting on the test run" and d.work.outstanding() == ["Run the tests"]
+        assert asked[1][2].endswith("I'll report when it ends.")
+        await d.close()
+    asyncio.run(go())
+
+
 def test_a_background_subagent_working_on_leaves_the_wait_on_it(monkeypatch):
     """The subagent's own messages after the turn aren't Claude's next turn: it still waits on agents, and is
     yours after a while if the subagent ends and no turn follows."""

@@ -123,9 +123,14 @@ def running(tool: str, summary: str) -> str:
 def _started_by_its_own_work(result) -> bool:
     """Whether this turn began when a background task Claude had started, such as a test run, finished.
     Claude Code says what began each turn: a scheduled prompt or another session's message has a
-    subkind, or another kind."""
+    subkind, or another kind. A background subagent's report comes as a peer's message, but one
+    from the task it ran as (Claude Code 2.1.322: a hand-back), so it's the session's own too."""
     origin = getattr(result, "origin", None)
-    return isinstance(origin, dict) and origin.get("kind") == "task-notification" and not origin.get("subkind")
+    if not isinstance(origin, dict):
+        return False
+    if origin.get("kind") == "peer":
+        return bool(origin.get("senderTaskId"))
+    return origin.get("kind") == "task-notification" and not origin.get("subkind")
 
 
 def _from_another_session(message) -> tuple[str, str] | None:
