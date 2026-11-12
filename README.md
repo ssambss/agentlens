@@ -414,7 +414,8 @@ as it was, and a note on the wall opens the lead's pane. Sessions already open w
 the coordinator on get the tool the next time agentlens starts.
 
 The lead doesn't work on the code itself. It has Read, Grep and Glob, and agentlens's own
-tools for the board: add tasks, start one, message one, finish one, ask you, finish the goal.
+tools for the board: add tasks, start one, message one, have some debate, finish one, ask you,
+finish the goal.
 Its pane rings when it asks you something, answers you, or the goal is done. When it passes
 what you said on to its sessions, starting one or messaging one, it waits on them instead, as
 after any other turn of its own. What it asks
@@ -437,6 +438,21 @@ over, and the lead's pane goes by it too. Claude Code's own title for the lead d
 replace it, since Claude Code titles the lead from what agentlens tells it. The lead's
 bottom border says `coordinator · 2 running · 1/3 done`, and each of its sessions' says
 `task 2 of 3 · coordinator`.
+
+Two or more of a goal's sessions can argue a question out between themselves, when the goal
+turns on views that differ: designs to choose from, say, or a cause one session found and
+another doubts. The lead gives the question, the tasks (each must have reported and be
+waiting on it) and up to 3 rounds. As the coordinator runs 3 sessions at once, that's 2 or 3
+sides. agentlens then passes each one's reply to the others word for word. Replies are held
+until every side has given its own, so none sees what the others said in a round before
+answering. Their panes wait quietly meanwhile, and their bottom borders say
+`task 1 of 3 · debating tasks 2 and 3 · coordinator`. A side that starts its reply with
+"Agreed:" is out of it from then on, and the others debate on. The lead gets each side's last
+reply when the rounds are done, when fewer than two sides are left arguing, or when your usage
+passes the limit, and weighs them or brings them to you. Writing to one still arguing yourself,
+closing it, or the lead messaging or finishing it ends the debate, and the lead gets what the
+others said last. The sides are told to change nothing while they debate, but keep the tools
+they had.
 
 How much it decides follows your autopilot level:
 

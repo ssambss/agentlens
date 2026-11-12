@@ -32,7 +32,7 @@ from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
-from agentlens.coordinator import BOARD, COORDINATOR, HANDOVER
+from agentlens.coordinator import BOARD, COORDINATOR, DEBATE, HANDOVER
 from agentlens.model import APPROVED, AUTOPILOT, DECLINED, PROGRAM, SENT_BACK, Event
 
 PANE_BLOCKS = 14  # conversation blocks kept in a pane; it scrolls to the newest
@@ -202,6 +202,7 @@ _GAP = Text("")
 # Who sent a message you didn't type, by its tag, and a word on it.
 SENDERS = {AUTOPILOT: ("Autopilot", "for you, from Sonnet"), COORDINATOR: ("Coordinator", "for you, as part of a goal"),
            BOARD: ("agentlens", "what one of the goal's sessions said"),
+           DEBATE: ("Debate", "what the session it debates said, passed on by agentlens"),
            HANDOVER: ("Handed over", "the plan you made in another session, from its Claude"),
            PROGRAM: ("A program", "the one that runs this session, through the Agent SDK: not you")}
 
@@ -271,7 +272,8 @@ def activity_log(events: list[Event], palette: Palette, *, show_times: bool = Tr
         if show_times:
             text.append(f"{event.at.astimezone():%H:%M} ", style="dim")
         label, style = labels.get(event.kind, ("    ", ""))
-        text.append({AUTOPILOT: "auto", COORDINATOR: "lead", BOARD: "lens", HANDOVER: "hand", PROGRAM: "prog"}.get(
+        text.append({AUTOPILOT: "auto", COORDINATOR: "lead", BOARD: "lens", HANDOVER: "hand", DEBATE: "peer",
+                     PROGRAM: "prog"}.get(
             event.tag, label)
                     if event.kind == "you" else label, style=style)
         if event.kind in ("question", "answer", "plan"):

@@ -28,13 +28,15 @@ from typing import Any
 
 from agentlens import autopilot
 from agentlens.preferences import home, write_whole
+from agentlens.report import counted
 
 AT_ONCE = 3  # its sessions running at once
 PER_GOAL = 10  # sessions it starts for one goal
 USAGE_STOP = 0.8  # of your five-hour window, past which it starts no more
 REPLY_CHARS = 6000  # of a session's reply that it reads, from the end
+DEBATE_ROUNDS = 3  # the most rounds two of its sessions debate for, after their openings
 SERVER = "agentlens"  # its tools are mcp__agentlens__<name>
-TOOLS = ("board", "add_tasks", "start_task", "message_task", "finish_task", "ask_you", "goal_done")
+TOOLS = ("board", "add_tasks", "start_task", "message_task", "debate", "finish_task", "ask_you", "goal_done")
 TOOL_NAMES = [f"mcp__{SERVER}__{name}" for name in TOOLS]
 ASK_YOU_TOOL = f"mcp__{SERVER}__ask_you"  # its question shows in the lead's conversation, as Claude's own do
 ASKED = "ask_you ends your turn: the question went to the user."  # the lead reads it with their answer
@@ -44,6 +46,7 @@ LEAD_TOOLS = ["Read", "Grep", "Glob"]  # Claude Code's own: it reads the reposit
 COORDINATOR = "coordinator"  # the lead's message to one of its sessions
 BOARD = "board"  # agentlens telling the lead what one of its sessions said
 HANDOVER = "handover"  # a lead's first message: the goal and plan another session handed over
+DEBATE = "debate"  # what the sessions one of its sessions debates said, passed on to it as it is
 
 # With its messages, so Claude knows you didn't type them. The transcript keeps them, which is how
 # agentlens tells them from yours there (said_by_it): keep this wording.
@@ -53,6 +56,9 @@ NOTE = ("(agentlens's coordinator sent this for the user, who didn't type it. It
 BOARD_NOTE = "(agentlens sent this to you, the coordinator, about one of the goal's sessions: the user didn't type it.)"
 HANDOVER_NOTE = ("(Another Claude session handed this goal to you, the coordinator, when the user asked it to: they "
                  "planned it there with that Claude, and didn't type this themselves.)")
+DEBATE_NOTE = ("(agentlens passed this on to you, word for word, from the goal's sessions you're debating: neither "
+               "the user nor the coordinator wrote it.)")
+AGREED = re.compile(r"^\W*agreed\b", re.IGNORECASE)  # a debating session's reply that says another convinced it
 
 # The one tool a session agentlens runs has while the coordinator is on: the work planned in it, handed to
 # a goal whose lead starts in a pane of its own, as with G.
@@ -72,7 +78,7 @@ def said_by_it(text: str) -> tuple[str, str] | None:
     """A message in a transcript as the coordinator or agentlens sent it: (its tag, the message without
     its note). None if you sent it."""
     body = text.rstrip()
-    for note, tag in ((NOTE, COORDINATOR), (BOARD_NOTE, BOARD), (HANDOVER_NOTE, HANDOVER)):
+    for note, tag in ((NOTE, COORDINATOR), (BOARD_NOTE, BOARD), (HANDOVER_NOTE, HANDOVER), (DEBATE_NOTE, DEBATE)):
         if body.endswith(note):
             return tag, body[:-len(note)].rstrip()
     return None
@@ -89,6 +95,10 @@ class Task:
     report: str = ""  # what the lead said of it when it was done
     in_a_row: int = 0  # the lead's messages to it since yours
     waiting_on_lead: bool = False  # its turn ended and went to the lead, which hasn't answered it yet
+    debate: int = 0  # the debate its session is in, if it is: its replies go to the others in it, not the lead
+    rounds_left: int = 0  # of that debate, after the round under way
+    held: str = ""  # its reply in the round under way, held until the others' are in
+    agreed: bool = False  # it said another side convinced it: out of the arguing, its reply kept for the lead
 
 
 @dataclass
@@ -160,6 +170,16 @@ def _first_sentence(text: str, chars: int = 160) -> str:
     return short(sentence, chars)
 
 
+def _listed(items: list[str]) -> str:
+    """'a', 'a and b', 'a, b and c'."""
+    return f"{', '.join(items[:-1])} and {items[-1]}" if len(items) > 1 else "".join(items)
+
+
+def _tasks(tasks: list[Task]) -> str:
+    """'task 2', 'tasks 2 and 3'."""
+    return ("task " if len(tasks) == 1 else "tasks ") + _listed([str(t.id) for t in tasks])
+
+
 def handover(goal: str, plan: str, by: str) -> str:
     """A lead's first message, for a goal another session hands over: the goal, then the plan made there."""
     return f"{goal}\n\nThe plan, as the user made it with Claude in the session \"{by}\":\n\n{plan}"
@@ -220,6 +240,13 @@ session, so finish one only when you need nothing more from it.
 their words, and add only what the session can't know: what the user decided, what other sessions found \
 or are changing, what's out of scope. Don't diagnose it for the session or list steps. If you need \
 something back, ask for it in a line, the answer you need, not an account of everything it did.
+- debate: when the goal turns on views that differ (designs to choose from, or a cause one session \
+found and another doubts), have two or more of your sessions argue it out with each other instead of \
+through you. Each must have ended its turn and be waiting on you. Give the question in a line or two, \
+and each side's position if it has none yet. agentlens passes each one's replies to the others, word \
+for word, for the rounds you give, and one the others convince drops out. Then you get each side's \
+last reply: weigh them yourself, or bring them to the user with ask_you. Messaging or finishing one \
+still arguing ends the debate.
 - Deliver one at a time: when tasks are done and checked, have one delivered the way this repository \
 does it, and the next only once that one has, updated with what came before. Where changes need \
 someone's review (a pull request, a Gerrit change), sent for review counts as delivered: approving and \
@@ -365,7 +392,9 @@ class Coordinator:
             done = sum(1 for t in goal.tasks if t.status == DONE)
             return ("coordinator · goal done" if goal.done else
                     f"coordinator · {len(self.running(goal))} running · {done}/{len(goal.tasks)} done")
-        return f"task {task.id} of {len(goal.tasks)}{' done' if task.status == DONE else ''} · coordinator"
+        others = [t for t in self.sides(goal, task) if t is not task]
+        debating = f" · debating {_tasks(others)}" if others else ""
+        return f"task {task.id} of {len(goal.tasks)}{' done' if task.status == DONE else ''}{debating} · coordinator"
 
     def summary(self, goal: Goal) -> str:
         running = self.running(goal)
@@ -414,6 +443,10 @@ class Coordinator:
         if found is None or found[1] is None:
             return
         goal, task = found
+        if task.debate and task.agreed:
+            self._leave(goal, task)  # out of the arguing already: the debate goes on without it
+        elif task.debate and self._debate_over(goal, task, f"task {task.id} {why}") is not None:
+            return  # the lead hears of it, with the other sides' replies
         if goal.done or self.under_way(goal):
             return
         self.call_you(self.lead_keys.get(goal.id, ""), f"{task.title} {why}; none of its sessions is at work"[:200])
@@ -479,7 +512,10 @@ class Coordinator:
             task.waiting_on_lead = False
             self._yours.add((goal.id, task.id))  # it waits on you now, not at work for the goal
             self.save()
-            if task.status == RUNNING:
+            if task.status == RUNNING and task.debate and not task.agreed:
+                self._debate_over(goal, task, f"the user wrote to task {task.id} or stopped it, so its replies "
+                                              "are theirs now")
+            elif task.status == RUNNING:
                 self.left(self.key_of(goal, task), "is yours now")
             return None
         self._yours.discard((goal.id, task.id))
@@ -492,6 +528,10 @@ class Coordinator:
             if self.close(self.key_of(goal, task), why) is False:
                 return None  # kept open, as you've written to it: its turns are yours, as any session's
             return True, why
+        if task.debate and task.agreed:
+            self._leave(goal, task)  # a turn of one out of the arguing (it shouldn't have one) is the lead's
+        if task.debate:
+            return self._debate_turn_ended(goal, task, reply, failed, cut_off)
         lead = self.lead_keys.get(goal.id, "")
         if cut_off:
             ended = (f"stopped mid-turn: {failed.rstrip('.')}. Its session is paused, and message_task starts it "
@@ -507,6 +547,174 @@ class Coordinator:
         self.save()
         return True, "the coordinator is reading this"
 
+    # Its sessions debating ---------------------------------------------------------------------
+
+    def sides(self, goal: Goal, task: Task) -> list[Task]:
+        """The sessions in the debate `task` is in, it too: none if it's in none."""
+        return [t for t in goal.tasks if task.debate and t.debate == task.debate]
+
+    def _debate_turn_ended(self, goal: Goal, task: Task, reply: str, failed: str,
+                           cut_off: bool) -> tuple[bool, str] | None:
+        """Its reply is held until every side still arguing has replied. Then each of those gets the others',
+        word for word. One that says it's convinced is out of the arguing from then on, its reply kept for the
+        lead. The rounds done, fewer than two sides left arguing, or the user's usage past the limit, the lead
+        gets every side's last reply."""
+        task.held = reply[-REPLY_CHARS:] or "(no text)"
+        if cut_off:
+            return self._debate_over(goal, task, f"task {task.id} stopped mid-turn ({failed.rstrip('.')}), and its "
+                                                 "session is paused: message_task starts it again")
+        if failed:
+            return self._debate_over(goal, task, f"task {task.id} ended a turn with an error: {failed.rstrip('.')}")
+        arguing = [t for t in self.sides(goal, task) if not t.agreed]
+        waiting = [t for t in arguing if not t.held]
+        if waiting:
+            self.save()
+            return True, f"debating: waiting on {_tasks(waiting)}"
+        for t in arguing:
+            t.agreed = bool(AGREED.match(t.held))
+        still = [t for t in arguing if not t.agreed]
+        agreed = [t for t in arguing if t.agreed]
+        closed = [t for t in still if not self.alive(self.key_of(goal, t))]
+        used = self.usage()
+        why = ""
+        if len(still) < 2:
+            why = (f"{_tasks(agreed)} agreed, so only task {still[0].id} is left arguing" if still else
+                   "every side agreed")
+        elif task.rounds_left <= 0:
+            why = "every side has given its last reply"
+        elif used is not None and used >= USAGE_STOP:
+            why = f"the user has used {used:.0%} of their five-hour window, so agentlens stopped it"
+        elif closed:
+            why = f"{_tasks(closed)}'s session is closed"
+        if why:
+            return self._debate_over(goal, task, why)
+        for t in self.sides(goal, task):
+            t.rounds_left -= 1
+        for t in still:
+            others = "\n\n".join(
+                f"Task {o.id}, {o.title}, {'agreed, and is out of the debate now' if o.agreed else 'answered'}:\n"
+                f"---\n{o.held}\n---" for o in arguing if o is not t)
+            then = ("Your reply to this is your last in the debate: the coordinator reads it next, with the others' "
+                    "last replies." if t.rounds_left == 0 else
+                    f"{counted(t.rounds_left, 'more round')} after your reply to this.")
+            self.send(self.key_of(goal, t), f"{others}\n\n{then}", DEBATE_NOTE, DEBATE)
+        for t in still:
+            t.held = ""  # one that agreed keeps its reply, for the lead
+        self.save()
+        if task.agreed:
+            return True, f"agreed: {_tasks(still)} debate on"
+        return True, f"debating {_tasks([t for t in still if t is not task])}"
+
+    def _end_debate(self, goal: Goal, task: Task, why: str) -> str:
+        """Ends the debate `task` is in, as `why` says: what the lead is told of it, with each side's reply held
+        for this round (or kept from when it agreed), or that it's still on its turn (its reply goes to the lead
+        when it ends). A side whose reply is in waits on the lead now, unless it's yours."""
+        sides = self.sides(goal, task)
+        told = [f"The debate between {_listed([f'task {s.id} ({s.title})' for s in sides])} is over: {why}."]
+        for side in sides:
+            if side.held:
+                told.append(f"Task {side.id}'s last reply{', agreeing' if side.agreed else ''}:\n---\n{side.held}\n---")
+                side.waiting_on_lead = (goal.id, side.id) not in self._yours
+            elif side is not task:
+                told.append(f"Task {side.id} is still on its turn: its reply comes to you when it ends.")
+        for side in sides:
+            side.debate, side.rounds_left, side.held, side.agreed = 0, 0, "", False
+        self.save()
+        return "\n\n".join(told)
+
+    def _leave(self, goal: Goal, task: Task) -> str:
+        """A side that agreed, out of the arguing already, leaves its debate, which goes on without it: what
+        the lead is told of that, with its last reply there."""
+        others = [t for t in self.sides(goal, task) if t is not task]
+        told = (f"Task {task.id} had agreed in its debate with {_tasks(others)}, which goes on without it. Its last "
+                f"reply there:\n---\n{task.held}\n---")
+        task.debate, task.rounds_left, task.held, task.agreed = 0, 0, "", False
+        self.save()
+        return told
+
+    def _step_in(self, goal: Goal, task: Task, why: str) -> str:
+        """The lead messages or finishes one of a debate's sessions: one still arguing ends the debate, and one
+        that agreed leaves it. What the lead is told of it, to go before what its tool says."""
+        if not task.debate:
+            return ""
+        return (self._leave(goal, task) if task.agreed else self._end_debate(goal, task, why)) + "\n\n"
+
+    def _debate_over(self, goal: Goal, task: Task, why: str) -> tuple[bool, str] | None:
+        """Ends it from one of its sessions (a turn of theirs, or one that left), and tells the lead. None if
+        its lead is gone."""
+        told = self._end_debate(goal, task, why)
+        head, _, rest = told.partition("\n\n")
+        if not self.send(self.lead_keys.get(goal.id, ""), f"{head} The user's autopilot level: {self.level()}."
+                         f"\n\n{rest}", BOARD_NOTE, BOARD):
+            return None
+        return True, "the coordinator is reading this"
+
+    def debate(self, goal: Goal, task_ids: Any, rounds: Any, question: str) -> dict:
+        try:
+            ids = list(dict.fromkeys(int(i) for i in task_ids or []))
+        except (TypeError, ValueError):
+            ids = []
+        sides = [goal.task(i) for i in ids]
+        if len(sides) < 2 or None in sides:
+            return _text("Give two or more of the goal's tasks, by their numbers.", error=True)
+        running = {t.id for t in self.running(goal)}
+        cap = autopilot.IN_A_ROW.get(self.level(), autopilot.IN_A_ROW["balanced"])
+        for t in sides:
+            if t.id not in running:
+                return _text(f"Task {t.id} isn't running.", error=True)
+            if t.debate:
+                return _text(f"Task {t.id} is in a debate already.", error=True)
+            if (goal.id, t.id) in self._yours:
+                return _text(f"Task {t.id} is the user's: they wrote to it, and its replies go to them.", error=True)
+            if not self.at_work(self.key_of(goal, t)):
+                return _text(f"Task {t.id} is paused: message_task starts it again.", error=True)
+            if not t.waiting_on_lead:
+                return _text(f"Task {t.id} is still on its turn: start the debate once its reply is in.", error=True)
+            if t.in_a_row >= cap:
+                return _text(f"You've answered task {t.id} {cap} times in a row: bring it to the user with ask_you.",
+                             error=True)
+        try:
+            rounds = int(rounds)
+        except (TypeError, ValueError):
+            rounds = 0
+        if not 1 <= rounds <= DEBATE_ROUNDS:
+            return _text(f"Give 1 to {DEBATE_ROUNDS} rounds.", error=True)
+        question = str(question or "").strip()
+        if not question:
+            return _text("Say what they're to debate.", error=True)
+        used = self.usage()
+        if used is not None and used >= USAGE_STOP:
+            return _text(f"The user has used {used:.0%} of their five-hour window: no debate now. Tell them with "
+                         "ask_you.", error=True)
+        number = max(t.debate for t in goal.tasks) + 1
+        for t in sides:
+            others = [o for o in sides if o is not t]
+            one = len(others) == 1
+            whom = "another of the goal's sessions" if one else f"{len(others)} other sessions of the goal"
+            brief = (f"{question}\n\nYou're debating this with {whom}: "
+                     f"{_listed([f'task {o.id} ({o.title})' for o in others])}. Your reply to this is your opening. "
+                     f"agentlens passes each of your replies to {'it' if one else 'them'} word for word, and "
+                     f"{'its' if one else 'theirs'} to you, for {counted(rounds, 'round')} after your openings; then "
+                     "the coordinator reads each side's last reply. Make your case from what you find in the "
+                     "repository, and change nothing in it while you debate. "
+                     f"Answer {'its' if one else 'their'} points, and keep to them. If {'it' if one else 'one of them'} convinces you, start your reply with "
+                     "\"Agreed:\" and say what changed your mind: that takes you out of the debate.")
+            if not self.send(self.key_of(goal, t), brief, NOTE, COORDINATOR):
+                told = [o for o in sides if o.debate == number]
+                for o in told:
+                    o.debate, o.rounds_left = 0, 0
+                self.save()
+                after = (f" {_tasks(told).capitalize()} got the brief already: what "
+                         f"{'it replies' if len(told) == 1 else 'they reply'} comes to you." if told else "")
+                return _text(f"Task {t.id}'s session is closed: no debate.{after}", error=True)
+            t.debate, t.rounds_left, t.held, t.agreed = number, rounds, "", False
+            t.waiting_on_lead = False
+            t.in_a_row += 1
+        self._passed_on[goal.id] = _now()
+        self.save()
+        return _text(f"{_tasks(sides).capitalize()} are debating it, for {counted(rounds, 'round')} after their "
+                     "openings. Each side's last reply comes to you when it's over.")
+
     # The lead's tools -------------------------------------------------------------------------
 
     def board(self, goal: Goal) -> str:
@@ -520,6 +728,11 @@ class Coordinator:
                 status = "running, paused: its Claude Code isn't running, and message_task starts it again"
             elif t.id in running and (goal.id, t.id) in self._yours:
                 status = "running, the user's: they wrote to it or stopped it, and its replies go to them"
+            elif t.id in running and t.debate:
+                others = _tasks([o for o in self.sides(goal, t) if o is not t])
+                status = (f"running, agreed in its debate with {others}: out of it, and waits for it to end"
+                          if t.agreed else f"running, debating {others}: {counted(t.rounds_left, 'round')} left "
+                          "after this one, and its replies go to them")
             after = f", after {', '.join(map(str, t.after))}" if t.after else ""
             lines.append(f"{t.id}. {t.title} [{status}{after}]" + (f" Done: {t.report}" if t.report else ""))
         if not goal.tasks:
@@ -600,26 +813,28 @@ class Coordinator:
         if task.in_a_row >= cap:
             return _text(f"You've answered task {task.id} {cap} times in a row: bring it to the user with ask_you.",
                          error=True)
+        ended = self._step_in(goal, task, f"you messaged task {task.id}")
         if not self.send(self.key_of(goal, task), message, NOTE, COORDINATOR):
-            return _text(f"Task {task.id}'s session is closed.", error=True)
+            return _text(f"{ended}Task {task.id}'s session is closed.", error=True)
         task.in_a_row += 1
         task.waiting_on_lead = False
         self._yours.discard((goal.id, task.id))  # at work for the goal again
         self._passed_on[goal.id] = _now()
         self.save()
-        return _text(f"Sent to task {task.id}.")
+        return _text(f"{ended}Sent to task {task.id}.")
 
     def finish_task(self, goal: Goal, task_id: Any, report: str) -> dict:
         task = goal.task(task_id)
         if task is None:
             return _text(f"There's no task {task_id}.", error=True)
+        ended = self._step_in(goal, task, f"you finished task {task.id}")
         task.status, task.report = DONE, " ".join(str(report or "").split())[:300]
         self.save()
         self.close(self.key_of(goal, task), f"task done: {task.report}" if task.report else "task done")
         ready = [t for t in goal.tasks if t.status == PLANNED and all(
             (goal.task(a) or t).status == DONE for a in t.after)]
         then = (" Ready to start: " + "; ".join(f"{t.id}. {t.title}" for t in ready)) if ready else ""
-        return _text(f"Task {task.id} is done.{then}")
+        return _text(f"{ended}Task {task.id} is done.{then}")
 
     def ask_you(self, goal: Goal, question: str) -> dict:
         goal.asking = " ".join(str(question or "").split())[:200] or "The coordinator wants you"
@@ -632,6 +847,8 @@ class Coordinator:
         goal.finished = " ".join(str(summary or "").split())[:200] or "every task is done"
         goal.asking = ""  # nothing left to ask about
         self._asked.discard(goal.id)
+        for task in goal.tasks:  # a debate under way ends with its goal
+            task.debate, task.rounds_left, task.held, task.agreed = 0, 0, "", False
         self.save()
         still_open = [t for t in goal.tasks if self.alive(self.key_of(goal, t))]
         self.goal_closed[goal.id] = {t.id for t in still_open}
@@ -673,6 +890,18 @@ class Coordinator:
                 "type": "object", "required": ["task", "message"],
                 "properties": {"task": task_id, "message": {"type": "string"}}},
                   lambda g, a: self.message_task(g, a.get("task"), a.get("message", ""))),
+            bound("debate", "Have two or more of the goal's sessions debate a question with each other: each "
+                  "one's replies go to the others, word for word, then each side's last reply to you.", {
+                "type": "object", "required": ["tasks", "rounds", "question"],
+                "properties": {"tasks": {"type": "array", "items": {"type": "integer"}, "minItems": 2,
+                                         "description": "The tasks that debate it, two or more, by their numbers"},
+                               "rounds": {"type": "integer", "minimum": 1, "maximum": DEBATE_ROUNDS,
+                                          "description": "How many times each answers the other, after their "
+                                                         "openings"},
+                               "question": {"type": "string",
+                                            "description": "What they debate, and each side's position if it has "
+                                                           "none yet"}}},
+                  lambda g, a: self.debate(g, a.get("tasks"), a.get("rounds"), a.get("question", ""))),
             bound("finish_task", "Mark a task done.", {
                 "type": "object", "required": ["task", "report"],
                 "properties": {"task": task_id, "report": {"type": "string", "description": "One line on what it did"}}},
