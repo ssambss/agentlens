@@ -449,7 +449,7 @@ that again whenever the plan changes.
 
 The limits are agentlens's, not the lead's to choose:
 
-- 3 sessions at once and 6 per goal
+- 3 sessions at once and 10 per goal
 - none started once 80% of your five-hour window is used
 - the same number of answers in a row to one session as autopilot gives
 

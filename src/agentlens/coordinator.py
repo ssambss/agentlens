@@ -30,7 +30,7 @@ from agentlens import autopilot
 from agentlens.preferences import home, write_whole
 
 AT_ONCE = 3  # its sessions running at once
-PER_GOAL = 6  # sessions it starts for one goal
+PER_GOAL = 10  # sessions it starts for one goal
 USAGE_STOP = 0.8  # of your five-hour window, past which it starts no more
 REPLY_CHARS = 6000  # of a session's reply that it reads, from the end
 SERVER = "agentlens"  # its tools are mcp__agentlens__<name>
