@@ -70,6 +70,13 @@ DELEGATE_ABOUT = (
     "to delegate the work, or hand it, to a coordinator. Give the goal in a line, and the plan as agreed here, "
     "for a lead that hasn't seen this conversation: what to do and where, how to check it, what's out of "
     "scope, and what the user decided.")
+# What the session that handed a goal over is told, so it doesn't run the goal's sessions beside the lead: they
+# can still message it (Claude Code's own messages between sessions, as a plan's "check the other sessions first"
+# has them do), and with the plan it made, it would answer them as the lead does.
+HANDED_OVER = ("From now on the lead directs the goal's sessions. If one of them messages this session, answer "
+               "only for this session, such as whether it's using something they're about to use. Don't give them "
+               "a go-ahead, tell them to wait, or add to what they were told: that's the lead's. Anything you'd add "
+               "for the goal goes to the user, who can give it to the lead.")
 
 PLANNED, RUNNING, DONE = "planned", "running", "done"
 

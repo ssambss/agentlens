@@ -667,6 +667,7 @@ def test_a_session_you_planned_in_hands_the_work_to_the_coordinator_when_you_ask
             # Its Claude calls the tool, as it would when you say to delegate.
             ok, said = app._hand_over(planner, "Split the parser", "1. One module per format.\n2. A test for each.")
             assert ok and "◆ Split the parser" in said and "Tell the user it's there" in said
+            assert coordinator.HANDED_OVER in said  # the goal's sessions that message it are the lead's to answer
             lead = next(d for d in app.driven.values() if d is not planner)
             await until(pilot, lambda: lead.events and lead.events[-1].kind == "claude")
             first = fakes[1].sent[0]

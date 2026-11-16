@@ -2801,7 +2801,7 @@ class AgentlensApp(App):
                     title=f"The coordinator took over: {called}", timeout=10)
         return True, (f"Handed over. agentlens's coordinator has a lead for it in a pane of its own, \"◆ {called}\". "
                       "It turns the plan into tasks, starts a session for each, and brings questions to the user. "
-                      "This session isn't part of it. Tell the user it's there.")
+                      "This session isn't part of it. " + coordinator_mod.HANDED_OVER + " Tell the user it's there.")
 
     def _coordinate(self, driven: DrivenSession, goal: coordinator_mod.Goal | None = None,
                     task: coordinator_mod.Task | None = None) -> None:
