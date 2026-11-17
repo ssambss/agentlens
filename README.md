@@ -263,9 +263,13 @@ not Claude Code's interface, so a few things work differently; they're in the li
   (`tubeless-d4`), alike for every session in a repo and its worktrees, so neither you nor
   Claude could tell which is which. Sessions you start here take their title as their name
   once Claude Code gives them one, and Claude Code keeps it for them, so "ask the shared
-  links session what it decided" reaches the right one. One from before agentlens named its
-  sessions takes its title the next time it runs: here, in Claude Code from agentlens, or in
-  the background. A name you gave a session with `/rename` stays. Detached, a session
+  links session what it decided" reaches the right one. A title another of your sessions
+  already goes by, as one about that session can get ("what was the shared links session
+  doing?"), is asked for again, and failing that gets a number after it: "Shared links (2)".
+  A session that comes back under another's name gets one that way too; the one here first
+  keeps it. One from before agentlens named its sessions takes its title the next time it
+  runs: here, in Claude Code from agentlens, or in the background. A name you gave a
+  session with `/rename` stays, unless another session has it too. Detached, a session
   keeps its name too: Claude Code's background service would otherwise give it one of its
   own, like "resume plan review", which nothing knows it by. `@` in the box lists
   your other open sessions by what the wall calls them and puts in the name Claude Code

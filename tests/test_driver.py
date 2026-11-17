@@ -20,7 +20,7 @@ from claude_agent_sdk import (
 )
 
 from agentlens.adapters.claude_transcripts import KEEP_PLANNING
-from agentlens.driver import APPROVAL, PERMISSION, QUESTION, WAITING, DrivenSession
+from agentlens.driver import APPROVAL, PERMISSION, QUESTION, WAITING, DrivenSession, _not_called, name_apart
 from agentlens.tui import AgentlensApp, DrivenPane
 
 
@@ -245,6 +245,61 @@ def test_too_little_to_title_asks_again_with_the_next_message(monkeypatch):
         assert d.title == "Flaky login test"
         await d.close()
     asyncio.run(go())
+
+
+def renames(fake):
+    return [c["title"] for c in fake.controls if c["subtype"] == "rename_session"]
+
+
+def test_a_session_titled_as_another_one_is_asked_again_for_a_title_of_its_own(monkeypatch):
+    about = "can you check what the parser performance session was doing"
+    monkeypatch.setattr(FakeClaude, "titles", {
+        about: "Parser performance",  # the other session's title: it's what this one is about
+        f"{about}\n\n{_not_called('Parser performance')}": "Check on the parser session"})
+
+    async def go():
+        d, fakes = make({})
+        d.names_taken = lambda: ["Parser performance", "demo-d4"]
+        await d.start(about)
+        await settle(lambda: d.known_as)
+        assert d.title == "Check on the parser session"
+        assert renames(fakes[0]) == ["Check on the parser session"]
+        await d.close()
+    asyncio.run(go())
+
+
+def test_one_still_titled_as_another_goes_by_it_with_the_first_number_none_has(monkeypatch):
+    monkeypatch.setattr(FakeClaude, "titles", {"why is the parser slow?": "Parser performance"})  # asked again: none
+
+    async def go():
+        d, fakes = make({})
+        d.names_taken = lambda: ["Parser performance", "parser performance (2)"]
+        await d.start("why is the parser slow?")
+        await settle(lambda: d.known_as)
+        assert d.title == d.known_as == "Parser performance (3)"
+        assert renames(fakes[0]) == ["Parser performance (3)"]
+        await d.close()
+    asyncio.run(go())
+
+
+def test_a_resumed_session_with_no_name_whose_title_another_goes_by_is_named_with_a_number():
+    async def go():
+        d, fakes = make({}, resume="sess-42")  # from before agentlens named its sessions
+        d.title = "Parser performance"
+        d.names_taken = lambda: ["Parser performance"]
+        await d.start()
+        await settle(lambda: fakes[0].controls)
+        assert renames(fakes[0]) == ["Parser performance (2)"]
+        assert d.title == d.known_as == "Parser performance (2)"
+        await d.close()
+    asyncio.run(go())
+
+
+def test_a_numbered_title_stays_as_short_as_any():
+    long = "x" * 80
+    assert name_apart(long, []) == long
+    assert len(name_apart(long, [long])) <= 80 and name_apart(long, [long]).endswith(" (2)")
+    assert name_apart("Parser  performance", ["parser performance"]) == "Parser  performance (2)"
 
 
 def test_a_resumed_session_is_titled_from_the_message_it_is_called_by():
@@ -1620,6 +1675,36 @@ def test_sessions_come_back_under_claude_codes_title(projects, tmp_path, isolate
             pane = app.query_one(f"#s-{driven.key}", tui_mod.SessionPane)
             assert pane.border_title == "parser · repo · here · Opus 5.5"  # the model after here
             assert pane.query_one(".headline").content.plain.startswith("Parser support\n")
+
+    asyncio.run(go())
+
+
+def test_of_two_sessions_back_under_one_name_the_one_saved_first_keeps_it(projects, tmp_path, isolated_home):
+    folder = tmp_path / "repo"
+    folder.mkdir()
+    cfg = _config.Config(path=isolated_home / "config.yaml")
+    for session_id, prompt in (("s-first", "tune the manual test skill"),
+                               ("s-later", "what was the skill tuning session doing?")):
+        _write(projects / "repo" / f"{session_id}.jsonl", _common([
+            _human(0, prompt), {"type": "ai-title", "aiTitle": "Skill tuning"},
+            {"type": "custom-title", "customTitle": "Skill tuning"}, {"type": "agent-name", "agentName": "Skill tuning"}],
+            session_id, cwd=str(folder)))
+        cfg.remember_driven(session_id, str(folder), "Skill tuning", "default")
+    _config.save(cfg)
+    app, _, fakes = app_with_session(projects, tmp_path)
+
+    async def go():
+        async with app.run_test(size=(160, 44)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.3)
+            first, later = app.driven.values()
+            assert (first.title, first.known_as) == ("Skill tuning", "Skill tuning")
+            assert (later.title, later.known_as) == ("Skill tuning (2)", "")  # until it starts under it
+            assert [p.name for p in app._paused_for_claude(first.key)] == ["Skill tuning (2)"]
+            saved = _config.load(isolated_home / "config.yaml").driven_sessions
+            assert [s["title"] for s in saved] == ["Skill tuning", "Skill tuning (2)"]
+            await later.wake()
+            assert renames(fakes[0]) == ["Skill tuning (2)"] and later.known_as == "Skill tuning (2)"
 
     asyncio.run(go())
 

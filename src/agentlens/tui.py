@@ -70,6 +70,7 @@ from agentlens.driver import (
     default_client_factory,
     folder_trust,
     is_home,
+    name_apart,
 )
 from agentlens.keys import binding as bind
 from agentlens.tui_driven import (
@@ -2182,6 +2183,7 @@ class AgentlensApp(App):
         )
         driven.own_autopilot = own_autopilot in autopilot_mod.LEVELS
         driven.title = title if title != "(untitled)" else ""  # what History calls one it has no title for
+        driven.names_taken = lambda: self._names_besides(driven.key)
         self.driven[driven.key] = driven
         if resume and self.coordinator.adopt(driven.key, resume):
             self._coordinate(driven)  # a goal's lead or one of its sessions, back from last time
@@ -2206,6 +2208,7 @@ class AgentlensApp(App):
                 driven.title = known.title if known.title != "(untitled)" else driven.title
                 driven.worktree = known.worktree
                 driven.known_as = known.name
+            self._name_apart(driven)
             if start:
                 driven.events = past
             else:
@@ -2226,6 +2229,25 @@ class AgentlensApp(App):
                 self._set_space(GOAL_VIEW + found[0].id if found else self.space_of.get(driven.key, ALL))
             self.call_after_refresh(self._focus_key, driven.key)
         return driven
+
+    def _names_besides(self, key: str) -> list[str]:
+        """The titles and names your sessions but the one at `key` go by: those the wall shows them under,
+        and those Claude Code lists them by and messages them by."""
+        own = self.driven[key].listed_as if key in self.driven else None
+        names = [n for d in self.driven.values() if d.key != key for n in (d.known_as, d.title)]
+        names += [n for s in self._monitored if s.session_id != own for n in (s.name, s.title)]
+        return [n for n in names if n and n != "(untitled)"]
+
+    def _name_apart(self, driven: DrivenSession) -> None:
+        """A session that comes back under a title another of yours goes by gets it with a number after it; under
+        a name another goes by, it takes its title as its name when it starts. The one here first keeps theirs.
+        Before agentlens made sure the title Claude Code gives one is no other's, a session about another one
+        could get that one's ("what was the parser session doing?")."""
+        taken = self._names_besides(driven.key)
+        if driven.title:
+            driven.title = name_apart(driven.title, taken)
+        if driven.known_as and name_apart(driven.known_as, taken) != driven.known_as:
+            driven.title, driven.known_as = driven.title or name_apart(driven.known_as, taken), ""
 
     def _past(self, session_id: str) -> tuple[Session | None, list[Event]]:
         """The session and its conversation so far, from its transcript, so a resumed pane isn't

@@ -25,7 +25,7 @@ import re
 import shutil
 import uuid
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -180,6 +180,9 @@ def folder_trust(cwd: str, config_file: Path | None = None) -> bool | None:
     return None
 
 
+TITLE_CHARS = 80  # of a session's title, at most
+
+
 def _norm(path: str) -> str:
     return path.replace("\\", "/").rstrip("/").lower()
 
@@ -196,6 +199,29 @@ async def generate_title(client, about: str) -> str:
     response = await client._query._send_control_request(
         {"subtype": "generate_session_title", "description": about[:1000], "persist": True})
     return str(response.get("title") or "").strip()
+
+
+def _plain_name(name: str) -> str:
+    return " ".join(str(name or "").split()).casefold()
+
+
+def name_apart(title: str, taken: Iterable[str]) -> str:
+    """`title`, or if another session goes by it, it with the first number after it that none goes by:
+    "Parser performance (2)". Two sessions under one name look alike on the wall, and a message for one
+    by its name can't tell which."""
+    taken = {_plain_name(t) for t in taken}
+    if _plain_name(title) not in taken:
+        return title
+    n = 2
+    while _plain_name(numbered := f"{title[:TITLE_CHARS - 6]} ({n})") in taken:
+        n += 1
+    return numbered
+
+
+def _not_called(title: str) -> str:
+    """What asking Claude Code again for a title tells it, when another session has the one it gave."""
+    return (f'Note: "{title}" is the title of a different session, so it is taken. Give this session a '
+            f'different title, by its own task: what this one does.')
 
 
 async def rename(client, name: str, session_id: str | None = None) -> None:
@@ -241,6 +267,8 @@ class DrivenSession:
         self.title = ""  # your first message until Claude Code titles the session (see _name)
         self.titled = False  # Claude Code has given it a title
         self.known_as = ""  # the name Claude Code has saved for it, which it takes back when resumed
+        # The titles and names your other sessions go by, as the app knows them: the one it's given goes by none.
+        self.names_taken: Callable[[], Iterable[str]] = lambda: ()
         self.worktree = ""  # the Claude Code worktree it moved into, read from its transcript
         self.on_change = on_change
         self.on_rate_limit = on_rate_limit
@@ -443,7 +471,7 @@ class DrivenSession:
         self.events.append(Event(now, "you", shown.splitlines()[0][:240], shown, tag=tag))
         self._sent = self._in_turn = True
         if not self.title and text and not text.startswith("/") and not by:
-            self.title = text.splitlines()[0][:80]
+            self.title = text.splitlines()[0][:TITLE_CHARS]
         if self._client is None or starting:
             # Show the message right away: starting Claude Code takes a few seconds.
             if self.parked:
@@ -482,25 +510,39 @@ class DrivenSession:
         """Have Claude Code title the session. It does that by itself in a terminal, but not for
         the SDK, so its sessions stayed called by your whole first message. It saves the title to
         the transcript, where History and /resume find it, and keeps the one it has, if any.
-        Too little to go on ("test") gets no title: the next message asks again."""
+        Too little to go on ("test") gets no title: the next message asks again. One about another
+        session ("what was the parser session doing?") can get that one's title: asked again, it gets
+        one of its own, or failing that, that one's with a number after it."""
         try:
-            title = await generate_title(client, about)
+            title = (await generate_title(client, about))[:TITLE_CHARS]
+            taken = list(self.names_taken())
+            if title and name_apart(title, taken) != title:
+                try:
+                    again = await generate_title(client, f"{about}\n\n{_not_called(title)}")
+                    title = again[:TITLE_CHARS] or title
+                except Exception:  # noqa: BLE001 - numbered, it's still a name of its own
+                    pass
+            title = name_apart(title, taken) if title else ""
         except Exception:  # noqa: BLE001 - it keeps your first message as its title
             title = ""
         finally:
             self._naming = None
         if title and client is self._client:
-            self.title, self.titled = title[:80], True
+            self.title, self.titled = title, True
             self.on_change(self)
             await self._give_name(client)
 
     async def _give_name(self, client) -> None:
         """Name the session after its title in Claude Code, so your other sessions, and Claude in
         them, can tell it from the others in its folder. Once: Claude Code keeps the name, and gives
-        it back when the session is resumed. An older Claude Code keeps its own name."""
+        it back when the session is resumed. An older Claude Code keeps its own name. One whose title
+        another session goes by gets it with a number after it, for its title and its name."""
         if self.known_as:
             return
-        title = self.title
+        title = name_apart(self.title, self.names_taken())
+        if title != self.title:
+            self.title = title
+            self.on_change(self)
         try:
             await rename(client, title, self.session_id)
         except Exception:  # noqa: BLE001 - it's still the session it was, under Claude Code's name
@@ -959,7 +1001,7 @@ class DrivenSession:
             elif subtype == "compact_boundary":
                 self.events.append(Event(now, "compact", "context compacted"))
             elif subtype == "session_title_changed" and data.get("title"):
-                self.title, self.titled = str(data["title"])[:80], True  # /rename, or after /clear
+                self.title, self.titled = str(data["title"])[:TITLE_CHARS], True  # /rename, or after /clear
                 self.session_id = data.get("session_id") or self.session_id
             self.on_change(self)
             return
