@@ -47,7 +47,7 @@ from agentlens import activity as activity_mod, advise, analysis as analysis_mod
 from agentlens import autopilot as autopilot_mod, coordinator as coordinator_mod
 from agentlens import config as config_mod, crash, version as version_mod
 from agentlens import editor as editor_mod, keys as keys_mod, preferences, settings_file, terminal, timings
-from agentlens import usage as usage_mod
+from agentlens import paused as paused_mod, usage as usage_mod
 from agentlens.adapters.claude_transcripts import (
     DEFAULT_ROOT,
     SessionCache,
@@ -2187,10 +2187,15 @@ class AgentlensApp(App):
             self._coordinate(driven)  # a goal's lead or one of its sessions, back from last time
         if prepare is not None:
             prepare(driven)
-        if self.config.coordinator and self.coordinator.role(driven.key) is None:
-            # Not part of a goal: when you ask, it can hand the work planned in it to the coordinator.
-            driven.options_extra = coordinator_mod.delegate_options(
-                lambda goal, plan: self._hand_over(driven, goal, plan))
+        role = self.coordinator.role(driven.key)
+        if role is None or role[1] is not None:
+            # Any but a goal's lead, whose tools are the board's: its Claude can find your sessions paused here.
+            # Part of no goal, when you ask, it can hand the work planned in it to the coordinator.
+            hand_over = ((lambda goal, plan: self._hand_over(driven, goal, plan))
+                         if role is None and self.config.coordinator else None)
+            driven.options_extra = paused_mod.options(
+                lambda: self._paused_for_claude(driven.key), self._conversation_of,
+                lambda key: self._start_for(driven, key), hand_over=hand_over)
         if not resume and (space := self._made_space() if in_space is None else in_space):
             # One you start goes in the space you're in. One that comes back (at launch, from History)
             # keeps its own: restored at launch, every session would go in the space you quit in.
@@ -2473,6 +2478,36 @@ class AgentlensApp(App):
         for d in asleep:
             self.mark_read(as_live(d, now))
 
+    def _paused_besides(self, key: str) -> list[DrivenSession]:
+        """Your sessions paused here but the one at `key`, since you last quit agentlens or since Claude Code
+        stopped under them: Claude Code doesn't list them, as they aren't running, so nothing can message one
+        until it starts. Those with a name to start under (the one Claude Code has saved for it, or if none, its
+        title, which it takes as it starts), and that you haven't hidden."""
+        hidden = {*self.config.hidden_sessions, *self._closing_sessions}
+        listed = {s.session_id for s in self._monitored}
+        return [d for d in self.driven.values()
+                if d.key != key and d.parked and (d.known_as or d.title) and d.session_id not in hidden | listed]
+
+    def _paused_for_claude(self, key: str) -> list[paused_mod.Paused]:
+        """The paused sessions the session at `key` can find with its tools for them."""
+        return [paused_mod.Paused(d.key, d.known_as or d.title, d.title or d.known_as, d.cwd, d.worktree,
+                                  d.events[-1].at if d.events else None) for d in self._paused_besides(key)]
+
+    def _conversation_of(self, key: str) -> list[Event]:
+        driven = self.driven.get(key)
+        return list(driven.events) if driven is not None else []
+
+    async def _start_for(self, by: DrivenSession, key: str) -> tuple[bool, str]:
+        """Start a paused session for `by`'s Claude, which asked to message it, as a message naming it does:
+        whether it could, with the name it runs under, or why not."""
+        driven = self.driven.get(key)
+        if driven is None:
+            return False, "it was closed"
+        await self._wake([driven], by)
+        if not driven.connected:
+            return False, driven.detail or "Claude Code didn't start for it"
+        return True, driven.known_as or driven.title
+
     def mentionable(self, key: str) -> list[Mention]:
         """The sessions a session's box can name with @: your others that Claude Code lists, which are
         the ones it can message, and the ones paused here, which a message naming them starts. As the
@@ -2491,13 +2526,8 @@ class AgentlensApp(App):
             where = " · ".join(part for part in (s.project, s.worktree) if part)
             state = d.state if d is not None else s.state
             found.append((s.started or now, s.name, Mention(s.name, title, where, state)))
-        listed = {s.session_id for s in self._monitored}
-        for d in self.driven.values():
-            # Paused since you last quit agentlens, or since Claude Code stopped under it: by the name
-            # Claude Code has saved for it, or, if none, its title, which it takes as it starts.
+        for d in self._paused_besides(key):
             name = d.known_as or d.title
-            if d.key == key or not d.parked or not name or d.session_id in hidden | listed:
-                continue
             where = " · ".join(part for part in (Path(d.cwd).name, d.worktree) if part)
             found.append((d.started, name, Mention(name, d.title or name, where, "paused · your message starts it",
                                                    d.key)))

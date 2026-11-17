@@ -10,7 +10,7 @@ from rich.text import Text
 from test_driver import app_with_session, done, text, until
 from textual.color import Color
 
-from agentlens import coordinator, tui as tui_mod
+from agentlens import coordinator, paused, tui as tui_mod
 from agentlens.coordinator import BOARD, BOARD_NOTE, COORDINATOR, DONE, NOTE, PLANNED, RUNNING, Coordinator
 from agentlens.driver import BACKGROUND, WAITING, WORKING
 from agentlens.tui_driven import ComposerInput
@@ -711,7 +711,8 @@ def test_with_the_coordinator_off_sessions_get_no_tool_for_it(projects, tmp_path
     async def go():
         async with app.run_test(size=(160, 44)) as pilot:
             await started(app, pilot, folder, prompt="hi")
-            assert not fakes[0].options.mcp_servers and coordinator.DELEGATE_TOOL not in fakes[0].options.allowed_tools
+            # Only those for your sessions paused here (test_paused), which don't need it.
+            assert fakes[0].options.allowed_tools == paused.TOOL_NAMES
 
     asyncio.run(go())
 

@@ -60,8 +60,8 @@ DEBATE_NOTE = ("(agentlens passed this on to you, word for word, from the goal's
                "the user nor the coordinator wrote it.)")
 AGREED = re.compile(r"^\W*agreed\b", re.IGNORECASE)  # a debating session's reply that says another convinced it
 
-# The one tool a session agentlens runs has while the coordinator is on: the work planned in it, handed to
-# a goal whose lead starts in a pane of its own, as with G.
+# The tool a session agentlens runs has while the coordinator is on, beside its tools for your paused sessions
+# (paused.options): the work planned in it, handed to a goal whose lead starts in a pane of its own, as with G.
 DELEGATE = "delegate_to_coordinator"
 DELEGATE_TOOL = f"mcp__{SERVER}__{DELEGATE}"
 DELEGATE_ABOUT = (
@@ -205,15 +205,6 @@ def delegate_tool(hand_over: Callable[[str, str], tuple[bool, str]]):
               "properties": {"goal": {"type": "string", "description": "The goal, in a line"},
                              "plan": {"type": "string", "description": "The plan, as agreed in this session"}}}
     return tool(DELEGATE, DELEGATE_ABOUT, schema)(handler)
-
-
-def delegate_options(hand_over: Callable[[str, str], tuple[bool, str]]) -> dict:
-    """What a session agentlens runs gets while the coordinator is on: the delegate tool, allowed without
-    asking."""
-    from claude_agent_sdk import create_sdk_mcp_server
-
-    server = create_sdk_mcp_server(SERVER, tools=[delegate_tool(hand_over)])
-    return {"mcp_servers": {SERVER: server}, "allowed_tools": [DELEGATE_TOOL]}
 
 
 def _text(text: str, error: bool = False) -> dict:

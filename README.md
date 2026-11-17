@@ -276,6 +276,15 @@ not Claude Code's interface, so a few things work differently; they're in the li
   Code's own box tells Claude a mention is a session; a message sent through the SDK
   doesn't, so agentlens adds a line saying so to what Claude reads. The pane shows your
   message as you typed it.
+- Claude finds your paused sessions by itself too, when you name one only in words ("what
+  did we decide in the taskbar icon session?"). Every session agentlens runs, except a goal's
+  lead, has agentlens's tools for them, which Claude Code lists under `agentlens` with the
+  session's other MCP tools. One lists your paused sessions, with each one's folder and when
+  it was last at work. One reads the end of a session's conversation without starting it.
+  The last one starts a session under its name, so Claude can message it, and its pane says
+  which session it was started for. Claude reads a session when you want to know what it said
+  or decided, and starts one only to ask or tell it something, as a running Claude Code takes
+  about 250 MB.
 - Alt+V in the box pastes a screenshot or image from the clipboard (Ctrl+V too, where the
   terminal passes it through). It shows above the box as `[Image #1]`, Backspace in an
   empty box removes it, and it goes with your next message, shrunk to 2000 px on the long
@@ -514,6 +523,7 @@ tui.py      the app
 driver.py   sessions agentlens runs itself
 autopilot.py  Sonnet answering a turn that has ended for you, or leaving it to you (experimental)
 coordinator.py  a goal's board, its lead's tools and limits, and its sessions' turns going to the lead (experimental)
+paused.py   the tools a session agentlens runs has for your sessions paused here: list, read and start them
 tui_driven.py  their panes, request cards, new-session dialog, the / command menu and @ for your other sessions
 textbox.py  the boxes you type in: a message over lines, and a Windows text box's editing keys
 terminal.py the tab's name, agentlens's icon on its window or tab, and in Windows the keys its consoles don't pass on
