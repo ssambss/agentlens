@@ -22,6 +22,8 @@ class Panes:
     def __init__(self, level="autonomous", used=None):
         self.level, self.used = level, used
         self.opened, self.sent, self.closed = [], [], set()
+        self.on: dict[int, str | None] = {}  # the model each task's session started on; None, Claude Code's default
+        self.models: list[str] = []  # those Claude Code offers, as /model names them
         self.closes: list[tuple[str, str]] = []  # what the coordinator closed, and why
         self.yours: dict[str, datetime] = {}
 
@@ -29,9 +31,10 @@ class Panes:
         self.closes.append((key, why))
         self.closed.add(key)
 
-    def open_task(self, goal, task, first):
+    def open_task(self, goal, task, first, model):
         key = f"k{task.id}"
         self.opened.append((task.id, first))
+        self.on[task.id] = model
         return key
 
     def send(self, key, text, note, by):
@@ -45,7 +48,7 @@ class Panes:
                         yours_since=lambda key, when: key in self.yours and (
                             not when or self.yours[key] > datetime.fromisoformat(when)),
                         level=lambda: self.level, usage=lambda: self.used, close=self.close,
-                        file=tmp_path / "goals.json")
+                        file=tmp_path / "goals.json", models=lambda: self.models)
         goal = c.new_goal("D:/work/demo", "demo", "acceptEdits", "Split the parser")
         c.link("lead", goal)
         return c, goal
@@ -92,6 +95,27 @@ def test_a_plan_runs_as_sessions_and_each_turn_goes_to_the_lead(tmp_path):
     assert c.turn_ended("lead", False, "Told it to add tests.") == (True, "coordinating: 1 running, 0 of 2 done")
     assert "Ready to start: 2. CLI" in said(c.finish_task(goal, 1, "split, with tests"))
     assert goal.task(1).status == DONE and "Done: split, with tests" in c.board(goal)
+
+
+def test_a_task_starts_on_the_model_the_user_wants_it_on(tmp_path):
+    """Its session starts on Claude Code's default, or on the model the lead gives it when the user wants
+    that task on one. One Claude Code doesn't offer would fail its first turn: refused, with those it does."""
+    panes = Panes()
+    c, goal = panes.coordinator(tmp_path)
+    c.add_tasks(goal, tasks("Learn", "Tune", "Docs", "Tests"))
+    assert said(c.start_task(goal, 1)).startswith("Started task 1, Learn. ")
+    # Until a session has said which models Claude Code offers, the name goes to it as given.
+    assert said(c.start_task(goal, 2, "claude-fable-5-2")).startswith("Started task 2, Tune, on claude-fable-5-2. ")
+    panes.models = ["default", "opus", "sonnet", "fable", "haiku"]
+    refused = c.start_task(goal, 3, "gpt-5")
+    assert refused.get("is_error") and "It offers opus, sonnet, fable and haiku" in said(refused)
+    assert goal.task(3).status == PLANNED and 3 not in panes.on
+    assert said(c.start_task(goal, 3, " Fable ")).startswith("Started task 3, Docs, on fable. ")
+    c.finish_task(goal, 1, "learned")
+    assert said(c.start_task(goal, 4, "default")).startswith("Started task 4, Tests. ")
+    assert panes.on == {1: None, 2: "claude-fable-5-2", 3: "fable", 4: None}
+    # The lead knows it can, and that part of a task on a model is the session's subagent, as the user decided.
+    assert "on a model of its own" in coordinator.INSTRUCTIONS and "in a subagent on it" in coordinator.INSTRUCTIONS
 
 
 def test_a_leads_turn_with_none_of_its_sessions_at_work_is_for_you(tmp_path):
@@ -470,10 +494,11 @@ def test_g_starts_a_goal_whose_sessions_report_to_its_lead(projects, tmp_path):
 
             goal = app.coordinator.role(lead.key)[0]
             app.coordinator.add_tasks(goal, tasks("Parser"))  # as the lead's tool calls would
-            assert "Started task 1" in said(app.coordinator.start_task(goal, 1))
+            assert "Started task 1" in said(app.coordinator.start_task(goal, 1, "fable"))
             worker = next(d for d in app.driven.values() if d is not lead)
             await until(pilot, lambda: worker.state == BACKGROUND)
             assert worker.title == "Parser" and worker.permission_mode == "acceptEdits"
+            assert fakes[1].options.model == worker.model == "fable" and fakes[0].options.model is None
             assert worker.events[0].tag == COORDINATOR and fakes[1].sent[0].endswith(NOTE)
             assert fakes[1].options.tools == {"type": "preset", "preset": "claude_code"}  # a full session
             assert worker.detail == "the coordinator is reading this"

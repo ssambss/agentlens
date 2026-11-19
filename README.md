@@ -400,7 +400,10 @@ starts a lead Claude in a pane of its own, in the space you're in:
    not how: working that out is the session's.
 2. It starts a session for each task beside itself, in the mode you picked. Each is told to
    keep its changes apart from the others' the way the repo does it. How, in a worktree or
-   on a branch, is up to the repo and your own skills.
+   on a branch, is up to the repo and your own skills. A session starts on Claude Code's
+   default model, unless you tell the lead to put a task on another ("do this one on
+   Fable"). For only part of a task, the lead tells the session in its brief, and the session
+   does that part in a subagent on that model.
 3. When one of those sessions ends a turn, agentlens sends its reply to the lead, and the
    session waits without ringing ("the coordinator is reading this"). The lead answers it,
    marks it done, or brings it to you. What you tell the lead about a task it passes on in

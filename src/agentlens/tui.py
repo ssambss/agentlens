@@ -1740,7 +1740,8 @@ class AgentlensApp(App):
             open_task=self._open_task, send=self._send_from, alive=lambda key: key in self.driven,
             yours_since=self._yours_since, level=lambda: self.config.autopilot, usage=self._five_hour_used,
             close=self._close_task, call_you=self._call_you_if_quiet,
-            at_work=lambda key: key in self.driven and self.driven[key].state not in (PAUSED, FAILED, ENDED))
+            at_work=lambda key: key in self.driven and self.driven[key].state not in (PAUSED, FAILED, ENDED),
+            models=lambda: [m.value for m in self.catalog.models])
         self._kept_yours: set[str] = set()  # a goal's sessions it kept open, as you'd written to them: told once
         self.meter_colors = ("#0178D4", "#FEA62B", "#B93C5B")  # normal, nearly full, full; set from the theme
         self.catalog = commands_mod.load_cached()  # slash commands for boxes whose session hasn't started
@@ -2906,9 +2907,11 @@ class AgentlensApp(App):
         elif running:
             driven.call_you(f"from last time, with {counted(len(running), 'task')} running · type to carry on")
 
-    def _open_task(self, goal: coordinator_mod.Goal, task: coordinator_mod.Task, first: str) -> str | None:
-        """A session for one of a goal's tasks, beside its lead, with `first` as the lead's first message to it."""
-        driven = self.open_driven(goal.cwd, prompt=first, mode=goal.mode, title=task.title, focus=False,
+    def _open_task(self, goal: coordinator_mod.Goal, task: coordinator_mod.Task, first: str,
+                   model: str | None = None) -> str | None:
+        """A session for one of a goal's tasks, beside its lead, with `first` as the lead's first message to it,
+        on `model` (None: Claude Code's default)."""
+        driven = self.open_driven(goal.cwd, prompt=first, mode=goal.mode, model=model, title=task.title, focus=False,
                                   in_space=goal.space, first_note=coordinator_mod.NOTE,
                                   first_by=coordinator_mod.COORDINATOR,
                                   prepare=lambda d: self._coordinate(d, goal, task))

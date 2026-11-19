@@ -673,7 +673,7 @@ class NewSessionScreen(PacedScreen, ModalScreen[dict | None]):
                          allow_blank=False, id="new-mode")
             # Always Claude Code's default to begin with: a model you picked once is for that session.
             model = Select(self.models, value=DEFAULT_MODEL, allow_blank=False, id="new-model")
-            model.display = not self.goal  # a goal's lead and sessions start on the default
+            model.display = not self.goal  # a goal's lead starts on the default; its sessions on what it gives them
             yield model
             yield Static(self._note(self.folder), id="new-note")
             yield FirstMessageInput(placeholder=self._placeholder(), id="new-prompt")

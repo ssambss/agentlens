@@ -41,6 +41,7 @@ TOOL_NAMES = [f"mcp__{SERVER}__{name}" for name in TOOLS]
 ASK_YOU_TOOL = f"mcp__{SERVER}__ask_you"  # its question shows in the lead's conversation, as Claude's own do
 ASKED = "ask_you ends your turn: the question went to the user."  # the lead reads it with their answer
 LEAD_TOOLS = ["Read", "Grep", "Glob"]  # Claude Code's own: it reads the repository, and changes nothing
+DEFAULT_MODEL = "default"  # what /model calls Claude Code's own pick, among the models it offers
 
 # Tags of message events, as autopilot's are (model.AUTOPILOT): who sent it, when you didn't.
 COORDINATOR = "coordinator"  # the lead's message to one of its sessions
@@ -229,7 +230,10 @@ start if you know, what's out of scope, what the user decided, and how it will b
 what, not how: no steps, and no guesses at a cause for it to check. Prefer a few tasks that can run \
 side by side without changing the same files.
 - start_task starts a task's session. agentlens refuses past its limits (sessions at once, per goal, \
-and the user's usage); then wait for one to finish.
+and the user's usage); then wait for one to finish. It starts on Claude Code's default model, or on \
+the one you give when the user wants that task on a model of its own. If they want only part of a \
+task done on one, its session can do that part in a subagent on it: say so in the brief, as theirs \
+to decide.
 - When one of your sessions ends a turn, agentlens sends you its reply, marked as coming from \
 agentlens. Answer it with message_task, mark it done with finish_task, or bring it to the user with \
 ask_you. When its work is delivered or it has nothing left to do, finish it. Finishing closes its \
@@ -272,26 +276,29 @@ show the user the plan with ask_you.
 
 class Coordinator:
     """The goals and their boards, and the lead's tools. The app gives it what it needs from the
-    panes: `open_task` starts a task's session and gives its key, `send` sends a session a message
-    and says whether it could, `alive` says whether a session is still open, `yours_since` whether
+    panes: `open_task` starts a task's session, on a model or Claude Code's default (None), and gives
+    its key, `models` gives the models Claude Code offers as /model names them (none if it hasn't
+    said), `send` sends a session a message and says whether it could, `alive` says whether a
+    session is still open, `yours_since` whether
     you've messaged one since a time, `level` your autopilot setting, `usage` how much of your
     five-hour window is used (None if it isn't known), `close` closes a session that has served its
     purpose (its task is done, or its goal), saying why, and says False if it keeps it open instead (you've
     written to it, so it's yours)."""
 
-    def __init__(self, *, open_task: Callable[[Goal, Task, str], str | None],
+    def __init__(self, *, open_task: Callable[[Goal, Task, str, str | None], str | None],
                  send: Callable[[str, str, str, str], bool], alive: Callable[[str], bool],
                  yours_since: Callable[[str, str], bool], level: Callable[[], str],
                  usage: Callable[[], float | None],
                  close: Callable[[str, str], bool | None] = lambda key, why: None,
                  at_work: Callable[[str], bool] | None = None,
-                 call_you: Callable[[str, str], None] = lambda key, why: None, file: Path | None = None) -> None:
+                 call_you: Callable[[str, str], None] = lambda key, why: None, file: Path | None = None,
+                 models: Callable[[], list[str]] = lambda: []) -> None:
         """`at_work`: whether an open session is running Claude Code, not paused (as alive, if not given).
         `call_you`: has the session at `key` call you, saying why, if it waits quietly or is paused: one
         mid-turn is left as it is, as that turn's end says what it says."""
         self.open_task, self.send, self.alive, self.yours_since = open_task, send, alive, yours_since
         self.level, self.usage, self.close, self.file = level, usage, close, file
-        self.at_work, self.call_you = at_work or alive, call_you
+        self.at_work, self.call_you, self.models = at_work or alive, call_you, models
         self.goals = load(file)
         self.keys: dict[str, tuple[str, int | None]] = {}  # pane key -> (goal, task); no task: the lead
         self.lead_keys: dict[str, str] = {}  # goal -> its lead's pane key
@@ -764,7 +771,8 @@ class Coordinator:
         self.goal_closed.pop(goal.id, None)
         return True
 
-    def start_task(self, goal: Goal, task_id: Any) -> dict:
+    def start_task(self, goal: Goal, task_id: Any, model: Any = None) -> dict:
+        """`model`: the one its session starts on, as /model names it; none, Claude Code's default."""
         task = goal.task(task_id)
         if task is None:
             return _text(f"There's no task {task_id}.", error=True)
@@ -773,6 +781,16 @@ class Coordinator:
         waiting = [a for a in task.after if (goal.task(a) or task).status != DONE]
         if waiting:
             return _text(f"Task {task.id} waits for {', '.join(map(str, waiting))}: finish those first.", error=True)
+        model = "".join(str(model or "").split())
+        if offered := self.models():
+            # One Claude Code doesn't offer would fail the session's first turn, with no way to start it again.
+            found = next((m for m in offered if m.lower() == model.lower()), None) if model else ""
+            if found is None:
+                names = _listed([m for m in offered if m != DEFAULT_MODEL])
+                return _text(f"Claude Code offers no model called {model}. It offers {names}: give one of those, "
+                             "or leave it out for its default.", error=True)
+            model = found
+        model = "" if model == DEFAULT_MODEL else model
         level = self.level()
         lead = self.lead_keys.get(goal.id, "")
         if level != "autonomous" and not self.yours_since(lead, goal.planned_at):
@@ -790,7 +808,7 @@ class Coordinator:
         first = (f"{task.brief}\n\nThis is one task of a goal that agentlens's coordinator runs for the user, "
                  f"with other sessions working on the rest at the same time: keep your changes apart from theirs, "
                  f"the way this repository does it. When you're done, say what you did and how you checked it.")
-        key = self.open_task(goal, task, first)
+        key = self.open_task(goal, task, first, model or None)
         if not key:
             return _text(f"agentlens couldn't start a session for task {task.id}.", error=True)
         task.status = RUNNING
@@ -798,7 +816,8 @@ class Coordinator:
         self._passed_on[goal.id] = _now()
         again = " The goal is open again: call goal_done once it's done too." if self._reopen(goal) else ""
         self.save()
-        return _text(f"Started task {task.id}, {task.title}. Its replies come to you as it ends its turns.{again}")
+        on = f", on {model}" if model else ""
+        return _text(f"Started task {task.id}, {task.title}{on}. Its replies come to you as it ends its turns.{again}")
 
     def message_task(self, goal: Goal, task_id: Any, message: str) -> dict:
         task = goal.task(task_id)
@@ -881,9 +900,14 @@ class Coordinator:
                                    "after": {"type": "array", "items": {"type": "integer"},
                                              "description": "Tasks it waits for"}}}}}},
                   lambda g, a: self.add_tasks(g, a.get("tasks"))),
-            bound("start_task", "Start a session for a planned task.",
-                  {"type": "object", "required": ["task"], "properties": {"task": task_id}},
-                  lambda g, a: self.start_task(g, a.get("task"))),
+            bound("start_task", "Start a session for a planned task.", {
+                "type": "object", "required": ["task"],
+                "properties": {"task": task_id,
+                               "model": {"type": "string",
+                                         "description": "The model its session starts on, as /model names it "
+                                                        "(such as fable, opus or sonnet), only when the user wants "
+                                                        "that task on one. Left out: Claude Code's default"}}},
+                  lambda g, a: self.start_task(g, a.get("task"), a.get("model"))),
             bound("message_task", "Send one of the goal's sessions a message, as the user would.", {
                 "type": "object", "required": ["task", "message"],
                 "properties": {"task": task_id, "message": {"type": "string"}}},
